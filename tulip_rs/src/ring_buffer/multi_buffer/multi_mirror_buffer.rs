@@ -96,6 +96,26 @@ impl<const B: usize, S, T: BufferElement> MultiMirrorBuffer<B, T, S> {
         })
     }
 
+    /// The newest `period` elements of each lane as one contiguous,
+    /// chronologically-ordered slice (oldest first) — the batched sibling
+    /// of `MirrorBuffer::get_slice_by_period`: full → the mirror tail
+    /// `vals[lane][index + capacity − period .. index + capacity]`; partial
+    /// fill → `vals[lane][count − period .. count]` (data sits at
+    /// `vals[lane][0..count]`, no wrapping yet). Callers guarantee
+    /// `period <= count` — the engine's windowed rescan fires only once the
+    /// window is complete. Shared groups (cap > window) need THIS accessor:
+    /// `get_slices(offset)` trims the NEWEST end, not the oldest.
+    #[inline(always)]
+    pub fn get_slices_by_period(&self, period: usize) -> [&[T]; B] {
+        debug_assert!(period <= self.count && period <= self.capacity);
+        let start = if self.count == self.capacity {
+            self.index + (self.capacity - period)
+        } else {
+            self.count - period
+        };
+        core::array::from_fn(|lane| unsafe { self.vals[lane].get_unchecked(start..start + period) })
+    }
+
     #[inline(always)]
     pub(crate) fn update_internals(&mut self) {
         mb_advance(

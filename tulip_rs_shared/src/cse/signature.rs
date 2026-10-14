@@ -51,6 +51,44 @@ pub const K_ROLLMIN: u8 = 20;
 pub const K_TRAIL: u8 = 21;
 pub const K_WHEREGE: u8 = 22;
 pub const K_WHERELT: u8 = 23;
+/// Rolling sum over a DERIVED source (ao / stoch smoothers / hma stages):
+/// the leaving value comes from a ring, not the stream. Rings are SHARED
+/// per source — interning already made the source structural; per roll node
+/// `Values::ring_of[k]` names its group's leader slot and
+/// `Values::ring_cap[leader]` is the group's max period (capacity is a
+/// VALUE, never a pattern — rev-2 law).
+pub const K_ROLLSUM: u8 = 24;
+/// The bespoke Hull MA machine (E3 stage 3): two inner WMA engines (p and
+/// p/2 with the hand's OFFSET fold window), the diff series and its √p ring
+/// ALL inside one node — composition is not bit-exact (the state2 fold
+/// weights restart; the tail divides before its subtractions). Values ride
+/// per kind: `periods`=p, `roll_lb`=p/2, `lag_n`=trunc √p, `mults`/`invms`=
+/// the two weight reciprocals, `st_step`=√p as f64 (the tail's enter
+/// weight), `consts`=the triangular weight sum; the diff ring is its own
+/// group (`ring_of[k] = k`, `ring_cap[k] = √p`).
+pub const K_HMA: u8 = 25;
+/// `ln(src)` — a pure host call per bar (`f64::ln`, the SAME libm the hand's
+/// `calc_fisher` uses; the JIT-era §6.41 finding: tuned libm beats the
+/// inline polynomial for a scalar per-bar recurrence). Lead = lead(src).
+pub const K_LN: u8 = 26;
+/// The generic 2-op IIR line: `new = prev·b + src·a` (`mul_add(prev, invm,
+/// src·mult)` — the Ema/mean-Wilders op shape with EXPLICIT weights; the
+/// weights are values (`mults`=a, `invms`=b), so any (a,b) hits one kernel).
+/// Carries ride `st[k]`; below `feeds[k]` the node idles 0 and the carry
+/// stays at its init (the hand's zero-initialized state) — no seed bar.
+pub const K_IIR: u8 = 27;
+/// `Iir` plus the hand's if/elif clamp folded INTO the carried value (what
+/// feeds the next bar is the clamped one): `gt(hi_t)→hi_v elif lt(lo_t)→lo_v`
+/// — selects, bit-identical to the hand's branches for all floats incl.
+/// NaN. Operands: `a`=src, `b`=hi_t, `c`=hi_v, `d`=lo_t, `e`=lo_v (all Const
+/// slots; the four refs are STRUCTURE, their numbers ride `consts` — rev-2).
+pub const K_IIRCLAMPED: u8 = 28;
+/// The chain's carried-IN value — `signal = prev fish`: emits the src
+/// chain's PREVIOUS bar output. Owns a delayed slot in `st[k]`: emit
+/// `st[k]`, then `st[k] := src's value this bar` (arena order guarantees the
+/// src node ran first; below `feeds[k]` both sides are the zero init — the
+/// hand's first-bar signal is its zero-initialized carry).
+pub const K_PREV: u8 = 29;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -63,6 +101,10 @@ pub struct Signature {
     pub a: [u32; MAX],
     pub b: [u32; MAX],
     pub c: [u32; MAX],
+    /// extra child refs for 5-operand kinds (K_IIRCLAMPED's clamp Consts;
+    /// every other kind keeps 0 — the arrays join the canonical hash).
+    pub d: [u32; MAX],
+    pub e: [u32; MAX],
     pub n_streams: u32,
     pub n_sinks: u32,
     pub sink_src: [u32; MAX_SINKS],
@@ -87,6 +129,8 @@ impl Signature {
             a: [0; MAX],
             b: [0; MAX],
             c: [0; MAX],
+            d: [0; MAX],
+            e: [0; MAX],
             n_streams: 0,
             n_sinks: 0,
             sink_src: [0; MAX_SINKS],
@@ -101,6 +145,8 @@ impl Signature {
         a: &[u32; L],
         b: &[u32; L],
         c: &[u32; L],
+        d: &[u32; L],
+        e: &[u32; L],
         sink_src: &[u32; S],
         n_streams: u32,
     ) -> Signature {
@@ -111,6 +157,8 @@ impl Signature {
             s.a[i] = a[i];
             s.b[i] = b[i];
             s.c[i] = c[i];
+            s.d[i] = d[i];
+            s.e[i] = e[i];
             i += 1;
         }
         s.len = L as u32;
@@ -134,6 +182,8 @@ impl Signature {
             .chain(self.a[..n].iter().flat_map(|v| v.to_le_bytes()))
             .chain(self.b[..n].iter().flat_map(|v| v.to_le_bytes()))
             .chain(self.c[..n].iter().flat_map(|v| v.to_le_bytes()))
+            .chain(self.d[..n].iter().flat_map(|v| v.to_le_bytes()))
+            .chain(self.e[..n].iter().flat_map(|v| v.to_le_bytes()))
             .chain(std::array::from_fn::<u8, 8, _>(|i| {
                 (self.n_streams as u64).to_le_bytes()[i]
             }))
@@ -181,6 +231,23 @@ pub struct Values {
     /// Signature construction; they're always present in the arena, but their
     /// stores are guarded and their rows are empty.
     pub sink_want: [bool; MAX_SINKS],
+    /// K_ROLLSUM only: the roll node's ring GROUP = the leader slot of the
+    /// first ring roll over the same src (0 where the node is not a roll).
+    pub ring_of: [u32; MAX],
+    /// Valid at a ring group's LEADER slot: the shared ring's capacity = max
+    /// period across the group. A roll whose period equals the cap leaves by
+    /// eviction (`push_with_info`); a shorter one by age read at its period.
+    pub ring_cap: [u32; MAX],
+    /// K_ROLLSUM only: leading bars whose source value the hand discards —
+    /// the fold starts at `feeds[k] + skip` (the ring still feeds from
+    /// `feeds[k]` so absolute-age reads line up). Stoch's slow %K skips 2.
+    pub skip: [u32; MAX],
+    /// K_ROLLSUM only: first bar (absolute) where the hand's steady form
+    /// (`sum += v - old`) takes over. Before it, past the seam, the hand's
+    /// init loop subtracts the leave as its OWN statement (`sum += v;
+    /// sum -= old`) — float-visible, so the emitter must switch forms at
+    /// exactly this bar. 0 = steady from the seam (all pre-stoch shapes).
+    pub steady_from: [u32; MAX],
 }
 
 impl Values {
@@ -197,6 +264,10 @@ impl Values {
             max_gate: 0,
             st_step: [0.0; MAX],
             sink_want: [false; MAX_SINKS],
+            ring_of: [0; MAX],
+            ring_cap: [0; MAX],
+            skip: [0; MAX],
+            steady_from: [0; MAX],
         }
     }
 }
@@ -222,7 +293,15 @@ pub fn erase(
     if arena.nodes.len() > MAX || resolved.is_empty() {
         return None;
     }
+    // Ring-group leader table: src slot → first roll slot over it (arena
+    // order is deterministic, so the groups are a function of the structure).
+    let mut ring_leaders: Vec<(Id, usize)> = Vec::new();
     for (k, node) in arena.nodes.iter().enumerate() {
+        // K_IIRCLAMPED's two extra Const refs (lo_t/lo_v) travel through
+        // these locals: the refs ARE structure — two arenas wired
+        // differently must not share a signature.
+        let mut dd = 0u32;
+        let mut ee = 0u32;
         let (kind, a, b, c) = match *node {
             Node::Input { stream } => {
                 sig.n_streams = sig.n_streams.max(stream + 1);
@@ -282,12 +361,28 @@ pub fn erase(
                 period,
                 look_back,
             } => {
-                // Trail-rescan roll, price-sourced only (same rule as the
-                // rolling sums: the rescan window is read straight off the
-                // stream; a derived source needs the host anchor).
-                if !matches!(arena.nodes[src as usize], Node::Input { .. }) {
-                    return None;
+                let derived = !matches!(arena.nodes[src as usize], Node::Input { .. });
+                if derived {
+                    // EXTREMUM RING (the fourth ring shape, fisher 2026-10-13):
+                    // the rescan window cannot be a stream slice, so the src
+                    // column rides the SAME group table as the ring sums —
+                    // one push per group per bar, cap = max period across ALL
+                    // rolls over the src (sums and extrema share it; a
+                    // fisher+ao co-request feeds medprice ONCE). The rescan
+                    // reads ages `0..=look_back` (never past the cap).
+                    vals.feeds[k] = leads[src as usize];
+                    let leader = match ring_leaders.iter().position(|(s, _)| *s == src) {
+                        Some(i) => ring_leaders[i].1,
+                        None => {
+                            ring_leaders.push((src, k));
+                            k
+                        }
+                    };
+                    vals.ring_of[k] = leader as u32;
+                    vals.ring_cap[leader] = vals.ring_cap[leader].max(period);
                 }
+                // Pointer form (price-sourced) keeps its trail-rescan straight
+                // off the stream (the hand's `max.rs` window shape).
                 vals.periods[k] = period;
                 vals.roll_lb[k] = look_back;
                 (
@@ -339,7 +434,69 @@ pub fn erase(
                 vals.periods[k] = period;
                 (K_WMA, src, 0, 0)
             }
+            Node::Hma { src, period } => {
+                // Derivations mirror `hma.rs` exactly (integer truncations
+                // first, THEN f64 — a float sqrt fed forward would diverge).
+                let p2 = (period / 2) as usize;
+                let m = ((period as f64).sqrt() as usize) as f64;
+                let mf = period as f64;
+                let n2f = p2 as f64;
+                vals.periods[k] = period;
+                vals.roll_lb[k] = p2 as u32;
+                vals.lag_n[k] = m as u32;
+                vals.mults[k] = 2.0 / (mf * (mf + 1.0));
+                vals.invms[k] = if p2 > 0 {
+                    2.0 / (n2f * (n2f + 1.0))
+                } else {
+                    0.0
+                };
+                vals.st_step[k] = m;
+                vals.consts[k] = m * (m + 1.0) / 2.0;
+                vals.feeds[k] = leads[src as usize];
+                // Its diff ring is a group of one, keyed on the node itself.
+                vals.ring_of[k] = k as u32;
+                vals.ring_cap[k] = m as u32;
+                (K_HMA, src, 0, 0)
+            }
             Node::Fma { a: x, b: y, c: z } => (K_FMA, x, y, z),
+            Node::Ln { src } => (K_LN, src, 0, 0),
+            Node::Iir {
+                src,
+                a_bits,
+                b_bits,
+            } => {
+                // Explicit-weight IIR: the weights are VALUES (any a/b hits
+                // one kernel); `feeds` = the bar the SRC first defines —
+                // below it the node idles 0 and the carry keeps the hand's
+                // zero init (fisher's state.fish/val1 start at 0.0, there is
+                // NO seed bar — unlike Ema's `t == feed` seed).
+                vals.mults[k] = f64::from_bits(a_bits);
+                vals.invms[k] = f64::from_bits(b_bits);
+                vals.feeds[k] = leads[src as usize];
+                (K_IIR, src, 0, 0)
+            }
+            Node::IirClamped {
+                src,
+                a_bits,
+                b_bits,
+                hi_t,
+                hi_v,
+                lo_t,
+                lo_v,
+            } => {
+                vals.mults[k] = f64::from_bits(a_bits);
+                vals.invms[k] = f64::from_bits(b_bits);
+                vals.feeds[k] = leads[src as usize];
+                dd = lo_t;
+                ee = lo_v;
+                (K_IIRCLAMPED, src, hi_t, hi_v)
+            }
+            Node::Prev { src } => {
+                // Delayed-copy slot (see K_PREV doc): `feeds` gates the copy
+                // exactly like the chain it shadows.
+                vals.feeds[k] = leads[src as usize];
+                (K_PREV, src, 0, 0)
+            }
             Node::SuperTrend {
                 atr,
                 med,
@@ -360,12 +517,45 @@ pub fn erase(
                 // K_INPUT arms established (max stream index + 1).
                 (K_SUPERTREND, atr, med, close)
             }
+            Node::RollSum {
+                src,
+                period,
+                mean,
+                skip,
+                steady_from,
+            } => {
+                // Ring-backed rolling sum — derived sources included (that is
+                // its whole point vs `Sma`). The ring is shared per src via
+                // the group table; leave = eviction at the group cap, age read
+                // below it (see `ring_cap` docs). `skip`/`steady_from` are
+                // VALUES, not structure: one RollSum kind covers both shapes,
+                // the emitter's warm regions (fold/seam/init/steady) read the
+                // two numbers per bar. Stoch's slow %K was the unlocking pair.
+                vals.periods[k] = period;
+                vals.mults[k] = if mean { 1.0 / period as f64 } else { 1.0 };
+                vals.skip[k] = skip;
+                vals.steady_from[k] = steady_from;
+                // The fold starts the bar the source first defines.
+                vals.feeds[k] = leads[src as usize];
+                let leader = match ring_leaders.iter().position(|(s, _)| *s == src) {
+                    Some(i) => ring_leaders[i].1,
+                    None => {
+                        ring_leaders.push((src, k));
+                        k
+                    }
+                };
+                vals.ring_of[k] = leader as u32;
+                vals.ring_cap[leader] = vals.ring_cap[leader].max(period);
+                (K_ROLLSUM, src, 0, 0)
+            }
             _ => return None, // bespoke/rolling/feedback: later milestones
         };
         sig.kinds[k] = kind;
         sig.a[k] = a;
         sig.b[k] = b;
         sig.c[k] = c;
+        sig.d[k] = dd;
+        sig.e[k] = ee;
     }
     sig.len = arena.nodes.len() as u32;
 

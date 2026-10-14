@@ -424,4 +424,96 @@ mod tests {
         );
         assert!(ema.uniform_warmup, "both are price-sourced Emas");
     }
+
+    /// Ring-rolls canary: AO's two mean `RollSum`s sit on ONE interned
+    /// `medprice` node (same shape `recipes::medprice` builds — a co-request
+    /// adds ZERO new arithmetic nodes), erase binds them to a single ring
+    /// GROUP (leader = first roll slot, capacity = max period), and the
+    /// publish lead is the LONG window's defined-from bar (33).
+    #[test]
+    fn ao_rings_intern_share_and_erase() {
+        use tulip_rs::cse::signature::K_ROLLSUM;
+
+        let (arena, resolved) = merge(&[recipes::ao(&[]), recipes::medprice(&[])]);
+        assert_eq!(
+            arena.nodes.len(),
+            8,
+            "ao = hi, lo, sum, half, med, 2 rolls, sub; medprice adds ZERO new \
+             nodes when interned: {:?}",
+            arena.nodes.len()
+        );
+        let rolls: Vec<usize> = (0..arena.nodes.len())
+            .filter(|&k| matches!(arena.nodes[k], Node::RollSum { .. }))
+            .collect();
+        assert_eq!(rolls.len(), 2, "two ring rolls");
+        let Node::RollSum { src: s0, .. } = arena.nodes[rolls[0]] else {
+            unreachable!()
+        };
+        let Node::RollSum { src: s1, .. } = arena.nodes[rolls[1]] else {
+            unreachable!()
+        };
+        assert_eq!(s0, s1, "one shared medprice src ⇒ one ring group");
+
+        let leads = arena.leads();
+        let (sig, vals, _o) = erase(&arena, &resolved, &leads).expect("ao erases");
+        assert_eq!(sig.kinds[rolls[0]], K_ROLLSUM);
+        assert_eq!(vals.ring_of[rolls[0]], rolls[0] as u32, "leader is first");
+        assert_eq!(vals.ring_of[rolls[1]], rolls[0] as u32);
+        assert_eq!(vals.ring_cap[rolls[0]], 34, "capacity = group max");
+        assert_eq!(vals.mults[rolls[0]], 1.0 / 5.0);
+        assert_eq!(vals.mults[rolls[1]], 1.0 / 34.0);
+        assert_eq!(vals.feeds[rolls[0]], 0, "medprice is live from bar 0");
+        assert_eq!(
+            vals.sink_lead[0], 34,
+            "ao publishes at the hand's LONG row head"
+        );
+    }
+
+    /// THE medprice-sharing showcase (2026-10-13): AO and Fisher
+    /// co-requested intern ONE medprice and ALL FOUR rolls (2 sums + 2
+    /// extrema) ride ONE ring group — the arena where the old JIT re-ran a
+    /// full medprice pass and lost ~3.5x. Node math: ao's 8 + fisher's 25
+    /// minus the 5 shared (hi, lo, sum, half, med) = 28, exact.
+    #[test]
+    fn ao_fisher_intern_med_and_share_one_ring() {
+        let (arena, resolved) = merge(&[recipes::ao(&[]), recipes::fisher(&[9.0])]);
+        assert_eq!(
+            arena.nodes.len(),
+            28,
+            "co-request must add ZERO medprice-arithmetic nodes: {}",
+            arena.nodes.len()
+        );
+        let rolls: Vec<usize> = (0..arena.nodes.len())
+            .filter(|&k| {
+                matches!(
+                    arena.nodes[k],
+                    Node::RollSum { .. } | Node::RollMin { .. } | Node::RollMax { .. }
+                )
+            })
+            .collect();
+        assert_eq!(rolls.len(), 4, "2 sum rolls + 2 extremum rolls");
+        let leads = arena.leads();
+        let (_sig, vals, _o) = erase(&arena, &resolved, &leads).expect("ao+fisher erases");
+        let leader = vals.ring_of[rolls[0]];
+        assert_ne!(leader, u32::MAX, "the first roll heads the group");
+        for &k in &rolls[1..] {
+            assert_eq!(
+                vals.ring_of[k], leader,
+                "one ring group over the shared med"
+            );
+        }
+        assert_eq!(vals.ring_cap[leader as usize], 34, "cap = group MAX period");
+        // the extremum rolls' own window facts:
+        for k in 0..arena.nodes.len() {
+            if matches!(arena.nodes[k], Node::RollMin { .. } | Node::RollMax { .. }) {
+                assert_eq!(vals.periods[k], 9);
+                assert_eq!(vals.roll_lb[k], 8, "fisher window = (9, 8)");
+                assert_eq!(vals.feeds[k], 0, "medprice lives from bar 0");
+            }
+        }
+        // sinks: ao primary, 3 ao optionals, fisher fish, fisher signal.
+        assert_eq!(vals.sink_lead[0], 34, "ao keeps its LONG head");
+        assert_eq!(vals.sink_lead[4], 8, "fish lead = period-1");
+        assert_eq!(vals.sink_lead[5], 8, "signal shares it");
+    }
 }

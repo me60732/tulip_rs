@@ -200,6 +200,24 @@ impl<T: BufferElement> MirrorBuffer<Cold, T> {
         unsafe { self.vals.get_unchecked(0..self.count) }
     }
 
+    /// Returns the newest `period` elements as a contiguous, chronologically
+    /// ordered slice (`result[0]` = oldest of the window), honoring the fill
+    /// state: while partial the data sits at `vals[0..count]`; full rides the
+    /// mirror region exactly like the Warm accessor of the same name.
+    /// Callers must guarantee `period <= count` — the engine's extremum
+    /// rescan fires only once the window is complete, so it holds at every
+    /// call site.
+    #[inline(always)]
+    pub fn get_slice_by_period(&self, period: usize) -> &[T] {
+        debug_assert!(period <= self.count && period <= self.capacity);
+        if self.count == self.capacity {
+            let start = self.index + (self.capacity - period);
+            unsafe { self.vals.get_unchecked(start..start + period) }
+        } else {
+            unsafe { self.vals.get_unchecked(self.count - period..self.count) }
+        }
+    }
+
     /// Transition to `MirrorBuffer<Warm, T>`.
     #[inline(always)]
     pub fn into_full(self) -> MirrorBuffer<Warm, T> {

@@ -69,6 +69,26 @@ pub enum Kind {
     WhereGe,
     WhereLt,
     Fma,
+    /// `ln(src)` host call — `K_LN`.
+    Ln,
+    /// Explicit-weight IIR line — `K_IIR`.
+    Iir,
+    /// IIR + the hand's clamp folded into the carry — `K_IIRCLAMPED`; the
+    /// five refs ride `a`=src, `b`=hi_t, `c`=hi_v, `d`=lo_t, `e`=lo_v.
+    IirClamped,
+    /// The chain's carried-IN value (delayed copy in `st[k]`) — `K_PREV`.
+    Prev,
+    /// Ring-backed rolling sum over any source (derived included) — the
+    /// emitter's `K_ROLLSUM` arm; group/capacity ride `Values` at runtime.
+    RollSum,
+    /// The bespoke Hull MA machine (two inner WMA engines + diff ring) —
+    /// `K_HMA`; everything it needs rides `Values` per the erase arm.
+    Hma,
+    /// Zero-op identity copy of its source — `K_MIRROR` (12). The hand's
+    /// state mirrors (rsi's `prev_real`, cmo's `prev`/`drop_real`): the
+    /// value exists for the chunk-exit state store (`get_states`, M1), so
+    /// the steady loop computes it and stores nothing.
+    Mirror,
 }
 
 impl Kind {
@@ -96,6 +116,13 @@ impl Kind {
             Kind::WhereGe => 22,
             Kind::WhereLt => 23,
             Kind::Fma => 14,
+            Kind::Ln => 26,
+            Kind::Iir => 27,
+            Kind::IirClamped => 28,
+            Kind::Prev => 29,
+            Kind::RollSum => 24,
+            Kind::Hma => 25,
+            Kind::Mirror => 12,
         }
     }
 }
@@ -109,6 +136,10 @@ pub struct ANode {
     pub b: usize,
     /// Optional third operand (SuperTrend: close stream).
     pub c: Option<usize>,
+    /// 5th/6th arena refs for K_IIRCLAMPED (lo_t/lo_v); 0 elsewhere —
+    /// mirrors `Signature::d/e` (erase writes the same pairs).
+    pub d: usize,
+    pub e: usize,
 }
 
 impl ANode {
@@ -118,6 +149,8 @@ impl ANode {
             a,
             b,
             c: None,
+            d: 0,
+            e: 0,
         }
     }
 
@@ -127,6 +160,8 @@ impl ANode {
             a,
             b,
             c: Some(c),
+            d: 0,
+            e: 0,
         }
     }
 }
@@ -201,6 +236,13 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Willr" => recipes::willr(&opts),
             "DonchianChannel" => recipes::donchianchannel(&opts),
             "Ichimoku" => recipes::ichimoku(&opts),
+            "Ao" => recipes::ao(&opts),
+            "Hma" => recipes::hma(&opts),
+            "Fisher" => recipes::fisher(&opts),
+            "Stoch" => recipes::stoch(&opts),
+            "Rsi" => recipes::rsi(&opts),
+            "Stochrsi" => recipes::stochrsi(&opts),
+            "Cmo" => recipes::cmo(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
         built.push(r);
@@ -228,6 +270,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             Node::Max { a, b } => ANode::new_simple(Kind::Max, a as usize, b as usize),
             Node::Abs { src } => ANode::new_simple(Kind::Abs, src as usize, 0),
             Node::Lag { src, .. } => ANode::new_simple(Kind::Lag, src as usize, 0),
+            Node::Mirror { src } => ANode::new_simple(Kind::Mirror, src as usize, 0),
             Node::Sma { src, .. } => ANode::new_simple(Kind::Sma, src as usize, 0),
             Node::Stddev { src, .. } => ANode::new_simple(Kind::Stddev, src as usize, 0),
             Node::Wma { src, .. } => ANode::new_simple(Kind::Wma, src as usize, 0),
@@ -243,6 +286,32 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             Node::Fma { a, b, c } => {
                 ANode::new_three(Kind::Fma, a as usize, b as usize, c as usize)
             }
+            Node::RollSum { src, .. } => {
+                // skip/steady_from ride in VALUES (erase stores them at the
+                // slot); the structure is one RollSum kind — the warm
+                // fold/seam/init/steady regions read the two numbers per
+                // bar, so nothing remains to refuse here.
+                ANode::new_simple(Kind::RollSum, src as usize, 0)
+            }
+            Node::Hma { src, .. } => ANode::new_simple(Kind::Hma, src as usize, 0),
+            Node::Ln { src } => ANode::new_simple(Kind::Ln, src as usize, 0),
+            Node::Iir { src, .. } => ANode::new_simple(Kind::Iir, src as usize, 0),
+            Node::Prev { src } => ANode::new_simple(Kind::Prev, src as usize, 0),
+            Node::IirClamped {
+                src,
+                hi_t,
+                hi_v,
+                lo_t,
+                lo_v,
+                ..
+            } => ANode {
+                kind: Kind::IirClamped,
+                a: src as usize,
+                b: hi_t as usize,
+                c: Some(hi_v as usize),
+                d: lo_t as usize,
+                e: lo_v as usize,
+            },
             Node::SuperTrend {
                 atr, med, close, ..
             } => ANode::new_three(Kind::SuperTrend, atr as usize, med as usize, close as usize),

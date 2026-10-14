@@ -290,46 +290,6 @@ impl crate::cse::Planable for StochRsi {
     /// this plan's ring and `rsi_state` is already reportable, so the export is the
     /// one `ChainState` ring mechanism those two also wait on.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        use crate::cse::{Node, Recipe, Sink};
-        let period = options[0] as u32;
-        let mut r = Recipe::new();
-        let real = r.add(Node::Input { stream: 0 });
-        let rsi = r.sub_at::<crate::indicators::rsi::Rsi>(&[period as f64], &[real]);
-        let mx = r.add(Node::RollMax {
-            src: rsi,
-            period,
-            look_back: period.saturating_sub(1),
-        });
-        let mn = r.add(Node::RollMin {
-            src: rsi,
-            period,
-            look_back: period.saturating_sub(1),
-        });
-        let kdif = r.add(Node::Sub { a: mx, b: mn });
-        let sub = r.add(Node::Sub { a: rsi, b: mn });
-        let c100 = r.constant(100.0);
-        let num = r.add(Node::Mul { a: c100, b: sub });
-        let q = r.add(Node::Div { a: num, b: kdif });
-        let eps = r.constant(f64::EPSILON);
-        // `if kdif < ε { 0.0 } else { q }` is `WhereLt` directly — the `<`-form
-        // mirror of `WhereGe`, which is what the hand actually writes. The reason
-        // it must be `<` and not `>=`: on a FLAT series the RSI line is exactly
-        // `0/0 = NaN`, so `kdif = max − min` is NaN, and an IEEE compare is false in
-        // BOTH directions there. The hand's `<` test therefore falls to the ELSE arm
-        // (the division) and keeps the NaN, which is what it prints; `WhereGe`'s
-        // false branch is the pinned `+0.0` and swallows it (the parity test failed
-        // on `stochrsi flat p3` until this node replaced a `0 − maxNum(0 − kdif, −∞)`
-        // mapping that cost three extra ops to buy the same NaN propagation).
-        let line = r.add(Node::WhereLt {
-            a: kdif,
-            b: eps,
-            t: q,
-        });
-
-        r.kind = "stochrsi";
-        r.options = options.to_vec();
-        r.outputs.push(Sink::iface_lead(line, period * 2));
-        r.optional_outputs = vec![Sink::iface_lead(rsi, period + 1)];
-        r
+        crate::cse::recipes::stochrsi(options)
     }
 }

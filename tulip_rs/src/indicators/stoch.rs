@@ -363,63 +363,6 @@ impl crate::cse::Planable for Stoch {
     /// new mechanism. `k_sum`/`d_sum` and the two roll states are already
     /// reportable chain values.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        use crate::cse::{Node, Recipe, Sink};
-        let k_period = options[0] as u32;
-        let k_slow = options[1] as u32;
-        let d_period = options[2] as u32;
-        let look_back = k_period.saturating_sub(1);
-
-        let mut r = Recipe::new();
-        let high = r.add(Node::Input { stream: 0 });
-        let low = r.add(Node::Input { stream: 1 });
-        let close = r.add(Node::Input { stream: 2 });
-        let mx = r.add(Node::RollMax {
-            src: high,
-            period: k_period,
-            look_back,
-        });
-        let mn = r.add(Node::RollMin {
-            src: low,
-            period: k_period,
-            look_back,
-        });
-        let dif = r.add(Node::Sub { a: mx, b: mn });
-        let eps = r.constant(f64::EPSILON);
-        let den = r.add(Node::Max { a: dif, b: eps });
-        let mc = r.add(Node::Sub { a: close, b: mn });
-        let c100 = r.constant(100.0);
-        let num = r.add(Node::Mul { a: c100, b: mc });
-        let kfast = r.add(Node::Div { a: num, b: den });
-        // Slow %K: the hand discards fast %K's first two published values
-        // (its roll seeding), hence `skip: 2`.
-        let k_line = r.add(Node::RollSum {
-            src: kfast,
-            period: k_slow,
-            mean: true,
-            skip: 2,
-            // The hand's init loop runs to bar `k + k_slow + d − 1`, past the
-            // first full window, and inside it the eviction subtracts as its own
-            // statement — so the steady `sum += v - old` only begins at
-            // `k + k_slow + d`, exactly where %D starts printing.
-            steady_from: k_period + k_slow + d_period,
-        });
-        // %D: a mean of the slow %K line, folding from that line's first
-        // published bar — the hand's `prev_d` receives exactly those, and its
-        // init loop never evicts, so the steady form applies throughout.
-        let d_line = r.add(Node::RollSum {
-            src: k_line,
-            period: d_period,
-            mean: true,
-            skip: 0,
-            steady_from: 0,
-        });
-
-        r.kind = "stoch";
-        r.options = options.to_vec();
-        r.outputs = vec![
-            Sink::iface(k_line),
-            Sink::iface_lead(d_line, k_period + k_slow + d_period),
-        ];
-        r
+        crate::cse::recipes::stoch(options)
     }
 }

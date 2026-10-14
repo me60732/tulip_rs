@@ -1191,4 +1191,585 @@ mod tests {
             .add(AroonOsc::recipe(&[14.0]), None);
         assert!(run_registered(&req, &streams).is_none());
     }
+
+    // ── ring-backed derived rolls (ao) ────────────────────────────────────
+
+    use tulip_rs::indicators::ao::Ao;
+
+    /// The arena `ao_s_m` erases to: one ring group, explicit primary lead
+    /// 34 riding `Values`, and the rev-2 law for windows — a different
+    /// (short, long) pair hits the SAME kernel, with the lead following the
+    /// long window.
+    #[test]
+    fn ao_sig_derived() {
+        let req = Request::new().add(Ao::recipe(&[]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_ao_s_m, "AO arena drifted from merge");
+        assert_eq!(vals.sink_lead[0], 34, "primary lead (hand min_data 35)");
+
+        let req2 = Request::new().add(Ao::recipe(&[7.0, 21.0]), None);
+        let (_a, sig2, vals2, _) = erase_request(&req2).unwrap();
+        assert_eq!(
+            sig2, SIG_ao_s_m,
+            "period change must not change the signature"
+        );
+        assert_eq!(vals2.sink_lead[0], 21, "lead follows the LONG window");
+    }
+
+    /// Bit-exact vs `Ao::indicator` on three regimes plus a series barely
+    /// past the gate (n=40: warm covers bars 0..34, five steady bars).
+    /// PRIMARY-ONLY: the optional mirrors' row heads are one bar off from
+    /// the hand's init-stored zeros (engine long starts at defined-from
+    /// 33, hand's LONG row at 34; short likewise) — that reconciliation is
+    /// a step-C item, not papered over here.
+    #[test]
+    fn ao_bit_exact() {
+        let data = [
+            wiggle(),
+            series(650, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+            series(40, |i| 90.0 + (i as f64 * 0.7).sin() * 4.0),
+        ];
+        for s in &data {
+            let hi: Vec<f64> = s.iter().map(|v| v + 1.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+            let streams = [hi.as_slice(), lo.as_slice()];
+            let out = run_registered(&Request::new().add(Ao::recipe(&[]), None), &streams)
+                .expect("ao template hit");
+            let inp = [hi.as_slice(), lo.as_slice()];
+            let (ao, _) = Ao::indicator(&inp, &[], None).unwrap();
+            assert_eq!(out.rows[0].as_slice(), ao[0], "ao row (n={})", s.len());
+        }
+    }
+
+    // ── the bespoke HMA machine ─────────────────────────────────────────────
+
+    use tulip_rs::indicators::hma::Hma;
+
+    /// Params are values: p=9 and p=20 are the SAME kernel; publish lead
+    /// `p + trunc(√p)` rides Values (20 → trunc 4.47 = 4 → lead 24).
+    #[test]
+    fn hma_sig_derived() {
+        let req = Request::new().add(Hma::recipe(&[9.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_hma_n, "HMA arena drifted from merge");
+        assert_eq!(vals.sink_lead[0], 9 + 3, "lead p + trunc sqrt(p)");
+        let req2 = Request::new().add(Hma::recipe(&[20.0]), None);
+        let (_a, sig2, vals2, _) = erase_request(&req2).unwrap();
+        assert_eq!(sig2, SIG_hma_n, "period change keeps the kernel");
+        assert_eq!(vals2.sink_lead[0], 20 + 4);
+        // Non-square p exercises truncation: √14 → 3 → lead 17.
+        let req3 = Request::new().add(Hma::recipe(&[14.0]), None);
+        let (_a, sig3, vals3, _o3) = erase_request(&req3).unwrap();
+        assert_eq!(sig3, SIG_hma_n);
+        assert_eq!(vals3.sink_lead[0], 14 + 3);
+    }
+
+    /// Bit-exact vs `Hma::indicator` across square, non-square and large
+    /// periods, on the usual regimes plus a series barely past the lead.
+    #[test]
+    fn hma_bit_exact() {
+        for p in [2.0f64, 9.0, 14.0, 20.0, 48.0] {
+            let period = p as usize;
+            let m = p.sqrt() as usize;
+            let lead = period + m;
+            let data = [
+                wiggle(),
+                series(650, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+                series(lead + 3, |i| 90.0 + (i as f64 * 0.7).sin() * 4.0),
+            ];
+            for s in &data {
+                let streams = [s.as_slice()];
+                let out = run_registered(&Request::new().add(Hma::recipe(&[p]), None), &streams)
+                    .expect("hma template hit");
+                let inp = [s.as_slice()];
+                let (hma, _) = Hma::indicator(&inp, &[p], None).unwrap();
+                assert_eq!(
+                    out.rows[0].as_slice(),
+                    hma[0].as_slice(),
+                    "hma row p={p} n={}",
+                    s.len()
+                );
+            }
+        }
+    }
+
+    // ── fisher: the IIR chain over the extremum ring ──────────────────────
+
+    use tulip_rs::indicators::fisher::Fisher;
+
+    /// PARITY LAW for fisher: 1e-12 RELATIVE vs the hand (the `Ln` host-call
+    /// exception — Handover §6.41: `Node::Ln` calls the same libm as the
+    /// hand's `ln_arg.ln()`, so the drift is the clamp's mul_add association
+    /// budget, not transcendental); every OTHER pattern stays bit-exact.
+    fn assert_rel_1e12(got: &[f64], want: &[f64], tag: &str) {
+        assert_eq!(got.len(), want.len(), "{tag}: row length");
+        for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+            let scale = g.abs().max(w.abs()).max(1.0);
+            assert!(
+                (g - w).abs() <= 1e-12 * scale,
+                "{tag} idx {i}: engine {g:e} vs hand {w:e}"
+            );
+        }
+    }
+
+    #[test]
+    fn fisher_sig_derived() {
+        let req = Request::new().add(Fisher::recipe(&[9.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_fisher_n, "fisher arena drifted from merge");
+        assert_eq!(
+            vals.sink_lead[0], 8,
+            "fish lead = period−1 (hand row[0] bar)"
+        );
+        assert_eq!(vals.sink_lead[1], 8, "signal shares the chain's lead");
+
+        let req2 = Request::new().add(Fisher::recipe(&[14.0]), None);
+        let (_a2, sig2, vals2, _) = erase_request(&req2).unwrap();
+        assert_eq!(
+            sig2, SIG_fisher_n,
+            "period change must not change the signature"
+        );
+        assert_eq!(vals2.sink_lead[0], 13);
+    }
+
+    /// The hand pin: fisher AND signal rows, 1e-12 relative, across periods
+    /// (incl. p=4 barely-past-gate shapes) and the usual regimes: wiggle,
+    /// ramp, FLAT (min==max exercises the 1e-3 guard floor + clamp saturation
+    /// path), and a short sine crossing the clamp thresholds.
+    #[test]
+    fn fisher_parity_vs_hand() {
+        for p in [4.0f64, 9.0, 14.0, 28.0] {
+            let period = p as usize;
+            let lead = period - 1;
+            let data = [
+                wiggle(),
+                series(650, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+                series(lead + 40, |i| 90.0 + (i as f64 * 0.9).sin() * 6.0),
+            ];
+            for s in &data {
+                let hi: Vec<f64> = s.iter().map(|v| v + 1.0).collect();
+                let lo: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+                let streams = [hi.as_slice(), lo.as_slice()];
+                let out = run_registered(&Request::new().add(Fisher::recipe(&[p]), None), &streams)
+                    .expect("fisher template hit");
+                let inp = [hi.as_slice(), lo.as_slice()];
+                let (fisher, _) = Fisher::indicator(&inp, &[p], None).unwrap();
+                assert_rel_1e12(
+                    &out.rows[0],
+                    &fisher[0],
+                    &format!("fish p={p} n={}", s.len()),
+                );
+                assert_rel_1e12(
+                    &out.rows[1],
+                    &fisher[1],
+                    &format!("signal p={p} n={}", s.len()),
+                );
+            }
+        }
+    }
+
+    // ── stoch: the skip/steady_from pair (ring RollSums with init-form
+    // bars — the shape that unlocked the two Values arrays) ───────────────
+
+    use tulip_rs::cse::signature::K_ROLLSUM;
+    use tulip_rs::indicators::stoch::Stoch;
+
+    /// Bit-level row equality (NaN payloads included — the epsilon-floor
+    /// regime can propagate one, and the spec is WYSIWYG transcription).
+    fn assert_bits(got: &[f64], want: &[f64], tag: &str) {
+        assert_eq!(got.len(), want.len(), "{tag}: row length");
+        for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+            assert_eq!(g.to_bits(), w.to_bits(), "{tag}: bit mismatch at {i}");
+        }
+    }
+
+    /// `stoch_kd` erases to: TWO ring groups (slow %K over the division
+    /// column, %D over the %K line), each single-member (cap = its own
+    /// period); the skip/steady_from law on Values — %K carries skip 2 and
+    /// steady_from = k+ks+d, %D is plain. Sink leads: %K natural k+ks, %D
+    /// pinned k+ks+d; a param change must not move the signature.
+    #[test]
+    fn stoch_sig_derived() {
+        let req = Request::new().add(Stoch::recipe(&[14.0, 3.0, 3.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_stoch_kd, "stoch arena drifted from merge");
+        assert_eq!(vals.sink_lead[0], 17, "%K lead = k+ks (hand row[0] bar)");
+        assert_eq!(vals.sink_lead[1], 20, "%D lead = k+ks+d (pinned)");
+
+        let rolls: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_ROLLSUM).collect();
+        assert_eq!(rolls.len(), 2, "two ring rolls");
+        let (k_line, d_line) = (rolls[0], rolls[1]);
+        assert_eq!(vals.skip[k_line], 2, "slow %K discards fast's head pair");
+        assert_eq!(vals.steady_from[k_line], 20, "init-form until %D starts");
+        assert_eq!(vals.skip[d_line], 0);
+        assert_eq!(vals.steady_from[d_line], 0);
+        assert_eq!(vals.ring_of[k_line] as usize, k_line, "self-leader group");
+        assert_eq!(vals.ring_cap[k_line], 3);
+        assert_eq!(vals.ring_of[d_line] as usize, d_line);
+        assert_eq!(vals.ring_cap[d_line], 3);
+
+        let req2 = Request::new().add(Stoch::recipe(&[9.0, 5.0, 4.0]), None);
+        let (_a2, sig2, vals2, _) = erase_request(&req2).unwrap();
+        assert_eq!(
+            sig2, SIG_stoch_kd,
+            "period change must not change the signature"
+        );
+        assert_eq!(vals2.sink_lead[0], 14, "k+ks");
+        assert_eq!(vals2.sink_lead[1], 18, "k+ks+d");
+    }
+
+    /// Bit-exact vs the hand across four option sets and five regimes —
+    /// no `ln`, so FULL bit equality is the standard. The SPIKE series puts
+    /// `Max(dif, ε)` on its floor with a non-zero numerator (fast %K
+    /// explodes past f64::MAX; the inf/NaN arithmetic must transcribe
+    /// statement-for-statement, including the init-form bars where the
+    /// hand's eviction subtracts as its own statement).
+    #[test]
+    fn stoch_bit_exact() {
+        for opts in [
+            [14.0f64, 3.0, 3.0],
+            [9.0, 3.0, 3.0],
+            [5.0, 2.0, 3.0],
+            [28.0, 4.0, 4.0],
+        ] {
+            let kp = opts[0] as usize;
+            let lead = kp + opts[1] as usize + opts[2] as usize;
+            let spike = series(lead + 60, |i| {
+                if i % 17 == 0 && i >= kp + 2 {
+                    101.0
+                } else {
+                    100.0
+                }
+            });
+            let data = [
+                wiggle(),
+                series(650, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+                series(lead + 40, |i| 90.0 + (i as f64 * 0.9).sin() * 6.0),
+                spike,
+            ];
+            for s in &data {
+                let hi: Vec<f64> = s.iter().map(|v| v + 1.0).collect();
+                let lo: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+                let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+                let out = run_registered(&Request::new().add(Stoch::recipe(&opts), None), &streams)
+                    .expect("stoch template hit");
+                let inp = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+                let (stoch, _) = Stoch::indicator(&inp, &opts, None).unwrap();
+                assert_bits(
+                    &out.rows[0],
+                    &stoch[0],
+                    &format!("%K {:?} n={}", opts, s.len()),
+                );
+                assert_bits(
+                    &out.rows[1],
+                    &stoch[1],
+                    &format!("%D {:?} n={}", opts, s.len()),
+                );
+            }
+        }
+    }
+
+    /// The flagship triple: stoch's (p, p−1) high/low rolls ARE willr's and
+    /// donchian's — TWO interned roll nodes serve eight output rows.
+    #[test]
+    fn stoch_willr_donchian_shared_sig() {
+        let req = Request::new()
+            .add(Stoch::recipe(&[14.0, 3.0, 3.0]), None)
+            .add(Willr::recipe(&[14.0]), None)
+            .add(DonchianChannel::recipe(&[14.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_stoch_willr_donchian_shared_p);
+        let rolls: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_ROLLSUM).collect();
+        assert_eq!(rolls.len(), 2, "only stoch's two mean rolls");
+        assert_eq!(vals.skip[rolls[0]], 2);
+    }
+
+    /// Bit-exact vs the HAND across the triple's full sink layout: stoch
+    /// [%K, %D], willr primary + two ASKED optional roll mirrors, donchian
+    /// [lower, mid, upper]. The mirror rows ALIAS donchian's primaries —
+    /// proof the (p, p−1) pair interned ACROSS all three requests.
+    #[test]
+    fn stoch_willr_donchian_bit_exact() {
+        let s = wiggle();
+        let hi: Vec<f64> = s.iter().map(|v| v + 1.0).collect();
+        let lo: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+        let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+        let req = Request::new()
+            .add(Stoch::recipe(&[14.0, 3.0, 3.0]), None)
+            .add(Willr::recipe(&[14.0]), Some(&[true, true]))
+            .add(DonchianChannel::recipe(&[14.0]), None);
+        let out = run_registered(&req, &streams).expect("triple registered");
+        let inp3 = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+        let inp2 = [hi.as_slice(), lo.as_slice()];
+        let (stoch, _) = Stoch::indicator(&inp3, &[14.0, 3.0, 3.0], None).unwrap();
+        let (wr, _) = Willr::indicator(&inp3, &[14.0], Some(&[true, true])).unwrap();
+        let (dc, _) = DonchianChannel::indicator(&inp2, &[14.0], None).unwrap();
+        assert_bits(&out.rows[0], &stoch[0], "triple %K");
+        assert_bits(&out.rows[1], &stoch[1], "triple %D");
+        assert_bits(&out.rows[2], &wr[0], "triple willr");
+        assert_bits(&out.rows[5], &dc[0], "triple donch lower");
+        assert_bits(&out.rows[6], &dc[1], "triple donch mid");
+        assert_bits(&out.rows[7], &dc[2], "triple donch upper");
+        assert_bits(&out.rows[3], &wr[1], "willr min mirror");
+        assert_bits(&out.rows[4], &wr[2], "willr max mirror");
+        assert!(
+            out.rows[3].shares_data_with(&out.rows[5])
+                && out.rows[4].shares_data_with(&out.rows[7]),
+            "the (p, p−1) roll pair is ONE node per column across THREE requests"
+        );
+    }
+
+    // ── rsi: mirror node + dual mean-Wilders chains ───────────────────────
+
+    use tulip_rs::cse::signature::K_MIRROR;
+    use tulip_rs::indicators::rsi::Rsi;
+
+    /// `rsi_n` erases to: the pinned sink lead `period + 1` (hand
+    /// `min_data = period + 2`), one `K_MIRROR` arena node (the `prev_real`
+    /// state copy — computed, never stored), and the period law: a param
+    /// change moves `Values`, not the signature.
+    #[test]
+    fn rsi_sig_derived() {
+        let req = Request::new().add(Rsi::recipe(&[14.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_rsi_n, "rsi arena drifted from merge");
+        assert_eq!(vals.sink_lead[0], 15, "hand row starts bar p+1");
+        let mirrors: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_MIRROR).collect();
+        assert_eq!(mirrors.len(), 1, "prev_real state mirror in arena");
+
+        let req2 = Request::new().add(Rsi::recipe(&[9.0]), None);
+        let (_a2, sig2, vals2, _) = erase_request(&req2).unwrap();
+        assert_eq!(
+            sig2, SIG_rsi_n,
+            "period change must not change the signature"
+        );
+        assert_eq!(vals2.sink_lead[0], 10);
+    }
+
+    /// Bit-exact vs the hand across four periods and five regimes — no `ln`
+    /// ⇒ FULL bit equality, NaN payloads included. FLAT drives the ratio to
+    /// `0/0` (default NaN both engines, carried forever by the Wilders
+    /// chains); the SPIKE regime puts `+∞` through `up−diff`-style movement
+    /// where the hand's two-`Max` arms pin `+0.0` — the rewrite that would
+    /// NaN-poison is NOT in the graph, so both stay finite here.
+    #[test]
+    fn rsi_bit_exact() {
+        for p in [2.0f64, 7.0, 14.0, 21.0] {
+            let lead = p as usize + 1;
+            let data = [
+                wiggle(),
+                series(650, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+                series(lead + 40, |i| 90.0 + (i as f64 * 0.9).sin() * 6.0),
+                series(lead + 60, |i| {
+                    if i % 17 == 0 && i > lead {
+                        101.0
+                    } else {
+                        100.0
+                    }
+                }),
+            ];
+            for s in &data {
+                let streams = [s.as_slice()];
+                let out = run_registered(&Request::new().add(Rsi::recipe(&[p]), None), &streams)
+                    .expect("rsi template hit");
+                let (rsi, _) = Rsi::indicator(&streams, &[p], None).unwrap();
+                assert_bits(&out.rows[0], &rsi[0], &format!("rsi p={p} n={}", s.len()));
+            }
+        }
+    }
+
+    // ── stochrsi: the grafted-chain flagship ──────────────────────────────
+
+    use tulip_rs::cse::signature::{K_ROLLMAX, K_ROLLMIN};
+    use tulip_rs::indicators::stochrsi::StochRsi;
+
+    /// The pair `Rsi(p) + Stochrsi(p)`: stochrsi's leaf grafts the rsi leaf,
+    /// so the ENTIRE movement chain (Lag, both Subs, both Max gates, both
+    /// Wilders chains, Add/Div/Mul) interns with the standalone rsi; the
+    /// hand's `prev_real` Mirror rides the arena ONCE (both recipes declare
+    /// the same `Mirror{real}` node). Leads: rsi `p+1`, stochrsi `2p`,
+    /// optional rsi `p+1`. The two rolls over the derived rsi line are ONE
+    /// ring group (cap `p`, two members).
+    #[test]
+    fn rsi_stochrsi_shared_sig() {
+        let req = Request::new()
+            .add(Rsi::recipe(&[14.0]), None)
+            .add(StochRsi::recipe(&[14.0]), Some(&[true]));
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(
+            sig, SIG_rsi_stochrsi_shared_p,
+            "rsi+stochrsi arena drifted from merge"
+        );
+        assert_eq!(vals.sink_lead[0], 15, "rsi lead p+1");
+        assert_eq!(vals.sink_lead[1], 28, "stochrsi lead 2p");
+        assert_eq!(vals.sink_lead[2], 15, "optional rsi mirror lead");
+        let mirrors: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_MIRROR).collect();
+        assert_eq!(mirrors.len(), 1, "one interned prev_real");
+        let extrema: Vec<usize> = (0..MAX)
+            .filter(|i| sig.kinds[*i] == K_ROLLMAX || sig.kinds[*i] == K_ROLLMIN)
+            .collect();
+        assert_eq!(extrema.len(), 2, "stochrsi's max/min over the rsi line");
+        assert_eq!(
+            vals.ring_of[extrema[0]] as usize, vals.ring_of[extrema[1]] as usize,
+            "the pair shares ONE ring (same derived src)"
+        );
+        assert_eq!(vals.ring_cap[vals.ring_of[extrema[0]] as usize], 14);
+    }
+
+    /// Bit-exact vs BOTH hands across periods and the five regimes — FLAT
+    /// matters most here: the rsi line goes `0/0 = NaN`, `kdif = max − min`
+    /// is NaN, the `WhereLt` compare is false in BOTH directions so the
+    /// guard falls through to the division and the hand PRINTS NaN — the
+    /// engine must carry the same default-NaN bits through, not sanitize
+    /// them. The optional rsi row must equal the standalone rsi row (same
+    /// stored stream), and the alias check proves the arena interned them.
+    #[test]
+    fn rsi_stochrsi_bit_exact() {
+        for p in [5.0f64, 14.0] {
+            let lead = (p as usize) * 2;
+            let data = [
+                wiggle(),
+                series(650, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+                series(lead + 40, |i| 90.0 + (i as f64 * 0.9).sin() * 6.0),
+                series(lead + 60, |i| {
+                    if i % 17 == 0 && i > lead {
+                        101.0
+                    } else {
+                        100.0
+                    }
+                }),
+            ];
+            for s in &data {
+                let streams = [s.as_slice()];
+                let req = Request::new()
+                    .add(Rsi::recipe(&[p]), None)
+                    .add(StochRsi::recipe(&[p]), Some(&[true]));
+                let out = run_registered(&req, &streams).expect("rsi_stochrsi template hit");
+                let (rsi, _) = Rsi::indicator(&streams, &[p], None).unwrap();
+                let (sr, _) = StochRsi::indicator(&streams, &[p], Some(&[true])).unwrap();
+                assert_bits(
+                    &out.rows[0],
+                    &rsi[0],
+                    &format!("pair rsi p={p} n={}", s.len()),
+                );
+                assert_bits(
+                    &out.rows[1],
+                    &sr[0],
+                    &format!("pair stochrsi p={p} n={}", s.len()),
+                );
+                assert_bits(
+                    &out.rows[2],
+                    &sr[1],
+                    &format!("pair rsi-mirror p={p} n={}", s.len()),
+                );
+                assert!(
+                    out.rows[0].shares_data_with(&out.rows[2]),
+                    "standalone rsi row and the optional mirror are ONE stream"
+                );
+            }
+        }
+    }
+
+    // ── cmo: twin ring sums + the rsi+cmo movement-sharing pair ───────────
+
+    use tulip_rs::cse::signature::{K_LAG, K_MAX};
+    use tulip_rs::indicators::cmo::Cmo;
+
+    /// `cmo_n` erases to: sink lead `period + 1` (hand prints from bar
+    /// `p + 1`, `min_data = p + 2`), TWO ring groups (gain and loss sums —
+    /// distinct derived srcs, each single-member, cap `p`, raw sums so
+    /// `mults = 1.0`), TWO `K_LAG` nodes (`Lag{1}` for the movement,
+    /// `Lag{p}` feeding `drop_real`), and TWO `K_MIRROR` state copies
+    /// (`prev` on the close — the SAME node rsi carries — and `drop_real`).
+    #[test]
+    fn cmo_sig_derived() {
+        let req = Request::new().add(Cmo::recipe(&[14.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_cmo_n, "cmo arena drifted from merge");
+        assert_eq!(vals.sink_lead[0], 15, "hand row starts bar p+1");
+        let rolls: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_ROLLSUM).collect();
+        assert_eq!(rolls.len(), 2, "gain + loss sums on derived columns");
+        for r in &rolls {
+            assert_eq!(
+                vals.ring_of[*r] as usize, *r,
+                "own group — up and down are distinct srcs"
+            );
+            assert_eq!(vals.ring_cap[*r], 14);
+        }
+        let mirrors: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_MIRROR).collect();
+        assert_eq!(mirrors.len(), 2, "prev + drop_real");
+        let lags: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_LAG).collect();
+        assert_eq!(lags.len(), 2, "Lag{{1}} + Lag{{p}}");
+    }
+
+    /// Bit-exact vs the hand across three periods and five regimes — no
+    /// `ln` ⇒ FULL bit equality. RAMP runs `down_sum == 0` (the division
+    /// lands the line on exactly 100.0), FLAT is the `0/0` NaN the ring sums
+    /// carry forever, the SPIKE series pumps finite ±1 movement through the
+    /// eviction path (`st += x − leave`, mults 1.0 — sum, not mean).
+    #[test]
+    fn cmo_bit_exact() {
+        for p in [9.0f64, 14.0, 21.0] {
+            let lead = p as usize + 1;
+            let data = [
+                wiggle(),
+                series(650, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+                series(lead + 40, |i| 90.0 + (i as f64 * 0.9).sin() * 6.0),
+                series(lead + 60, |i| {
+                    if i % 17 == 0 && i > lead {
+                        101.0
+                    } else {
+                        100.0
+                    }
+                }),
+            ];
+            for s in &data {
+                let streams = [s.as_slice()];
+                let out = run_registered(&Request::new().add(Cmo::recipe(&[p]), None), &streams)
+                    .expect("cmo template hit");
+                let (cmo, _) = Cmo::indicator(&streams, &[p], None).unwrap();
+                assert_bits(&out.rows[0], &cmo[0], &format!("cmo p={p} n={}", s.len()));
+            }
+        }
+    }
+
+    /// The movement-sharing pair: Rsi + Cmo co-requested intern the WHOLE
+    /// `up_down` stage — `Lag{1}`, both Sub arms, the zero Const, both Max
+    /// gates, and the shared `Mirror{real}` state copy. The slot census IS
+    /// the canary: a non-interning arena would show 4 Max, 3 Lag, 3 Mirror.
+    #[test]
+    fn rsi_cmo_shared_pair() {
+        let req = Request::new()
+            .add(Rsi::recipe(&[14.0]), None)
+            .add(Cmo::recipe(&[14.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_rsi_cmo_shared_p, "rsi+cmo arena drifted");
+        assert_eq!(vals.sink_lead[0], 15, "rsi lead");
+        assert_eq!(vals.sink_lead[1], 15, "cmo lead");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        assert_eq!(count(K_MAX), 2, "up/down intern across recipes");
+        assert_eq!(count(K_LAG), 2, "Lag{{1}} shared; Lag{{p}} cmo-only");
+        assert_eq!(count(K_MIRROR), 2, "shared prev + drop_real");
+        assert_eq!(count(K_ROLLSUM), 2, "cmo's twin ring sums");
+
+        for s in [
+            wiggle(),
+            series(680, |_| 100.0),
+            series(100, |i| 90.0 + (i as f64 * 0.9).sin() * 6.0),
+        ] {
+            let streams = [s.as_slice()];
+            let out = run_registered(&req, &streams).expect("rsi+cmo registered");
+            let (rsi, _) = Rsi::indicator(&streams, &[14.0], None).unwrap();
+            let (cmo, _) = Cmo::indicator(&streams, &[14.0], None).unwrap();
+            assert_bits(&out.rows[0], &rsi[0], "pair rsi row");
+            assert_bits(&out.rows[1], &cmo[0], "pair cmo row");
+        }
+    }
 }

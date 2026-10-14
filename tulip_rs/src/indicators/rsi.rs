@@ -211,71 +211,7 @@ impl crate::cse::Planable for Rsi {
     ///   (α = 1 ⇒ `fmul(x, 1.0)` then `fma(prev, 0.0, ·)`) to hand back the number
     ///   it started with, and calls it an EMA in a file about RSI.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let real = r.add(crate::cse::Node::Input { stream: 0 });
-        let prev = r.add(crate::cse::Node::Lag { src: real, n: 1 });
-        let diff = r.add(crate::cse::Node::Sub { a: real, b: prev });
-        let zero = r.constant(0.0);
-        // `up_down(value, prev) = [diff.max(0), (-diff).max(0)]`, `diff` above.
-        // Both arms are ordinary `Max` nodes; nothing here is a rewrite of the
-        // hand's shape (the second arm's history is in its own comment).
-        let up = r.add(crate::cse::Node::Max { a: diff, b: zero });
-        // `down` is the hand's own second arm: `(-diff).max(0)`, written
-        // `Max(Sub(prev, real), 0)` because IEEE subtraction is exactly
-        // antisymmetric (`round(b−a) = −round(a−b)`, both operands finite or
-        // infinite), so `prev − real` IS `-diff` to the bit and no `neg` value has
-        // to live anywhere.
-        //
-        // This used to be `down = up − diff`, one guard instead of two (−12% when
-        // each guard was a mispredicting branch, §6.22). It is NOT the same
-        // function: `diff = +∞` gives `up − diff = ∞ − ∞ = NaN` where the hand
-        // writes `(-∞).max(0)` = `+0.0`, and a NaN entering `up_sum`/`down_sum`
-        // poisons every later bar while a zero does not. `up_down_rewrite_proofs`
-        // sweeps ~7,000 movement classes and found it; the price regimes the
-        // parity matrices use never do, because they are finite. With the guard
-        // now one branchless `maxpd` (§6.25) the second arm costs an instruction,
-        // not a branch, so there is nothing left to trade correctness against.
-        let neg = r.add(crate::cse::Node::Sub { a: prev, b: real });
-        let down = r.add(crate::cse::Node::Max { a: neg, b: zero });
-        let up_avg = r.add(crate::cse::Node::Wilders {
-            src: up,
-            period,
-            composite: false,
-            feed: true,
-        });
-        let down_avg = r.add(crate::cse::Node::Wilders {
-            src: down,
-            period,
-            composite: false,
-            feed: true,
-        });
-        let total = r.add(crate::cse::Node::Add {
-            a: up_avg,
-            b: down_avg,
-        });
-        let ratio = r.add(crate::cse::Node::Div {
-            a: up_avg,
-            b: total,
-        });
-        let hundred = r.constant(100.0);
-        let line = r.add(crate::cse::Node::Mul {
-            a: hundred,
-            b: ratio,
-        });
-        // `prev_real` reporting: the hand keeps the last processed close so the
-        // next `calc` can difference against it. The engine's loop already holds
-        // that close in a register (it is the `real` operand of `diff`), so the
-        // mirror only has to hand it to the chunk-exit state store — no extra
-        // load, no arithmetic, and nothing called an EMA that is not one.
-        let prev_real = r.add(crate::cse::Node::Mirror { src: real });
-        r.kind = "rsi";
-        r.options = options.to_vec();
-        // hand `State` field order: the up lane, the down lane, `prev_real`
-        r.tail_inputs = vec![up_avg, down_avg, prev_real];
-        r.outputs
-            .push(crate::cse::Sink::iface_lead(line, period + 1));
-        r
+        crate::cse::recipes::rsi(options)
     }
 }
 

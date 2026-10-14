@@ -237,63 +237,7 @@ impl crate::cse::Planable for Cmo {
     ///   its input, but only after running the EMA's multiply and fused add, and
     ///   `get_states` reported it as an EMA that CMO has never seen.)
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let real = r.add(crate::cse::Node::Input { stream: 0 });
-        let l1 = r.add(crate::cse::Node::Lag { src: real, n: 1 });
-        let diff = r.add(crate::cse::Node::Sub { a: real, b: l1 });
-        let zero = r.constant(0.0);
-        // The hand's two arms, unrewritten — see `rsi`'s `down` comment for why
-        // the one-guard form `down = up − diff` was dropped (it yields `∞ − ∞` =
-        // NaN where the hand writes `+0.0`, and a NaN poisons the sum). Interning
-        // makes the shared `Sub{prev, real}`/`Max` free across `rsi`+`cmo`.
-        let up = r.add(crate::cse::Node::Max { a: diff, b: zero });
-        let neg = r.add(crate::cse::Node::Sub { a: l1, b: real });
-        let down = r.add(crate::cse::Node::Max { a: neg, b: zero });
-        let up_sum = r.add(crate::cse::Node::RollSum {
-            src: up,
-            period,
-            mean: false,
-            // cmo folds from the source's first published bar: its `Lag` clamp
-            // makes bar 0's movement an exact +0.0, so an early start adds zeros
-            // and cannot change the bits (`stoch` is the case that needs `skip`).
-            // Its init loop never evicts, so the steady form applies throughout.
-            skip: 0,
-            steady_from: 0,
-        });
-        let down_sum = r.add(crate::cse::Node::RollSum {
-            src: down,
-            period,
-            mean: false,
-            skip: 0,
-            steady_from: 0,
-        });
-        // `100.0 * (up_sum - down_sum) / (up_sum + down_sum)` parses left to
-        // right, so the DIVIDE's numerator is the already-scaled difference.
-        let hundred = r.constant(100.0);
-        let num = r.add(crate::cse::Node::Sub {
-            a: up_sum,
-            b: down_sum,
-        });
-        let scaled = r.add(crate::cse::Node::Mul { a: hundred, b: num });
-        let den = r.add(crate::cse::Node::Add {
-            a: up_sum,
-            b: down_sum,
-        });
-        let line = r.add(crate::cse::Node::Div { a: scaled, b: den });
-        let lp = r.add(crate::cse::Node::Lag {
-            src: real,
-            n: period,
-        });
-        let drop_real = r.add(crate::cse::Node::Mirror { src: lp });
-        let prev = r.add(crate::cse::Node::Mirror { src: real });
-        r.kind = "cmo";
-        r.options = options.to_vec();
-        // hand `State` field order: up_sum, down_sum, prev, drop_real.
-        r.tail_inputs = vec![up_sum, down_sum, prev, drop_real];
-        r.outputs
-            .push(crate::cse::Sink::iface_lead(line, period + 1));
-        r
+        crate::cse::recipes::cmo(options)
     }
 }
 

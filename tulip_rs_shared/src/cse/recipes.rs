@@ -337,6 +337,435 @@ pub fn medprice(_options: &[f64]) -> Recipe {
     r
 }
 
+/// `AO(s, l)` = `mean RollSum(medprice, s) − mean RollSum(medprice, l)` —
+/// the ring-backed pair over the ONE shared `medprice` node, spelled with
+/// the same `Mul(half, Add)` shape as [`medprice`] so interning collapses
+/// them (one computed medprice column per bar, one ring group of capacity
+/// `max(s, l)`; leave = eviction at the cap, age read below it). Streams:
+/// 0 = high, 1 = low; options `[short, long]` default to the hand module's
+/// consts `(5, 34)`. Publish lead = `long` EXPLICIT — the hand's LONG row
+/// begins one bar after the long roll's own defined-from (bar `long−1`)
+/// because its `init_state` never emits the fold-completion mean; clamping
+/// up there is exactly `leads`+explicit contract.
+pub fn ao(options: &[f64]) -> Recipe {
+    let short = options.first().copied().unwrap_or(5.0) as u32;
+    let long = options.get(1).copied().unwrap_or(34.0) as u32;
+    let mut r = Recipe::new();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let sum = r.add(Node::Add { a: hi, b: lo });
+    r.tag(sum, "hl_sum");
+    let half = r.constant(0.5);
+    r.tag(half, "half");
+    let med = r.add(Node::Mul { a: half, b: sum });
+    r.tag(med, "medprice");
+    let s_short = r.add(Node::RollSum {
+        src: med,
+        period: short,
+        mean: true,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(s_short, "sma_short");
+    let s_long = r.add(Node::RollSum {
+        src: med,
+        period: long,
+        mean: true,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(s_long, "sma_long");
+    let ao = r.add(Node::Sub {
+        a: s_short,
+        b: s_long,
+    });
+    r.tag(ao, "ao");
+    r.kind = "ao";
+    r.options = vec![short as f64, long as f64];
+    r.outputs.push(Sink::iface_lead(ao, long));
+    // Hand `Info::optional_outputs = ["short_sma", "long_sma", "medprice"]`
+    // — declared order, leads = each node's defined-from. The `medprice`
+    // mirror is the seam that lets AO fuse with supertrend/fisher: all read
+    // the SAME interned node.
+    r.optional_outputs.push(Sink::iface(s_short));
+    r.optional_outputs.push(Sink::iface(s_long));
+    r.optional_outputs.push(Sink::iface(med));
+    r
+}
+
+/// `HMA(p)` — ONE bespoke rolling node (E3 stage 3): the two inner WMA
+/// engines (p and p/2 with the hand's OFFSET init window), the diff series
+/// and its √p ring all live inside the op. It is NOT a recipe of generic
+/// Wmas — composition is not bit-exact (state2's fold weights restart at
+/// the offset window; the tail divides `wss/ww` BEFORE its subtractions).
+/// Publish lead `p + trunc(sqrt p)` = hand `init_state`'s returned start.
+pub fn hma(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let psqrt = (period as f64).sqrt() as u32;
+    let mut r = Recipe::new();
+    let close = r.add(Node::Input { stream: 0 });
+    let h = r.add(Node::Hma { src: close, period });
+    r.kind = "hma";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![h];
+    r.outputs.push(Sink::iface_lead(h, period + psqrt));
+    r
+}
+
+/// `FISHER(period)` — the fisher transform over the DERIVED medprice
+/// column, mirroring `fisher.rs::calc_fisher` op for op: `med = 0.5·(high+low)`
+/// (the SAME interned node AO/supertrend read — co-requesting fisher with AO
+/// adds zero arithmetic nodes, pinned by the merge canary); a
+/// `(period, period−1)` min/max pair over that derived column (the hand's
+/// `MirrorBuffer` + min/max states — an extremum ring, the fourth ring
+/// shape); `inner = (med−min)/max(max−min, 1e−3) − 0.5`; `val1` with the
+/// hand's if/elif clamp folded INTO the carried value (`IirClamped`,
+/// 0.66·inner + 0.67·prev); `fish = 0.5·(ln((1+val1)/(1−val1)) + prev)`
+/// (`Iir`); `signal = prev fish` (`Prev`). Parity law: 1e-12 RELATIVE vs
+/// the hand (`Node::Ln` is a host libm call — Handover §6.41).
+pub fn fisher(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::new();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let sum = r.add(Node::Add { a: hi, b: lo });
+    r.tag(sum, "hl_sum");
+    let half = r.constant(0.5);
+    let med = r.add(Node::Mul { a: half, b: sum });
+    r.tag(med, "medprice");
+    let mn = r.add(Node::RollMin {
+        src: med,
+        period,
+        look_back: period - 1,
+    });
+    r.tag(mn, "med_min");
+    let mx = r.add(Node::RollMax {
+        src: med,
+        period,
+        look_back: period - 1,
+    });
+    r.tag(mx, "med_max");
+    let eps = r.constant(0.001);
+    let range = r.add(Node::Sub { a: mx, b: mn });
+    let mm = r.add(Node::Max { a: range, b: eps });
+    let diff = r.add(Node::Sub { a: med, b: mn });
+    let ratio = r.add(Node::Div { a: diff, b: mm });
+    let inner = r.add(Node::Sub { a: ratio, b: half });
+    // clamp thresholds/values as Const children, BEFORE the node that uses
+    // them (their lead 0 keeps the arena order trivial).
+    let hi_t = r.constant(0.99);
+    let hi_v = r.constant(0.999);
+    let lo_t = r.constant(-0.99);
+    let lo_v = r.constant(-0.999);
+    let val1 = r.add(Node::IirClamped {
+        src: inner,
+        a_bits: 0.66f64.to_bits(),
+        b_bits: 0.67f64.to_bits(),
+        hi_t,
+        hi_v,
+        lo_t,
+        lo_v,
+    });
+    r.tag(val1, "val1");
+    let one = r.constant(1.0);
+    let numer = r.add(Node::Add { a: one, b: val1 });
+    let denom = r.add(Node::Sub { a: one, b: val1 });
+    let ln_arg = r.add(Node::Div { a: numer, b: denom });
+    let ln = r.add(Node::Ln { src: ln_arg });
+    r.tag(ln, "ln");
+    let fish = r.add(Node::Iir {
+        src: ln,
+        a_bits: 0.5f64.to_bits(),
+        b_bits: 0.5f64.to_bits(),
+    });
+    r.tag(fish, "fisher");
+    let signal = r.add(Node::Prev { src: fish });
+    r.tag(signal, "fisher_signal");
+    r.kind = "fisher";
+    r.options = vec![period as f64];
+    r.outputs.push(Sink::iface(fish));
+    r.outputs.push(Sink::iface(signal));
+    r
+}
+
+/// `STOCH` (slow stochastic) as a standalone request: three price streams,
+/// the fast-%K division over the shared `(k, k−1)` high/low rolls, slow %K as
+/// the mean of fast with `skip: 2`, and %D as the mean of the slow line. The
+/// denominator is `Max(dif, ε)` — the hand FLOORS at epsilon (a flat bar
+/// prints a huge fast %K; the engine must not "improve" that), the ε-guard
+/// and left-assoc `Div(Mul(100, sub), den)` transcription are bit-load-bearing.
+pub fn stoch(options: &[f64]) -> Recipe {
+    let k_period = options[0] as u32;
+    let k_slow = options[1] as u32;
+    let d_period = options[2] as u32;
+    let look_back = k_period.saturating_sub(1);
+
+    let mut r = Recipe::new();
+    let high = r.add(Node::Input { stream: 0 });
+    r.tag(high, "high");
+    let low = r.add(Node::Input { stream: 1 });
+    r.tag(low, "low");
+    let close = r.add(Node::Input { stream: 2 });
+    r.tag(close, "close");
+    let mx = r.add(Node::RollMax {
+        src: high,
+        period: k_period,
+        look_back,
+    });
+    let mn = r.add(Node::RollMin {
+        src: low,
+        period: k_period,
+        look_back,
+    });
+    let dif = r.add(Node::Sub { a: mx, b: mn });
+    let eps = r.constant(f64::EPSILON);
+    let den = r.add(Node::Max { a: dif, b: eps });
+    let mc = r.add(Node::Sub { a: close, b: mn });
+    let c100 = r.constant(100.0);
+    let num = r.add(Node::Mul { a: c100, b: mc });
+    let kfast = r.add(Node::Div { a: num, b: den });
+    // Slow %K: the hand discards fast %K's first two published values
+    // (its roll seeding), hence `skip: 2`.
+    let k_line = r.add(Node::RollSum {
+        src: kfast,
+        period: k_slow,
+        mean: true,
+        skip: 2,
+        // The hand's init loop runs to bar `k + k_slow + d − 1`, past the
+        // first full window, and inside it the eviction subtracts as its own
+        // statement — so the steady `sum += v - old` only begins at
+        // `k + k_slow + d`, exactly where %D starts printing.
+        steady_from: k_period + k_slow + d_period,
+    });
+    // %D: a mean of the slow %K line, folding from that line's first
+    // published bar — the hand's `prev_d` receives exactly those, and its
+    // init loop never evicts, so the steady form applies throughout.
+    let d_line = r.add(Node::RollSum {
+        src: k_line,
+        period: d_period,
+        mean: true,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.kind = "stoch";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface(k_line));
+    r.outputs
+        .push(Sink::iface_lead(d_line, k_period + k_slow + d_period));
+    r
+}
+
+/// `RSI(p)` as a standalone request: the movement `diff = real − Lag{real,1}`
+/// split through two `Max` gates into the hand's `up_down` arms, each fed to a
+/// mean-`Wilders` chain (seed = mean of the first `p` gated values, then the
+/// Wilders recurrence), and `line = 100·up_avg/(up_avg+down_avg)`. The second
+/// arm is `Max(Lag − real, 0)` — the antisymmetric difference, exact to the
+/// bit by IEEE — NOT the one-guard rewrite `up − diff`: on `diff = +∞` that
+/// rewrite returns `NaN` where the hand writes `+0.0`, and a NaN entering a
+/// Wilders chain poisons every later bar (`up_down_rewrite_proofs` swept
+/// ~7,000 movement classes and found it). Publish lead `period + 1` (hand
+/// `min_data = period + 2`); the state mirrors (`prev_real`) ride
+/// `tail_inputs`, outside the sink graph.
+pub fn rsi(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::new();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "price");
+    let prev = r.add(Node::Lag { src: real, n: 1 });
+    let diff = r.add(Node::Sub { a: real, b: prev });
+    let zero = r.constant(0.0);
+    let up = r.add(Node::Max { a: diff, b: zero });
+    r.tag(up, "up");
+    let neg = r.add(Node::Sub { a: prev, b: real });
+    let down = r.add(Node::Max { a: neg, b: zero });
+    r.tag(down, "down");
+    let up_avg = r.add(Node::Wilders {
+        src: up,
+        period,
+        composite: false,
+        feed: true,
+    });
+    r.tag(up_avg, "up_avg");
+    let down_avg = r.add(Node::Wilders {
+        src: down,
+        period,
+        composite: false,
+        feed: true,
+    });
+    r.tag(down_avg, "down_avg");
+    let total = r.add(Node::Add {
+        a: up_avg,
+        b: down_avg,
+    });
+    let ratio = r.add(Node::Div {
+        a: up_avg,
+        b: total,
+    });
+    r.tag(ratio, "ratio");
+    let hundred = r.constant(100.0);
+    let line = r.add(Node::Mul {
+        a: hundred,
+        b: ratio,
+    });
+    r.tag(line, "rsi");
+    // State mirror: the hand keeps the last processed close so the next
+    // `calc` can difference against it. Identity copy, feeds NO sink — the
+    // emitter's `Kind::Mirror` arm computes it dead in the steady loop and
+    // `get_states` (M1) is the real consumer. Verbatim from the runtime
+    // recipe: dropping it would break the `[Wilders, Wilders, Mirror]`
+    // state-layout contract in `restore_state`.
+    let prev_real = r.add(Node::Mirror { src: real });
+    r.kind = "rsi";
+    r.options = options.to_vec();
+    // hand `State` field order: the up lane, the down lane, `prev_real`
+    r.tail_inputs = vec![up_avg, down_avg, prev_real];
+    r.outputs.push(Sink::iface_lead(line, period + 1));
+    r
+}
+
+/// `STOCHRIS(p)` = `100·(rsi − min) / (max − min)` over the last `p` RSI
+/// values, with the RSI line itself an optional output — ONE option driving
+/// both the Wilders smoothing and the stochastic window, exactly as the hand
+/// wires it. The RSI half is the `rsi` leaf graph GRAFTED (the runtime
+/// recipe's `sub_at::<Rsi>` — same `Recipe::graft` call, so a co-requested
+/// `Rsi(p)` interning the whole movement chain, both Wilders chains, the
+/// division and the ×100 is the same stored stream as this recipe's optional
+/// rsi row. The rolls are `(p, p−1)` over a DERIVED source — the extremum
+/// ring machinery (proven on fisher's medprice rings).
+pub fn stochrsi(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::new();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "price");
+    // Exactly what the runtime recipe's `sub_at::<Rsi>(&[period], &[real])`
+    // does — graft the leaf rsi graph with stream 0 remapped onto `real`;
+    // `.primary` is the grafted rsi `line` node. The grafted `prev_real`
+    // mirror rides the arena dead (state channel, feeds no sink here).
+    let g = r.graft(rsi(options), &[real]);
+    let rsi = g.primary;
+    let mx = r.add(Node::RollMax {
+        src: rsi,
+        period,
+        look_back: period.saturating_sub(1),
+    });
+    let mn = r.add(Node::RollMin {
+        src: rsi,
+        period,
+        look_back: period.saturating_sub(1),
+    });
+    let kdif = r.add(Node::Sub { a: mx, b: mn });
+    let sub = r.add(Node::Sub { a: rsi, b: mn });
+    let c100 = r.constant(100.0);
+    let num = r.add(Node::Mul { a: c100, b: sub });
+    let q = r.add(Node::Div { a: num, b: kdif });
+    let eps = r.constant(f64::EPSILON);
+    // `if kdif < ε { 0.0 } else { q }` is `WhereLt` directly — the `<`-form
+    // mirror of `WhereGe`, which is what the hand actually writes. The reason
+    // it must be `<` and not `>=`: on a FLAT series the RSI line is exactly
+    // `0/0 = NaN`, so `kdif = max − min` is NaN, and an IEEE compare is false in
+    // BOTH directions there. The hand's `<` test therefore falls to the ELSE arm
+    // (the division) and keeps the NaN, which is what it prints; `WhereGe`'s
+    // false branch is the pinned `+0.0` and swallows it (the parity test failed
+    // on `stochrsi flat p3` until this node replaced a `0 − maxNum(0 − kdif, −∞)`
+    // mapping that cost three extra ops to buy the same NaN propagation).
+    let line = r.add(Node::WhereLt {
+        a: kdif,
+        b: eps,
+        t: q,
+    });
+    r.tag(line, "stochrsi");
+    r.kind = "stochrsi";
+    r.options = options.to_vec();
+    // leads: the rsi node exists from bar `p + 1`, the roll's window is
+    // complete at `2p − 1`, and the hand PRINTS from `2p` (`min_data =
+    // 2p + 1`), hence the explicit primary lead; the optional rsi row keeps
+    // rsi's own `p + 1` lead, matching `Rsi::output_length`.
+    r.outputs.push(Sink::iface_lead(line, period * 2));
+    r.optional_outputs = vec![Sink::iface_lead(rsi, period + 1)];
+    r
+}
+
+/// `CMO(p)` = `100·(Σup − Σdown) / (Σup + Σdown)` over the movement of the
+/// last `p` bars — the first consumer of `RollSum`, a rolling sum over a
+/// DERIVED source: what it accumulates is `up`/`down`, not a price, so the
+/// leaving term comes from a ring of that series' own recent values (two
+/// ring groups, each single-member cap `p`). Hand facts encoded here, read
+/// against `cycle_cmo(&real[1..], …, period, …)`:
+/// · `up_down(v, prev) = [diff.max(0), (-diff).max(0)]` with `diff = v − prev`
+///   and `prev = Lag{real, 1}` — the SAME nodes `rsi` builds (the negative
+///   arm written `Max(Lag − real, 0)`, exact by IEEE's antisymmetric
+///   subtraction), so an `rsi`+`cmo` query computes the movement ONCE; only
+///   the aggregation differs: RSI Wilder-smooths these, CMO rolls them up.
+/// · `init_state` folds bars `1..=p` (its `skip(1)`), so a full window
+///   exists at bar `p`. `RollSum` folds from bar 0 instead, and bar 0's
+///   movement is `[0.0, 0.0]` through the `Lag` clamp — adding a zero
+///   changes neither value nor rounding, so the two agree bit-for-bit.
+/// · `min_data = p + 2` while the first PRINTED bar is `p + 1`, hence the
+///   explicit sink lead. The state carries `prev` (last close) and
+///   `drop_real` (the close `p` bars back) as Mirrors — copies riding the
+///   `Input` and the `Lag{real, period}` nodes, so reporting them adds no
+///   arithmetic.
+pub fn cmo(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::new();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "price");
+    let l1 = r.add(Node::Lag { src: real, n: 1 });
+    let diff = r.add(Node::Sub { a: real, b: l1 });
+    let zero = r.constant(0.0);
+    let up = r.add(Node::Max { a: diff, b: zero });
+    r.tag(up, "up");
+    let neg = r.add(Node::Sub { a: l1, b: real });
+    let down = r.add(Node::Max { a: neg, b: zero });
+    r.tag(down, "down");
+    let up_sum = r.add(Node::RollSum {
+        src: up,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(up_sum, "up_sum");
+    let down_sum = r.add(Node::RollSum {
+        src: down,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(down_sum, "down_sum");
+    // `100.0 * (up_sum - down_sum) / (up_sum + down_sum)` parses left to
+    // right, so the DIVIDE's numerator is the already-scaled difference.
+    let hundred = r.constant(100.0);
+    let num = r.add(Node::Sub {
+        a: up_sum,
+        b: down_sum,
+    });
+    let scaled = r.add(Node::Mul { a: hundred, b: num });
+    let den = r.add(Node::Add {
+        a: up_sum,
+        b: down_sum,
+    });
+    let line = r.add(Node::Div { a: scaled, b: den });
+    r.tag(line, "cmo");
+    let lp = r.add(Node::Lag {
+        src: real,
+        n: period,
+    });
+    let drop_real = r.add(Node::Mirror { src: lp });
+    let prev = r.add(Node::Mirror { src: real });
+    r.kind = "cmo";
+    r.options = options.to_vec();
+    // hand `State` field order: up_sum, down_sum, prev, drop_real.
+    r.tail_inputs = vec![up_sum, down_sum, prev, drop_real];
+    r.outputs.push(Sink::iface_lead(line, period + 1));
+    r
+}
+
 /// `TR` as a standalone request: the true-range graph over the three price
 /// streams, publish lead 1 (`output_length = len − 1`). Stateless —
 /// `prevClose` is the `Lag` anchor, not a chain. The same nodes the ATR

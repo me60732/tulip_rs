@@ -16,10 +16,286 @@
 //! * `Max` = IEEE maxNum via `f64::max` (the hand's own NaN rule).
 
 use crate::cse::signature::{
-    Signature, Values, K_ABS, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_INPUT, K_LAG, K_MAX, K_MIRROR,
-    K_MUL, K_ROLLMAX, K_ROLLMIN, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERTREND, K_TRAIL, K_WHEREGE,
-    K_WHERELT, K_WILDERS, K_WMA, MAX, MAX_SINKS,
+    Signature, Values, K_ABS, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HMA, K_IIR, K_IIRCLAMPED,
+    K_INPUT, K_LAG, K_LN, K_MAX, K_MIRROR, K_MUL, K_PREV, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SMA,
+    K_SQRT, K_STDDEV, K_SUB, K_SUPERTREND, K_TRAIL, K_WHEREGE, K_WHERELT, K_WILDERS, K_WMA, MAX,
+    MAX_SINKS,
 };
+use crate::ring_buffer::multi_buffer::multi_mirror_buffer::MultiMirrorBuffer;
+use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer;
+use crate::types::Cold;
+use std::simd::Simd;
+
+/// Rings for DERIVED-source rolls (`K_ROLLSUM`): one ring per GROUP —
+/// interning already collapsed the shared source structurally, the leader
+/// slot is `Values::ring_of[k]` and `Values::ring_cap[leader]` the group's
+/// max period. The rings are the HAND's OWN `MirrorBuffer<Cold>` (the
+/// type the fisher extrema use: every push writes `vals[i]` AND
+/// `vals[i+capacity]`, so the window is ALWAYS a contiguous chronological
+/// slice), whose `push_with_info` returns the evicted bar from the fill-cap
+/// push onward exactly like the plain `Buffer<Cold>` the AO sums use.
+/// Group discipline: EXACTLY ONE RING PUSH PER BAR —
+/// `feed(g, t, x)` is idempotent within a bar (every roll of the group
+/// calls it with the same bar value; the first performs the push and stores
+/// the eviction), so reads see the ring AFTER this bar's push on the hand's
+/// side. The hand's `calc` — buffer-first. This makes the age read
+/// (`at(p)` = `med[t−p]`, the hand's post-push `get_by_period`) and the
+/// eviction correct for every arena order of the group's members. M1's
+/// resume inherits the hand's serde from the buffer type.
+#[derive(Clone)]
+pub struct RingSlot {
+    buf: MirrorBuffer<Cold>,
+    last_t: usize,
+    evicted: Option<f64>,
+}
+
+#[derive(Clone)]
+pub struct RingSet {
+    slots: Vec<Option<RingSlot>>,
+}
+
+impl Default for RingSet {
+    fn default() -> Self {
+        Self { slots: Vec::new() }
+    }
+}
+
+impl RingSet {
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+    #[inline(always)]
+    fn entry(&mut self, g: usize, cap: usize) -> &mut RingSlot {
+        while self.slots.len() <= g {
+            self.slots.push(None);
+        }
+        self.slots[g].get_or_insert_with(|| RingSlot {
+            buf: MirrorBuffer::new(cap.max(1)),
+            last_t: usize::MAX,
+            evicted: None,
+        })
+    }
+    /// Feed this bar's value into group `g`'s ring: the bar's first caller
+    /// pushes (recording the eviction); later group members are no-ops.
+    #[inline(always)]
+    pub fn feed(&mut self, g: usize, cap: usize, t: usize, v: f64) {
+        let s = self.entry(g, cap);
+        if s.last_t != t {
+            s.last_t = t;
+            s.evicted = s.buf.push_with_info(v);
+        }
+    }
+    /// This bar's eviction for the group, once the fill-cap passed
+    /// (`Some`) — the cap-owner roll's leaving bar.
+    #[inline(always)]
+    pub fn evicted(&self, g: usize) -> Option<f64> {
+        match &self.slots[g] {
+            Some(s) => s.evicted,
+            None => None,
+        }
+    }
+    /// Read `age` bars back from group `g`'s ring AFTER this bar's feed
+    /// (`at(g, p)` is the bar leaving a `p`-window — the hand's
+    /// post-push `get_by_period(SHORT_PERIOD)`).
+    #[inline(always)]
+    pub fn at(&self, g: usize, age: usize) -> f64 {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_by_period(age),
+            // Only reachable before any feed; every read bar feeds first.
+            None => 0.0,
+        }
+    }
+    /// The group ring's newest `len` values as ONE contiguous,
+    /// chronologically-ordered slice (oldest first) — the mirror invariant
+    /// exists for this: an extremum rescan walks it with the SAME
+    /// branchless `find_*_simd` the pointer rolls run on the raw stream
+    /// slice. Callers guarantee the window is complete (`len <= count`) —
+    /// the fold region never reads it.
+    #[inline(always)]
+    pub fn window(&self, g: usize, len: usize) -> &[f64] {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_slice_by_period(len),
+            None => &[],
+        }
+    }
+}
+
+/// The lane kernel's BATCHED ring authority (2026-10-13): the hand's own
+/// `MultiMirrorBuffer<L, f64, Cold>` — lane-major, LANE-MAJOR by the user's
+/// ruling (`fisher_simd.rs` is the existence proof): one array push per
+/// GROUP per bar replaces the L scalar `RingSet::feed` calls (the measured
+/// +4–5 % second-store tax and the L× protocol calls were the point), age
+/// reads come back as one `[f64; L]`, and the shared window-minus-newest-
+/// `offset` accessor feeds per-lane `find_*_simd` rescans. Trail carries
+/// live OUTSIDE the buffer (the kernels' `st`/`trail` arrays) — exactly the
+/// hand's split, and required: fold-region lanes must not push the buffer.
+/// Group discipline is the scalar `RingSet`'s, 1:1: `feed` idempotent per
+/// bar, first caller pushes and stashes the eviction, cap owners leave by
+/// `evicted_batch()`, siblings by `at_batch()` — reads see the ring AFTER
+/// this bar's push (buffer-first, the hand's order).
+#[derive(Clone)]
+pub struct RingSlotL<const L: usize> {
+    buf: MultiMirrorBuffer<L, f64, Cold>,
+    last_t: usize,
+    evicted: Option<[f64; L]>,
+}
+
+#[derive(Clone)]
+pub struct RingSetL<const L: usize> {
+    slots: Vec<Option<RingSlotL<L>>>,
+}
+
+impl<const L: usize> Default for RingSetL<L> {
+    fn default() -> Self {
+        Self { slots: Vec::new() }
+    }
+}
+
+impl<const L: usize> RingSetL<L> {
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+    #[inline(always)]
+    fn entry(&mut self, g: usize, cap: usize) -> &mut RingSlotL<L> {
+        while self.slots.len() <= g {
+            self.slots.push(None);
+        }
+        self.slots[g].get_or_insert_with(|| RingSlotL {
+            buf: MultiMirrorBuffer::<L, f64, Cold>::new(cap.max(1)),
+            last_t: usize::MAX,
+            evicted: None,
+        })
+    }
+    /// This bar's L-lane values into group `g`: the bar's first caller
+    /// pushes (recording the per-lane eviction); later members are no-ops.
+    #[inline(always)]
+    pub fn feed_batch(&mut self, g: usize, cap: usize, t: usize, v: [f64; L]) {
+        let s = self.entry(g, cap);
+        if s.last_t != t {
+            s.last_t = t;
+            s.evicted = s.buf.push_with_info(v);
+        }
+    }
+    /// This bar's per-lane eviction, `Some` once the fill-cap passed — the
+    /// cap-owner roll's leaving bar for ALL lanes at once.
+    #[inline(always)]
+    pub fn evicted_batch(&self, g: usize) -> Option<[f64; L]> {
+        match &self.slots[g] {
+            Some(s) => s.evicted,
+            None => None,
+        }
+    }
+    /// `age` bars back, all L lanes (post-push, the hand's `get_by_period`).
+    #[inline(always)]
+    pub fn at_batch(&self, g: usize, age: usize) -> [f64; L] {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_by_period(age),
+            None => [0.0; L],
+        }
+    }
+    /// The group's newest `len` values per lane as contiguous,
+    /// chronologically-ordered slices (oldest first) — the mirror invariant
+    /// makes each lane's TAIL contiguous, so an extremum rescan walks
+    /// `wins[lane]` with the SAME branchless `find_*_simd` the pointer rolls
+    /// run on the raw stream. Callers guarantee the window is complete
+    /// (`len <= count`) — the fold region never reads it.
+    #[inline(always)]
+    pub fn window(&self, g: usize, len: usize) -> [&[f64]; L] {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_slices_by_period(len),
+            None => std::array::from_fn(|_| {
+                let empty: &[f64] = &[];
+                empty
+            }),
+        }
+    }
+}
+
+/// The lane kernel's ring authority for PURE-SUM groups (2026-10-14): the
+/// VECTOR-ELEMENT layout — one ring per group whose SLOTS are whole
+/// `Simd<f64, L>` bars, i.e. the hand's own by-assets buffer type
+/// (`SimdBuffer<N> = Buffer<_, Simd<f64, N>>`, `cvi_simd.rs`'s `assets`
+/// module) held in `Cold` so the eviction is still an `Option` at the seam.
+/// Two differences from `RingSetL`, both deliberate:
+/// * ONE STORE PER BAR, not two: sums never rescan, so they do not need the
+///   mirror's contiguous per-lane tail — the mirror's second write is pure
+///   tax (the user's rule: only min/max buffers are mirror buffers; `cci.rs`
+///   keeps its `MirrorBuffer` import commented out for exactly this reason).
+/// * ONE vector push + ONE vector age read replaces `L` scattered scalar
+///   slots and the `[f64; L]` gather/scatter on both sides.
+/// LEGALITY: valid only where every lane advances in lockstep — same `t`,
+/// same age, same cap — which is what makes the leaving bar a single vector
+/// read. A group containing `RollMax`/`RollMin` cannot use this: its rescan
+/// trigger is per-lane and fires on different bars (the rescans are disjoint
+/// in time), so those groups keep the lane-major `RingSetL` above. Group
+/// discipline is unchanged: `feed` is idempotent per bar, the first caller
+/// pushes and stashes the eviction, cap owners leave by `evicted`, siblings
+/// by `at` — reads see the ring AFTER this bar's push (buffer-first).
+#[derive(Clone)]
+pub struct SimdRingSlot<const L: usize> {
+    buf: Buffer<Cold, Simd<f64, L>>,
+    last_t: usize,
+    evicted: Option<Simd<f64, L>>,
+}
+
+#[derive(Clone)]
+pub struct SimdRingSet<const L: usize> {
+    slots: Vec<Option<SimdRingSlot<L>>>,
+}
+
+impl<const L: usize> Default for SimdRingSet<L> {
+    fn default() -> Self {
+        Self { slots: Vec::new() }
+    }
+}
+
+impl<const L: usize> SimdRingSet<L> {
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+    #[inline(always)]
+    fn entry(&mut self, g: usize, cap: usize) -> &mut SimdRingSlot<L> {
+        while self.slots.len() <= g {
+            self.slots.push(None);
+        }
+        self.slots[g].get_or_insert_with(|| SimdRingSlot {
+            buf: Buffer::<Cold, Simd<f64, L>>::new(cap.max(1)),
+            last_t: usize::MAX,
+            evicted: None,
+        })
+    }
+    /// This bar's whole-vector value into group `g`: the bar's first caller
+    /// pushes (recording the vector eviction); later members are no-ops.
+    #[inline(always)]
+    pub fn feed(&mut self, g: usize, cap: usize, t: usize, v: Simd<f64, L>) {
+        let s = self.entry(g, cap);
+        if s.last_t != t {
+            s.last_t = t;
+            s.evicted = s.buf.push_with_info(v);
+        }
+    }
+    /// This bar's per-group eviction, `Some` once the fill-cap passed.
+    #[inline(always)]
+    pub fn evicted(&self, g: usize) -> Option<Simd<f64, L>> {
+        match &self.slots[g] {
+            Some(s) => s.evicted,
+            None => None,
+        }
+    }
+    /// `age` bars back, ALL lanes in one vector (post-push, the hand's
+    /// `get_by_period`) — legal only under the lockstep invariant above.
+    #[inline(always)]
+    pub fn at(&self, g: usize, age: usize) -> Simd<f64, L> {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_by_period(age),
+            None => Simd::splat(0.0),
+        }
+    }
+}
 
 /// One trail-rescan roll step — the hand's `max`/`min` `State` logic
 /// transcribed literally, `find_max_simd::<4>`/`find_min_simd::<4>` called
@@ -80,6 +356,61 @@ fn roll_step<const MAXD: bool>(
     }
 }
 
+/// Extremum roll over a DERIVED source (the fourth ring shape, fisher
+/// 2026-10-13): same trail semantics as [`roll_step`] — fold compares only
+/// the current value, the step rescan triggers at `p <= trail` — and the
+/// window reads go through the group ring's MIRROR slice
+/// (`window(g, lb+1)` — contiguous, oldest→newest), so the rescan calls
+/// the SAME `find_max_simd::<4>`/`find_min_simd::<4>` the pointer roll
+/// calls on the stream slice: last-position tie, `trail = lb − idx`,
+/// cannot drift by construction. The CALLER has already fed the group this
+/// bar (idempotent — sums and extrema over one src share a single push).
+fn roll_step_ring<const MAXD: bool>(
+    rings: &RingSet,
+    g: usize,
+    x: f64,
+    tr: usize,
+    p: usize,
+    lb: usize,
+    val: &mut f64,
+    trail: &mut usize,
+) -> f64 {
+    if tr < lb {
+        if tr == 0 {
+            *val = x;
+            *trail = 0;
+        } else {
+            let hit = if MAXD { x >= *val } else { x <= *val };
+            if hit {
+                *val = x;
+                *trail = 0;
+            } else {
+                *trail += 1;
+            }
+        }
+        0.0
+    } else {
+        *trail += 1;
+        if p <= *trail {
+            let window = rings.window(g, lb + 1);
+            let (v, idx) = if MAXD {
+                crate::indicators::max::find_max_simd::<4>(window)
+            } else {
+                crate::indicators::min::find_min_simd::<4>(window)
+            };
+            *val = v;
+            *trail = lb - idx;
+        } else {
+            let hit = if MAXD { x >= *val } else { x <= *val };
+            if hit {
+                *val = x;
+                *trail = 0;
+            }
+        }
+        *val
+    }
+}
+
 /// The warm-phase machine. `exec::<SIG, WARM>` steps bars `[t0, t1)` of
 /// pattern `SIG` against `Values`, writing carries (`st/stb/stc_ub/stlb/
 /// sumsq/wsum/trail`), per-bar node values (`v`), and lead-gated stores
@@ -106,6 +437,10 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
     sumsq: &mut [f64; MAX],   // Stddev sum-of-squares carry
     wsum: &mut [f64; MAX],    // Wma weighted-sum carry
     trail: &mut [usize; MAX], // RollMax/RollMin trail carry (Trail reads it)
+    rings: &mut RingSet,      // K_ROLLSUM group rings (leader-slot keyed)
+    // K_HMA's seven accumulators, mirroring `ChainState::Hma` order:
+    // [sum1, wsum1, sum2, wsum2, wss, ss, first_diff].
+    hacc: &mut [[f64; 7]; MAX],
     v: &mut [f64; MAX],
     out: &mut [*mut f64; MAX_SINKS],
     leads: &[u32; MAX_SINKS],
@@ -233,18 +568,253 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         wsum[k] * vals.mults[k]
                     }
                 }
+                K_ROLLSUM => {
+                    // Ring-backed rolling sum over any source (derived is
+                    // its point vs `Sma`). EXACTLY ONE RING PUSH PER GROUP
+                    // PER BAR: the cap-owning roll (p == cap, one exists by
+                    // construction since cap = group max) feeds the ring and
+                    // leaves by EVICTION; shorter siblings only age-read
+                    // `at(p)` — two pushes a bar would walk the shared ring
+                    // at double speed (first bug this arm shipped with).
+                    // Four regions, WYSIWYG vs the hand (stoch's slow %K is
+                    // the shape that unlocked skip/steady_from):
+                    //  fold   t < f+skip            `st += x` — skipped bars
+                    //         (feed only)            FEED the ring but never
+                    //                               sum; absolute age/evict
+                    //                               reads at the first leave
+                    //                               bar land on the same
+                    //                               window the hand's ring
+                    //                               holds (its own ring only
+                    //                               starts at f+skip, and the
+                    //                               first read is bar f+skip+p)
+                    //  seam   t == f+skip+p−1       `st += x; st·mults`
+                    //  init   seam < t < steady     `st += x; st −= leave;
+                    //                               st·mults` — TWO statements,
+                    //                               the hand's init loop
+                    //                               verbatim; folding `x −
+                    //                               leave` early flips ~60% of
+                    //                               the sums' last bits
+                    //  steady t >= steady_from      `st += x − leave; st·mults`
+                    //                               (hand `sma::calc` order)
+                    // steady_from = 0 collapses init into steady — every
+                    // pre-stoch shape keeps its exact old behavior.
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let p = vals.periods[k] as usize;
+                        let g = vals.ring_of[k] as usize;
+                        let cap = vals.ring_cap[g] as usize;
+                        let x = v[SIG.a[k] as usize];
+                        rings.feed(g, cap, t, x);
+                        let fold = f + vals.skip[k] as usize;
+                        if t < fold {
+                            0.0
+                        } else if t < fold + p - 1 {
+                            st[k] += x;
+                            0.0
+                        } else if t == fold + p - 1 {
+                            st[k] += x;
+                            st[k] * vals.mults[k]
+                        } else {
+                            let leave = if p == cap {
+                                rings.evicted(g).expect("cap roll steps on an evicting bar")
+                            } else {
+                                rings.at(g, p)
+                            };
+                            if (t as u32) < vals.steady_from[k] {
+                                st[k] += x;
+                                st[k] -= leave;
+                                st[k] * vals.mults[k]
+                            } else {
+                                st[k] += x - leave;
+                                st[k] * vals.mults[k]
+                            }
+                        }
+                    }
+                }
                 K_FMA => v[SIG.a[k] as usize].mul_add(v[SIG.b[k] as usize], v[SIG.c[k] as usize]),
+                K_HMA => {
+                    // The hand `hma.rs` machine transcribed statement for
+                    // statement: stage1 = WMA(n) folding bars `0..n` with
+                    // weights `1..=n`; stage2 = WMA(n/2) whose fold is the
+                    // hand's OFFSET window `[n−n2, n)` with LOCAL weights
+                    // restarting at 1 (this is why decomposition into generic
+                    // Wma nodes is not bit-exact); the diff `2·o2 − o1`
+                    // (fmul THEN fsub, hand order) feeds the tail: fold bars
+                    // `[n, n+m)` run `wss += d·m; ss += d; push; wss −= ss`
+                    // with the post-loop `ss −= first_diff` correction on
+                    // the last fold bar; warm bars run
+                    // `wss += d·m; ss += d; push; out = wss/ww; wss −= ss;
+                    // ss −= front()`, `front()` read post-push as
+                    // `at(m−1)` (same slot on a full ring). `m = trunc √p` —
+                    // integer truncation, like the hand.
+                    let n = vals.periods[k] as usize;
+                    let n2 = vals.roll_lb[k] as usize;
+                    let m = vals.lag_n[k] as usize;
+                    let g = vals.ring_of[k] as usize;
+                    let x = v[SIG.a[k] as usize];
+                    let [mut s1, mut w1, mut s2, mut w2, mut wss, mut ss, mut fd] = hacc[k];
+                    let o1 = if t < n {
+                        s1 += x;
+                        w1 += x * (t + 1) as f64;
+                        0.0
+                    } else {
+                        let old = streams[SIG.a[SIG.a[k] as usize] as usize][t - n];
+                        w1 -= s1;
+                        s1 += x - old;
+                        w1 += x * n as f64;
+                        w1 * vals.mults[k]
+                    };
+                    let o2 = if t < n {
+                        if t >= n - n2 {
+                            s2 += x;
+                            w2 += x * (t - (n - n2) + 1) as f64;
+                        }
+                        0.0
+                    } else {
+                        let old = streams[SIG.a[SIG.a[k] as usize] as usize][t - n2];
+                        w2 -= s2;
+                        s2 += x - old;
+                        w2 += x * n2 as f64;
+                        w2 * vals.invms[k]
+                    };
+                    let out = if t < n {
+                        0.0
+                    } else {
+                        let diff = 2.0 * o2 - o1;
+                        if t < n + m {
+                            wss += diff * vals.st_step[k];
+                            ss += diff;
+                            rings.feed(g, m, t, diff);
+                            wss -= ss;
+                            if t == n {
+                                fd = diff;
+                            }
+                            if t == n + m - 1 {
+                                ss -= fd;
+                            }
+                            0.0
+                        } else {
+                            wss += diff * vals.st_step[k];
+                            ss += diff;
+                            rings.feed(g, m, t, diff);
+                            let out = wss / vals.consts[k];
+                            wss -= ss;
+                            ss -= rings.at(g, m - 1);
+                            out
+                        }
+                    };
+                    hacc[k] = [s1, w1, s2, w2, wss, ss, fd];
+                    out
+                }
                 K_ROLLMAX => {
                     let p = vals.periods[k] as usize;
                     let lb = vals.roll_lb[k] as usize;
-                    let src = streams[SIG.a[SIG.a[k] as usize] as usize];
-                    roll_step::<true>(src, t, p, lb, &mut st[k], &mut trail[k])
+                    if SIG.kinds[SIG.a[k] as usize] == K_INPUT {
+                        let src = streams[SIG.a[SIG.a[k] as usize] as usize];
+                        roll_step::<true>(src, t, p, lb, &mut st[k], &mut trail[k])
+                    } else {
+                        // derived source: the src column rides the group ring
+                        // (feeds gate at `feeds[k]`, the bar the src defines).
+                        let f = vals.feeds[k] as usize;
+                        if t < f {
+                            0.0
+                        } else {
+                            let g = vals.ring_of[k] as usize;
+                            let cap = vals.ring_cap[g] as usize;
+                            let x = v[SIG.a[k] as usize];
+                            rings.feed(g, cap, t, x);
+                            roll_step_ring::<true>(
+                                rings,
+                                g,
+                                x,
+                                t - f,
+                                p,
+                                lb,
+                                &mut st[k],
+                                &mut trail[k],
+                            )
+                        }
+                    }
                 }
                 K_ROLLMIN => {
                     let p = vals.periods[k] as usize;
                     let lb = vals.roll_lb[k] as usize;
-                    let src = streams[SIG.a[SIG.a[k] as usize] as usize];
-                    roll_step::<false>(src, t, p, lb, &mut st[k], &mut trail[k])
+                    if SIG.kinds[SIG.a[k] as usize] == K_INPUT {
+                        let src = streams[SIG.a[SIG.a[k] as usize] as usize];
+                        roll_step::<false>(src, t, p, lb, &mut st[k], &mut trail[k])
+                    } else {
+                        let f = vals.feeds[k] as usize;
+                        if t < f {
+                            0.0
+                        } else {
+                            let g = vals.ring_of[k] as usize;
+                            let cap = vals.ring_cap[g] as usize;
+                            let x = v[SIG.a[k] as usize];
+                            rings.feed(g, cap, t, x);
+                            roll_step_ring::<false>(
+                                rings,
+                                g,
+                                x,
+                                t - f,
+                                p,
+                                lb,
+                                &mut st[k],
+                                &mut trail[k],
+                            )
+                        }
+                    }
+                }
+                K_LN => v[SIG.a[k] as usize].ln(),
+                K_IIR => {
+                    // `prev·b + src·a` — the Ema op shape with explicit
+                    // weights (the fold `mul_add(prev, invm, src·mult)`);
+                    // idles below `feeds[k]` with the carry at its zero
+                    // init (the hand's state carries; NO seed bar).
+                    let s = v[SIG.a[k] as usize];
+                    let feed = vals.feeds[k] as usize;
+                    if t < feed {
+                        0.0
+                    } else {
+                        st[k] = st[k].mul_add(vals.invms[k], s * vals.mults[k]);
+                        st[k]
+                    }
+                }
+                K_IIRCLAMPED => {
+                    // hand `calc_fisher` val1 op for op: the ONE mul_add in
+                    // the hand's operand order (`mult.mul_add(inner, invm·prev)`
+                    // — fma(a, x, round(b·prev)), NOT the Ema-side swap: a/b
+                    // here are not exact halves, so association is visible),
+                    // then the if/elif clamp folded into the CARRIED value
+                    // (the clamped number is what feeds next bar and the ln).
+                    let s = v[SIG.a[k] as usize];
+                    let feed = vals.feeds[k] as usize;
+                    if t < feed {
+                        0.0
+                    } else {
+                        let mut nv = vals.mults[k].mul_add(s, st[k] * vals.invms[k]);
+                        if nv > vals.consts[SIG.b[k] as usize] {
+                            nv = vals.consts[SIG.c[k] as usize];
+                        } else if nv < vals.consts[SIG.d[k] as usize] {
+                            nv = vals.consts[SIG.e[k] as usize];
+                        }
+                        st[k] = nv;
+                        nv
+                    }
+                }
+                K_PREV => {
+                    // delayed copy (K_PREV doc): emit the slot, then shadow
+                    // the src chain's THIS-bar value into it. Arena order
+                    // guarantees the src computed before this arm runs.
+                    let feed = vals.feeds[k] as usize;
+                    if t < feed {
+                        0.0
+                    } else {
+                        let x = st[k];
+                        st[k] = v[SIG.a[k] as usize];
+                        x
+                    }
                 }
                 K_TRAIL => trail[SIG.a[k] as usize] as f64,
                 K_WHEREGE => {

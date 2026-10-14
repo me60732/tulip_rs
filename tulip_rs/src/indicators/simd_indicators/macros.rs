@@ -336,16 +336,20 @@ macro_rules! extract_simd_from_ptrs {
 /// Field names must match between `SimdState` and `Self::ScalarState`. Either list may be
 /// empty. Trailing commas are allowed. Omitting `buf:` is backwards-compatible.
 ///
-/// # Usage — sub + f64 only
-/// ```
+/// # Usage — sub + scalar only
+///
+/// The examples below are METHOD FRAGMENTS for a `TSimdState` impl (they expand
+/// to a bare `fn from_states(...)` referencing `Self`), so they are marked
+/// `ignore` — the live, compiling uses are the `by_asset` modules.
+/// ```ignore
 /// tulip_rs::simd_state_from_state!(
 ///     sub: [(dx_state: DxSimdState<N>)],
-///     f64: [adx, prev_close]
+///     scalar: [adx, prev_close]
 /// );
 /// ```
 ///
 /// # Usage — with ring buffers
-/// ```
+/// ```ignore
 /// tulip_rs::simd_state_from_state!(
 ///     sub: [(adx_state: AdxSimdState<N>)],
 ///     scalar: [],
@@ -393,7 +397,7 @@ macro_rules! simd_state_from_state {
         scalar: [ $( $ff_field:ident ),* $(,)? ],
         buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ]
     ) => {
-        crate::simd_state_from_state!(
+        $crate::simd_state_from_state!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ],
             buf: [ $( ($bf_field : $BufType, $constructor) ),* ],
@@ -405,7 +409,7 @@ macro_rules! simd_state_from_state {
         sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
         scalar: [ $( $ff_field:ident ),* $(,)? ]
     ) => {
-        crate::simd_state_from_state!(
+        $crate::simd_state_from_state!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ],
             buf: [],
@@ -424,16 +428,19 @@ macro_rules! simd_state_from_state {
 /// constructor name in `buf` entries is accepted for syntax consistency with
 /// [`simd_state_from_state!`] but is not used here.
 ///
-/// # Usage — sub + f64 only
-/// ```
+/// # Usage — sub + scalar only
+///
+/// Method fragment for a `TSimdState` impl (see [`simd_state_from_state!`] for
+/// why these are `ignore`).
+/// ```ignore
 /// tulip_rs::simd_state_write!(
 ///     sub: [(dx_state: DxSimdState<N>)],
-///     f64: [adx]
+///     scalar: [adx]
 /// );
 /// ```
 ///
 /// # Usage — with ring buffers
-/// ```
+/// ```ignore
 /// tulip_rs::simd_state_write!(
 ///     sub: [(adx_state: AdxSimdState<N>)],
 ///     scalar: [],
@@ -480,7 +487,7 @@ macro_rules! simd_state_write {
         scalar: [ $( $ff_field:ident ),* $(,)? ],
         buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ]
     ) => {
-        crate::simd_state_write!(
+        $crate::simd_state_write!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ],
             buf: [ $( ($bf_field : $BufType, $constructor) ),* ],
@@ -492,7 +499,7 @@ macro_rules! simd_state_write {
         sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
         scalar: [ $( $ff_field:ident ),* $(,)? ]
     ) => {
-        crate::simd_state_write!(
+        $crate::simd_state_write!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ],
             buf: [],
@@ -508,8 +515,11 @@ macro_rules! simd_state_write {
 /// arguments. When some fields should not be written back (e.g. cached multipliers), use
 /// those two macros separately instead.
 ///
-/// # Usage — sub + f64 only
-/// ```
+/// # Usage — sub + scalar only
+///
+/// Illustrative only (`ignore`): `TSimdState`/`SimdState`/`State` are the
+/// caller's own items — see a `by_asset` module for the compiling shape.
+/// ```ignore
 /// impl<const N: usize> TSimdState for SimdState<N> {
 ///     type ScalarState = State;
 ///     tulip_rs::simd_state_impl!(
@@ -520,7 +530,7 @@ macro_rules! simd_state_write {
 /// ```
 ///
 /// # Usage — with ring buffers
-/// ```
+/// ```ignore
 ///  tulip_rs::simd_state_impl!(
 ///     sub: [(adx_state: AdxSimdState<N>)],
 ///     scalar: [],
@@ -536,13 +546,13 @@ macro_rules! simd_state_impl {
         buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ],
         mask: [ $( $mf_field:ident ),* $(,)? ]
     ) => {
-        crate::simd_state_from_state!(
+        $crate::simd_state_from_state!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ],
             buf: [ $( ($bf_field : $BufType, $constructor) ),* ],
             mask: [ $( $mf_field ),* ]
         );
-        crate::simd_state_write!(
+        $crate::simd_state_write!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ],
             buf: [ $( ($bf_field : $BufType, $constructor) ),* ],
@@ -555,12 +565,12 @@ macro_rules! simd_state_impl {
         scalar: [ $( $ff_field:ident ),* $(,)? ],
         buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ]
     ) => {
-        crate::simd_state_from_state!(
+        $crate::simd_state_from_state!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ],
             buf: [ $( ($bf_field : $BufType, $constructor) ),* ]
         );
-        crate::simd_state_write!(
+        $crate::simd_state_write!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ],
             buf: [ $( ($bf_field : $BufType, $constructor) ),* ]
@@ -571,11 +581,11 @@ macro_rules! simd_state_impl {
         sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
         scalar: [ $( $ff_field:ident ),* $(,)? ]
     ) => {
-        crate::simd_state_from_state!(
+        $crate::simd_state_from_state!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ]
         );
-        crate::simd_state_write!(
+        $crate::simd_state_write!(
             sub: [ $( ($sf_field : $SubType) ),* ],
             scalar: [ $( $ff_field ),* ]
         );

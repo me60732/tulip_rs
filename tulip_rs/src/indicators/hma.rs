@@ -298,19 +298,11 @@ impl crate::cse::Planable for Hma {
     /// series and its `√p` ring all live inside the op. It is NOT a
     /// recipe of generic Wmas — composition is not bit-exact (documented
     /// in Handover E3). Publish lead = `p + trunc(sqrt(p))` — the hand
-    /// `init_state`'s returned start.
+    /// `init_state`'s returned start. The graph lives in the leaf
+    /// (`cse::recipes::hma`) — one source shared with the `kernel!`
+    /// generator.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let psqrt = (period as f64).sqrt() as u32;
-        let mut r = crate::cse::Recipe::new();
-        let close = r.add(crate::cse::Node::Input { stream: 0 });
-        let h = r.add(crate::cse::Node::Hma { src: close, period });
-        r.kind = "hma";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![h];
-        r.outputs
-            .push(crate::cse::Sink::iface_lead(h, period + psqrt));
-        r
+        crate::cse::recipes::hma(options)
     }
 }
 

@@ -294,7 +294,14 @@ pub fn expand(patterns: &[Pattern]) -> TokenStream {
     // Asset-lane kernels (`<name>_assets<const L>`): the non-packed twins —
     // the asset axis IS the lane axis for these shapes; period-packing per
     // asset would vectorize the same work twice. Bit-equal to the scalar
-    // kernel per asset (pinned by `*_assets_match_scalar` registry tests).
+    // kernel per asset (pinned by `*_assets_match_scalar` registry tests) —
+    // EXCEPT fisher's lanes, where `Ln` runs the hand's SIMD `ln_unchecked`
+    // (≤ 20-ULP from libm; the parity test compares 1e-12 relative).
+    // All ring shapes are laneable since 2026-10-13: each asset gets its
+    // own RingSet/HMA carry (group coordinates are per-arena facts), the
+    // derived extrema ride the per-lane mask-dispatched mirror-window walk
+    // (the hand's `min_chuncked` shape), and the IIR/clamp/prev chain is
+    // plain vector ops with the hand `fisher_simd`'s exact forms.
     let asset_pats: Vec<&Pattern> = patterns.iter().filter(|p| !p.packed).collect();
     let asset_fns: Vec<TokenStream> = asset_pats.iter().map(|p| run_assets_fn(p)).collect();
     let asset_calls: Vec<TokenStream> = asset_pats
@@ -362,7 +369,7 @@ fn sig_const(p: &Pattern) -> TokenStream {
         .map(|x| {
             if matches!(
                 x.kind,
-                Kind::SuperTrend | Kind::Fma | Kind::WhereGe | Kind::WhereLt
+                Kind::SuperTrend | Kind::Fma | Kind::WhereGe | Kind::WhereLt | Kind::IirClamped
             ) {
                 x.c.unwrap_or(0) as u32
             } else {
@@ -370,6 +377,9 @@ fn sig_const(p: &Pattern) -> TokenStream {
             }
         })
         .collect();
+    // K_IIRCLAMPED's lo_t/lo_v refs (every other kind: 0, matching erase).
+    let d: Vec<u32> = p.nodes.iter().map(|x| x.d as u32).collect();
+    let e: Vec<u32> = p.nodes.iter().map(|x| x.e as u32).collect();
     let sinks: Vec<u32> = p.sinks.iter().map(|s| *s as u32).collect();
     // Compute n_streams from Input nodes (max stream index + 1)
     let max_stream = p
@@ -390,6 +400,8 @@ fn sig_const(p: &Pattern) -> TokenStream {
             &[#(#a),*],
             &[#(#b),*],
             &[#(#c),*],
+            &[#(#d),*],
+            &[#(#e),*],
             &[#(#sinks),*],
             #n_streams,
         );
@@ -562,11 +574,88 @@ fn run_fn(p: &Pattern) -> TokenStream {
     // the hand's `real[j]` shape exactly).
     let mut roll_hoists = Vec::new();
     for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::RollSum {
+            // Ring-backed roll: carry = the window SUM (seeded from exec's
+            // st[]), plus the group coordinates read once per run: leader
+            // slot, capacity, and the compile-once flag saying whether THIS
+            // roll is the cap owner (leave = eviction) or shorter (leave =
+            // age read at p) — the hand's ao.rs `calc` split, no per-bar
+            // comparison.
+            let ident_k = idents[k].clone();
+            let ck = format_ident!("{}_carry", ident_k);
+            let mk = format_ident!("{}_mult", ident_k);
+            let pk = format_ident!("{}_p", ident_k);
+            let gk = format_ident!("{}_grp", ident_k);
+            let cp = format_ident!("{}_cap", ident_k);
+            let evi = format_ident!("{}_evi", ident_k);
+            let ki = k;
+            roll_hoists.push(quote! {
+                let mut #ck = st[#ki];
+                let #mk = vals.mults[#ki];
+                let #pk = vals.periods[#ki] as usize;
+                let #gk = vals.ring_of[#ki] as usize;
+                let #cp = vals.ring_cap[#gk] as usize;
+                let #evi = #pk == #cp;
+            });
+            continue;
+        }
+        if node.kind == Kind::Hma {
+            // Bespoke machine: destructure the seven accumulators INTO
+            // named locals after warm (hacc is then dead — the steady loop
+            // owns them, LLVM keeps them live), plus every per-node
+            // constant the hand's step region needs and the two
+            // pre-sliced leaving pointers (bars ≥ gate > n ⇒ pure step
+            // region: stage1/stage2/tail all step form).
+            let ik = idents[k].clone();
+            let (s1, w1) = (format_ident!("{ik}_s1"), format_ident!("{ik}_w1"));
+            let (s2, w2) = (format_ident!("{ik}_s2"), format_ident!("{ik}_w2"));
+            let (wss, ss, fd) = (
+                format_ident!("{ik}_wss"),
+                format_ident!("{ik}_ss"),
+                format_ident!("{ik}_fd"),
+            );
+            let (n1, n2, p1, p2f) = (
+                format_ident!("{ik}_n"),
+                format_ident!("{ik}_n2"),
+                format_ident!("{ik}_p1"),
+                format_ident!("{ik}_p2f"),
+            );
+            let (m1, m2, mp, ww) = (
+                format_ident!("{ik}_m1"),
+                format_ident!("{ik}_m2"),
+                format_ident!("{ik}_mp"),
+                format_ident!("{ik}_ww"),
+            );
+            let (mm, mm1) = (format_ident!("{ik}_m"), format_ident!("{ik}_m1s"));
+            let (pv1, pv2) = (format_ident!("{ik}_pv1"), format_ident!("{ik}_pv2"));
+            let sbase = format_ident!("s{}", p.nodes[node.a].a);
+            let ki = k;
+            roll_hoists.push(quote! {
+                let [mut #s1, mut #w1, mut #s2, mut #w2,
+                     mut #wss, mut #ss, mut #fd] = hacc[#ki];
+                let #n1 = vals.periods[#ki] as usize;
+                let #n2 = vals.roll_lb[#ki] as usize;
+                let #p1 = vals.periods[#ki] as f64;
+                let #p2f = vals.roll_lb[#ki] as f64;
+                let #m1 = vals.mults[#ki];
+                let #m2 = vals.invms[#ki];
+                let #mp = vals.st_step[#ki];
+                let #ww = vals.consts[#ki];
+                let #mm = vals.lag_n[#ki] as usize;
+                let #mm1 = #mm - 1usize;
+                let #pv1 = unsafe { #sbase.sub(#n1) };
+                let #pv2 = unsafe { #sbase.sub(#n2) };
+                let _ = &mut #fd; // fold-only accumulator: steady never touches it
+            });
+            continue;
+        }
         if matches!(
             node.kind,
             Kind::Sma | Kind::Stddev | Kind::Wma | Kind::RollMax | Kind::RollMin
         ) {
-            if !matches!(p.nodes[node.a].kind, Kind::Input) {
+            let derived_roll = matches!(node.kind, Kind::RollMax | Kind::RollMin)
+                && !matches!(p.nodes[node.a].kind, Kind::Input);
+            if !matches!(p.nodes[node.a].kind, Kind::Input) && !derived_roll {
                 panic!(
                     "kernel!: rolling node {k} over a derived source is not emittable (needs the host anchor)"
                 );
@@ -576,6 +665,26 @@ fn run_fn(p: &Pattern) -> TokenStream {
             let pk = format_ident!("{}_p", ident_k);
             let ki = k;
             let sp = format_ident!("s{}", p.nodes[node.a].a);
+            if derived_roll {
+                // EXTREMUM RING form (fisher): the rescan window rides the
+                // group ring like the sums do — hoist carries, trigger,
+                // window span, and the group coords. Steady bars are all
+                // past the fold (sink lead ≥ roll lead = feed + period−1),
+                // so the emitted arm is the pure step.
+                let tc = format_ident!("{}_trail", ident_k);
+                let lbk = format_ident!("{}_lb", ident_k);
+                let gk = format_ident!("{}_grp", ident_k);
+                let cp = format_ident!("{}_cap", ident_k);
+                roll_hoists.push(quote! {
+                    let mut #ck = st[#ki];
+                    let mut #tc = trail[#ki];
+                    let #pk = vals.periods[#ki] as usize;
+                    let #lbk = vals.roll_lb[#ki] as usize;
+                    let #gk = vals.ring_of[#ki] as usize;
+                    let #cp = vals.ring_cap[#gk] as usize;
+                });
+                continue;
+            }
             if matches!(node.kind, Kind::RollMax | Kind::RollMin) {
                 // Trail-rescan roll: value+trail carries, the trigger p, the
                 // window (`look_back + 1`), and a WINDOW BASE POINTER —
@@ -623,6 +732,42 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 }
                 _ => {}
             }
+        }
+    }
+    // IIR-family carry hoists (Kind::Iir/IirClamped/Prev): the recurrence
+    // locals ride `st[k]` (exec seeded/carried them — idling below feed
+    // left the hand's zero init untouched), weights are VALUES
+    // (`mults`=a/`invms`=b), and IirClamped's four clamp Consts read by
+    // slot through the signature's b/c/d/e refs (compile-time literals).
+    for (k, node) in p.nodes.iter().enumerate() {
+        if !matches!(node.kind, Kind::Iir | Kind::IirClamped | Kind::Prev) {
+            continue;
+        }
+        let ident_k = idents[k].clone();
+        let ck = format_ident!("{}_carry", ident_k);
+        let ki = k;
+        roll_hoists.push(quote! { let mut #ck = st[#ki]; });
+        if node.kind == Kind::Prev {
+            continue;
+        }
+        let mk = format_ident!("{}_mult", ident_k);
+        let ik = format_ident!("{}_inv", ident_k);
+        roll_hoists.push(quote! {
+            let #mk = vals.mults[#ki];
+            let #ik = vals.invms[#ki];
+        });
+        if node.kind == Kind::IirClamped {
+            let ht = format_ident!("{}_hi_t", ident_k);
+            let hv = format_ident!("{}_hi_v", ident_k);
+            let lt = format_ident!("{}_lo_t", ident_k);
+            let lv = format_ident!("{}_lo_v", ident_k);
+            let (b, c, d, e) = (node.b, node.c.unwrap_or(0), node.d, node.e);
+            roll_hoists.push(quote! {
+                let #ht = vals.consts[#b];
+                let #hv = vals.consts[#c];
+                let #lt = vals.consts[#d];
+                let #lv = vals.consts[#e];
+            });
         }
     }
     let mut lead_hoists = Vec::new();
@@ -829,6 +974,15 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 let ea = ev(node.a, &idents);
                 body.push(quote! { let #xk = #ea.abs(); });
             }
+            Kind::Mirror => {
+                // State mirror (rsi's `prev_real`, cmo's `prev`/`drop_real`):
+                // an identity copy computed every bar, feeding NO sink — it
+                // exists for the chunk-exit state store (`get_states`, M1).
+                // LLVM dead-code-eliminates it when nothing reads `x{k}`;
+                // exec's `K_MIRROR` arm is the same no-op on the warm path.
+                let ea = ev(node.a, &idents);
+                body.push(quote! { let #xk = #ea; });
+            }
             Kind::Fma => {
                 // single-rounded: one `mul_add`, matching kernel K_FMA and
                 // the hand's `x.mul_add(y, z)` (bbands' band edges).
@@ -952,6 +1106,86 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     };
                 });
             }
+            Kind::RollSum => {
+                // Steady bars are all past the seam (gate > every roll's
+                // feed+p), so the arm is the pure step: push, take the
+                // leaving bar (eviction for the cap owner, age read for a
+                // shorter sibling — the hoisted flag), hand `sma::calc`
+                // form `st += x − leave; st·mult`. The ring object is
+                // exec's from the warm phase — the fold/eviction state
+                // carries over, bit-continuous across the seam.
+                let ident_k = idents[k].clone();
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let pk = format_ident!("{}_p", ident_k);
+                let gk = format_ident!("{}_grp", ident_k);
+                let cp = format_ident!("{}_cap", ident_k);
+                let evi = format_ident!("{}_evi", ident_k);
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let x = #src;
+                        // One push per group per bar (idempotent feed —
+                        // exec's warm phase obeys the same rule); then the
+                        // hand's post-push read: eviction for the cap
+                        // owner, age read for shorter siblings.
+                        rings.feed(#gk, #cp, gate + i, x);
+                        let leave = if #evi {
+                            rings.evicted(#gk).expect("cap roll steps on an evicting bar")
+                        } else {
+                            rings.at(#gk, #pk)
+                        };
+                        #ck += x - leave;
+                        #ck * #mk
+                    };
+                });
+            }
+            Kind::Hma => {
+                // Hand `hma.rs::calc` warm region, statement for statement
+                // (gate > n+m ⇒ every steady bar is a step bar): stage1
+                // WMA step, stage2 WMA step, `2·o2 − o1`, then the tail's
+                // push/divide/subtract order EXACTLY as the hand —
+                // `wss −= ss` before `ss −= front()` reads the post-push
+                // oldest (age m−1, same slot as the hand's `front()`).
+                let ik = idents[k].clone();
+                let (s1, w1) = (format_ident!("{ik}_s1"), format_ident!("{ik}_w1"));
+                let (s2, w2) = (format_ident!("{ik}_s2"), format_ident!("{ik}_w2"));
+                let (wss, ss) = (format_ident!("{ik}_wss"), format_ident!("{ik}_ss"));
+                let (p1, p2f) = (format_ident!("{ik}_p1"), format_ident!("{ik}_p2f"));
+                let (m1, m2, mp, ww) = (
+                    format_ident!("{ik}_m1"),
+                    format_ident!("{ik}_m2"),
+                    format_ident!("{ik}_mp"),
+                    format_ident!("{ik}_ww"),
+                );
+                let (mm, mm1) = (format_ident!("{ik}_m"), format_ident!("{ik}_m1s"));
+                let (pv1, pv2) = (format_ident!("{ik}_pv1"), format_ident!("{ik}_pv2"));
+                let src = ev(node.a, &idents);
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let x = #src;
+                        let old1 = unsafe { *#pv1.add(i) };
+                        #w1 -= #s1;
+                        #s1 += x - old1;
+                        #w1 += x * #p1;
+                        let o1 = #w1 * #m1;
+                        let old2 = unsafe { *#pv2.add(i) };
+                        #w2 -= #s2;
+                        #s2 += x - old2;
+                        #w2 += x * #p2f;
+                        let o2 = #w2 * #m2;
+                        let diff = 2.0 * o2 - o1;
+                        #wss += diff * #mp;
+                        #ss += diff;
+                        rings.feed(#ki, #mm, gate + i, diff);
+                        let out = #wss / #ww;
+                        #wss -= #ss;
+                        #ss -= rings.at(#ki, #mm1);
+                        out
+                    };
+                });
+            }
             Kind::Trail => {
                 // The roll's carried trail projected as a value (aroon's
                 // `(p − trail)` arithmetic consumes it downstream). No own
@@ -981,14 +1215,64 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     let #xk = if #ea < #eb { 0.0 } else { #ec };
                 });
             }
-            Kind::RollMax => {
+            Kind::RollMax | Kind::RollMin => {
                 let ident_k = idents[k].clone();
                 let vc = format_ident!("{}_carry", ident_k);
                 let tc = format_ident!("{}_trail", ident_k);
                 let pk = format_ident!("{}_p", ident_k);
+                let src = ev(node.a, &idents);
+                let is_max = node.kind == Kind::RollMax;
+                if !matches!(p.nodes[node.a].kind, Kind::Input) {
+                    // EXTREMUM RING step (fisher): feed the group (idempotent
+                    // — one push per src per bar, shared with any sums), then
+                    // the same trail machine as the pointer arm. The rescan
+                    // walks the MIRROR window (`RingSet::window` — contiguous,
+                    // oldest→newest) with the pointer arm's OWN
+                    // `find_*_simd::<4>`: the last-position tie and the
+                    // `trail = lb − ri` rule cannot drift by construction.
+                    let lbk = format_ident!("{}_lb", ident_k);
+                    let gk = format_ident!("{}_grp", ident_k);
+                    let cp = format_ident!("{}_cap", ident_k);
+                    let finder = if is_max {
+                        quote! { crate::indicators::max::find_max_simd::<4> }
+                    } else {
+                        quote! { crate::indicators::min::find_min_simd::<4> }
+                    };
+                    let ge = if is_max {
+                        quote! { >= }
+                    } else {
+                        quote! { <= }
+                    };
+                    body.push(quote! {
+                        let #xk = {
+                            let current = #src;
+                            rings.feed(#gk, #cp, gate + i, current);
+                            #tc = #tc + 1;
+                            if #pk <= #tc {
+                                let (rv, ri) = #finder(rings.window(#gk, #lbk + 1));
+                                #vc = rv;
+                                #tc = #lbk - ri;
+                            } else if current #ge #vc {
+                                #vc = current;
+                                #tc = 0;
+                            }
+                            #vc
+                        };
+                    });
+                    continue;
+                }
                 let win = format_ident!("{}_win", ident_k);
                 let wb = format_ident!("{}_wb", ident_k);
-                let src = ev(node.a, &idents);
+                let finder = if is_max {
+                    quote! { crate::indicators::max::find_max_simd::<4> }
+                } else {
+                    quote! { crate::indicators::min::find_min_simd::<4> }
+                };
+                let ge_or_le = if is_max {
+                    quote! { >= }
+                } else {
+                    quote! { <= }
+                };
                 body.push(quote! {
                     let #xk = {
                         #tc = #tc + 1;
@@ -996,13 +1280,12 @@ fn run_fn(p: &Pattern) -> TokenStream {
                             let w = unsafe {
                                 ::core::slice::from_raw_parts(#wb.add(i), #win)
                             };
-                            let (rv, ri) =
-                                crate::indicators::max::find_max_simd::<4>(w);
+                            let (rv, ri) = #finder(w);
                             #vc = rv;
                             #tc = #win - 1 - ri;
                         } else {
                             let current = #src;
-                            if current >= #vc {
+                            if current #ge_or_le #vc {
                                 #vc = current;
                                 #tc = 0;
                             }
@@ -1011,34 +1294,53 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     };
                 });
             }
-            Kind::RollMin => {
+            Kind::Ln => {
+                let src = ev(node.a, &idents);
+                body.push(quote! { let #xk = #src.ln(); });
+            }
+            Kind::Iir | Kind::IirClamped => {
+                // Steady bars are all past the chain's feed (gate ≥ every
+                // sink lead ≥ the chain lead ≥ its feed), so the arm is the
+                // pure step — same convention as the Ema/Wilders arms; the
+                // zero-init carry was preserved by exec's idle bars.
                 let ident_k = idents[k].clone();
-                let vc = format_ident!("{}_carry", ident_k);
-                let tc = format_ident!("{}_trail", ident_k);
-                let pk = format_ident!("{}_p", ident_k);
-                let win = format_ident!("{}_win", ident_k);
-                let wb = format_ident!("{}_wb", ident_k);
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let ik = format_ident!("{}_inv", ident_k);
+                let src = ev(node.a, &idents);
+                if node.kind == Kind::Iir {
+                    body.push(quote! {
+                        let #xk = { #ck = #ck.mul_add(#ik, #src * #mk); #ck };
+                    });
+                } else {
+                    let ht = format_ident!("{}_hi_t", ident_k);
+                    let hv = format_ident!("{}_hi_v", ident_k);
+                    let lt = format_ident!("{}_lo_t", ident_k);
+                    let lv = format_ident!("{}_lo_v", ident_k);
+                    body.push(quote! {
+                        let #xk = {
+                            let mut nv = #mk.mul_add(#src, #ck * #ik);
+                            if nv > #ht {
+                                nv = #hv;
+                            } else if nv < #lt {
+                                nv = #lv;
+                            }
+                            #ck = nv;
+                            nv
+                        };
+                    });
+                }
+            }
+            Kind::Prev => {
+                // Delayed copy (K_PREV doc): emit the slot, then shadow this
+                // bar's src value into it for the NEXT bar. Arena order puts
+                // the src chain's statement before this one, so `#ea` here IS
+                // this bar's fresh chain value.
+                let ident_k = idents[k].clone();
+                let ck = format_ident!("{}_carry", ident_k);
                 let src = ev(node.a, &idents);
                 body.push(quote! {
-                    let #xk = {
-                        #tc = #tc + 1;
-                        if #pk <= #tc {
-                            let w = unsafe {
-                                ::core::slice::from_raw_parts(#wb.add(i), #win)
-                            };
-                            let (rv, ri) =
-                                crate::indicators::min::find_min_simd::<4>(w);
-                            #vc = rv;
-                            #tc = #win - 1 - ri;
-                        } else {
-                            let current = #src;
-                            if current <= #vc {
-                                #vc = current;
-                                #tc = 0;
-                            }
-                        }
-                        #vc
-                    };
+                    let #xk = { let x = #ck; #ck = #src; x };
                 });
             }
             Kind::Wilders => {
@@ -1512,9 +1814,11 @@ fn run_fn(p: &Pattern) -> TokenStream {
             let mut sumsq = [0.0f64; crate::cse::MAX]; // Stddev sum-of-squares carry
             let mut wsum = [0.0f64; crate::cse::MAX]; // Wma weighted-sum carry
             let mut trail = [0usize; crate::cse::MAX]; // roll trail carry
+            let mut rings = crate::cse::kernel::warmup::RingSet::new();
+            let mut hacc = [[0.0f64; 7]; crate::cse::MAX];
             let mut v = [0.0f64; crate::cse::MAX];
             // Warm-up bars: shared interpreter, cold path once per request.
-            crate::cse::kernel::exec::<#sig, true>(vals, streams, 0, gate, &mut st, &mut stb, &mut stc_ub, &mut stlb, &mut sumsq, &mut wsum, &mut trail, &mut v, &mut ptrs, &vals.sink_lead);
+            crate::cse::kernel::exec::<#sig, true>(vals, streams, 0, gate, &mut st, &mut stb, &mut stc_ub, &mut stlb, &mut sumsq, &mut wsum, &mut trail, &mut rings, &mut hacc, &mut v, &mut ptrs, &vals.sink_lead);
             if gate >= n {
                 return vec![#(#row_refs),*];
             }
@@ -1721,6 +2025,26 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let tc = format_ident!("{}_trail", ident_k);
                 let pk = format_ident!("{}_p", ident_k);
                 let lb = format_ident!("{}_lb", ident_k);
+                if !matches!(p.nodes[node.a].kind, Kind::Input) {
+                    // Derived source: EXTREMUM RING lane hoist (fisher). The
+                    // group coordinates are ARENA facts — one (leader, cap)
+                    // pair drives all L ring instances; carries seed from
+                    // exec's per-asset st[]/trail[] exactly like the pointer
+                    // lanes. No window pointers: the mask-dispatched body arm
+                    // reads each lane's OWN contiguous mirror slice through
+                    // `RingSetL::window` — the hand `min_chuncked` shape.
+                    let gk = format_ident!("{}_grp", ident_k);
+                    let cp = format_ident!("{}_cap", ident_k);
+                    carry_hoists.push(quote! {
+                        let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                        let mut #tc: Simd<usize, L> = Simd::from_array(std::array::from_fn(|a| trailw[a][#ki]));
+                        let #pk = vals.periods[#ki] as usize;
+                        let #lb = vals.roll_lb[#ki] as usize;
+                        let #gk = vals.ring_of[#ki] as usize;
+                        let #cp = vals.ring_cap[#gk] as usize;
+                    });
+                    continue;
+                }
                 let wn = format_ident!("{}_win", ident_k);
                 let wb = format_ident!("{}_wb", ident_k);
                 let s = stream_slot(node.a);
@@ -1748,6 +2072,119 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     let #step = Simd::<f64, L>::splat(vals.st_step[#ki]);
                 });
             }
+            Kind::Iir | Kind::IirClamped => {
+                // Lane IIR: same `st[k]` carry exec seeded per asset (the
+                // idle bars left the hand's zero init untouched), weights
+                // splat once. IirClamped's four clamp Consts resolve their
+                // arena slots at EXPANSION time (b/c/d/e refs) and splat.
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let ik = format_ident!("{}_inv", ident_k);
+                let ki = k;
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                    let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
+                    let #ik = Simd::<f64, L>::splat(vals.invms[#ki]);
+                });
+                if node.kind == Kind::IirClamped {
+                    let (ht, hv, lt, lv) = (
+                        format_ident!("{}_hi_t", ident_k),
+                        format_ident!("{}_hi_v", ident_k),
+                        format_ident!("{}_lo_t", ident_k),
+                        format_ident!("{}_lo_v", ident_k),
+                    );
+                    let (b, c, d, e) = (node.b, node.c.unwrap_or(0), node.d, node.e);
+                    carry_hoists.push(quote! {
+                        let #ht = Simd::<f64, L>::splat(vals.consts[#b]);
+                        let #hv = Simd::<f64, L>::splat(vals.consts[#c]);
+                        let #lt = Simd::<f64, L>::splat(vals.consts[#d]);
+                        let #lv = Simd::<f64, L>::splat(vals.consts[#e]);
+                    });
+                }
+            }
+            Kind::Prev => {
+                // Lane delayed copy: `st[k]` after exec's warm holds the src
+                // chain's LAST warm bar — the same seeded slot the scalar
+                // steady arm reads; the arm below shadows each bar's src
+                // value forward per lane.
+                let ck = format_ident!("{}_carry", ident_k);
+                let ki = k;
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                });
+            }
+            Kind::RollSum => {
+                // Lane ring roll: carry = the window SUM (exec's `st[k]`,
+                // seeded per asset exactly like the Sma-family lanes). The
+                // group coordinates are ARENA facts — one (leader slot,
+                // capacity) pair drives all L ring instances; `evi` is the
+                // compile-once cap-owner flag (leave = eviction), siblings
+                // read age p. Mirrors the scalar hoist 1:1.
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let pk = format_ident!("{}_p", ident_k);
+                let gk = format_ident!("{}_grp", ident_k);
+                let cp = format_ident!("{}_cap", ident_k);
+                let evi = format_ident!("{}_evi", ident_k);
+                let ki = k;
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                    let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
+                    let #pk = vals.periods[#ki] as usize;
+                    let #gk = vals.ring_of[#ki] as usize;
+                    let #cp = vals.ring_cap[#gk] as usize;
+                    let #evi = #pk == #cp;
+                });
+            }
+            Kind::Hma => {
+                // Lane HMA: the seven accumulators gather from the per-asset
+                // carry vectors (`haccw`); `fd` is fold-only and stays dead
+                // here (mirrors the scalar hoist's `let _ = &mut fd`). The
+                // two leaving-window pointers are per-asset, gate-anchored
+                // like the Sma lanes' `pv` — `sfa` already points at bar
+                // `gate`, so `.sub(n)` lands on the window-exit bar.
+                let ik = idents[k].clone();
+                let (s1, w1) = (format_ident!("{ik}_s1"), format_ident!("{ik}_w1"));
+                let (s2, w2) = (format_ident!("{ik}_s2"), format_ident!("{ik}_w2"));
+                let (wss, ss) = (format_ident!("{ik}_wss"), format_ident!("{ik}_ss"));
+                let (n1, n2, p1, p2f) = (
+                    format_ident!("{ik}_n"),
+                    format_ident!("{ik}_n2"),
+                    format_ident!("{ik}_p1"),
+                    format_ident!("{ik}_p2f"),
+                );
+                let (m1, m2, mp, ww) = (
+                    format_ident!("{ik}_m1"),
+                    format_ident!("{ik}_m2"),
+                    format_ident!("{ik}_mp"),
+                    format_ident!("{ik}_ww"),
+                );
+                let (mm, mm1) = (format_ident!("{ik}_m"), format_ident!("{ik}_m1s"));
+                let (pv1, pv2) = (format_ident!("{ik}_pv1"), format_ident!("{ik}_pv2"));
+                let s = stream_slot(node.a);
+                let sfa = format_ident!("sp{}", s);
+                let ki = k;
+                carry_hoists.push(quote! {
+                    let mut #s1 = Simd::<f64, L>::from_array(std::array::from_fn(|a| haccw[a][#ki][0]));
+                    let mut #w1 = Simd::<f64, L>::from_array(std::array::from_fn(|a| haccw[a][#ki][1]));
+                    let mut #s2 = Simd::<f64, L>::from_array(std::array::from_fn(|a| haccw[a][#ki][2]));
+                    let mut #w2 = Simd::<f64, L>::from_array(std::array::from_fn(|a| haccw[a][#ki][3]));
+                    let mut #wss = Simd::<f64, L>::from_array(std::array::from_fn(|a| haccw[a][#ki][4]));
+                    let mut #ss = Simd::<f64, L>::from_array(std::array::from_fn(|a| haccw[a][#ki][5]));
+                    let #n1 = vals.periods[#ki] as usize;
+                    let #n2 = vals.roll_lb[#ki] as usize;
+                    let #p1 = Simd::<f64, L>::splat(vals.periods[#ki] as f64);
+                    let #p2f = Simd::<f64, L>::splat(vals.roll_lb[#ki] as f64);
+                    let #m1 = Simd::<f64, L>::splat(vals.mults[#ki]);
+                    let #m2 = Simd::<f64, L>::splat(vals.invms[#ki]);
+                    let #mp = Simd::<f64, L>::splat(vals.st_step[#ki]);
+                    let #ww = Simd::<f64, L>::splat(vals.consts[#ki]);
+                    let #mm = vals.lag_n[#ki] as usize;
+                    let #mm1 = #mm - 1usize;
+                    let #pv1: [*const f64; L] = std::array::from_fn(|a| unsafe { #sfa[a].sub(#n1) });
+                    let #pv2: [*const f64; L] = std::array::from_fn(|a| unsafe { #sfa[a].sub(#n2) });
+                });
+            }
             _ => {}
         }
     }
@@ -1759,6 +2196,92 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
         }
     }
 
+    // Batched lane ring engine (2026-10-13, LANDED; per-GROUP layout split
+    // 2026-10-14): the per-asset warmed `ringw` rings are REPLAYED once at
+    // the seam into ONE of TWO authorities chosen by GROUP CLASS. A pure-SUM
+    // group takes `SimdRingSet<L>` — the VECTOR-ELEMENT layout (one ring,
+    // slots are whole `Simd<f64, L>` bars, the hand's `cvi_simd` assets shape
+    // and its `Buffer<Cold, Vector<f64>>` sums): one non-mirror store per
+    // bar, the leave as ONE vector read, no `[f64; L]` gather/scatter at
+    // either end. A group containing a `RollMax`/`RollMin` stays lane-major
+    // (`RingSetL`, `MultiMirrorBuffer` per group) because its rescan triggers
+    // are per-lane and fire on different bars — only that walk needs one
+    // lane's contiguous mirror window, which the vector layout cannot give
+    // (the user's rule: mirror buffers are min/max's, sums never rescan).
+    // Measured the same day as the landing: ao lanes 236→147.5 µs, fisher
+    // 540→494, fused ao+fisher 778→548.6 — the fused pattern now BEATS the
+    // hand pair (548.6 vs 607.9). Replay leaders mirror `erase`'s table
+    // exactly (first roll over an interned src — sums AND derived extrema
+    // share it), O(cap·L) per group at the seam. HMA's of-one window stays
+    // on the per-asset `ringw` (the batched form measured +48% slower
+    // there — see the HMA arm comment).
+    let mut extrema_src: Vec<usize> = Vec::new();
+    for node in p.nodes.iter() {
+        if matches!(node.kind, Kind::RollMax | Kind::RollMin)
+            && !matches!(p.nodes[node.a].kind, Kind::Input)
+            && !extrema_src.contains(&node.a)
+        {
+            extrema_src.push(node.a);
+        }
+    }
+    let mut ring_replay: Vec<TokenStream> = Vec::new();
+    {
+        let mut seen_src: Vec<usize> = Vec::new();
+        for (k, node) in p.nodes.iter().enumerate() {
+            let (src, lo) = match node.kind {
+                Kind::RollSum => (node.a, quote! { vals.feeds[#k] as usize }),
+                Kind::RollMax | Kind::RollMin if !matches!(p.nodes[node.a].kind, Kind::Input) => {
+                    (node.a, quote! { vals.feeds[#k] as usize })
+                }
+                // HMA deliberately ABSENT: its ring is a of-one window
+                // (m = trunc √p, tiny) fed once per bar by one node — the
+                // batched ringb measured +48 % SLOWER there (hma lanes
+                // 166.9 vs 113.3 µs, same-binary A/B), while the per-lane
+                // scalar pushes inline into the bespoke tail. It keeps the
+                // warmed per-asset `ringw` rings and feeds them forward.
+                _ => continue,
+            };
+            if seen_src.contains(&src) {
+                continue;
+            }
+            seen_src.push(src);
+            let replay = if extrema_src.contains(&src) {
+                quote! { ringb.feed_batch(g, cap, gate - 1 - age, v); }
+            } else {
+                quote! {
+                    rings.feed(g, cap, gate - 1 - age, Simd::<f64, L>::from_array(v));
+                }
+            };
+            ring_replay.push(quote! {
+                {
+                    let g = #k;
+                    let cap = vals.ring_cap[g] as usize;
+                    let lo = #lo;
+                    if gate > lo {
+                        let nrep = std::cmp::min(cap, gate - lo);
+                        for age in (0..nrep).rev() {
+                            let v: [f64; L] =
+                                std::array::from_fn(|a| ringw[a].at(g, age));
+                            #replay
+                        }
+                    }
+                }
+            });
+        }
+        let mut decls: Vec<TokenStream> = Vec::new();
+        if seen_src.iter().any(|s| extrema_src.contains(s)) {
+            decls.push(quote! {
+                let mut ringb = crate::cse::kernel::warmup::RingSetL::<L>::new();
+            });
+        }
+        if seen_src.iter().any(|s| !extrema_src.contains(s)) {
+            decls.push(quote! {
+                let mut rings = crate::cse::kernel::warmup::SimdRingSet::<L>::new();
+            });
+        }
+        ring_replay.splice(0..0, decls);
+    }
+
     // ---- steady body, lane form, arena order ----
     let mut body: Vec<TokenStream> = Vec::new();
     for (k, node) in p.nodes.iter().enumerate() {
@@ -1766,6 +2289,165 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
         let ea = ev(node.a, &idents);
         let eb = ev(node.b, &idents);
         match node.kind {
+            Kind::Ln => {
+                // Lane ln = the hand's own SIMD polynomial (`ln_unchecked` —
+                // the exact call `fisher_simd::calc_fisher` makes; std has no
+                // vector log, per-lane libm would be N call sites). Legal
+                // un-checked on fisher's domain: val1 clamps to [-0.999,
+                // 0.999] ⇒ arg = (1+v)/(1-v) ∈ [~5e-4, ~1999] — never ≤0/
+                // NaN/inf/subnormal, so the fast path always runs. ≤ 20 ULP
+                // from libm (which the SCALAR arm keeps per §6.41), so this
+                // pattern's lanes-vs-scalar gate is 1e-12 RELATIVE.
+                body.push(quote! {
+                    let #xk = unsafe { crate::math_simd::ln_unchecked(#ea) };
+                });
+            }
+            Kind::Iir => {
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let ik = format_ident!("{}_inv", idents[k]);
+                body.push(quote! {
+                    let #xk = { #ck = #ck.mul_add(#ik, #ea * #mk); #ck };
+                });
+            }
+            Kind::IirClamped => {
+                // Text-for-text the hand `fisher_simd::calc_fisher`: the ONE
+                // mul_add in its operand order (mult·inner + inv·prev, a/b
+                // not exact halves — association is visible), then the
+                // nested selects ON THE PRE-CLAMP VALUE (inner `lt` tests nv,
+                // like the hand), and the CLAMPED number is what carries.
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let ik = format_ident!("{}_inv", idents[k]);
+                let (ht, hv, lt, lv) = (
+                    format_ident!("{}_hi_t", idents[k]),
+                    format_ident!("{}_hi_v", idents[k]),
+                    format_ident!("{}_lo_t", idents[k]),
+                    format_ident!("{}_lo_v", idents[k]),
+                );
+                body.push(quote! {
+                    let #xk = {
+                        let nv = #mk.mul_add(#ea, #ck * #ik);
+                        let v = nv
+                            .simd_gt(#ht)
+                            .select(#hv, nv.simd_lt(#lt).select(#lv, nv));
+                        #ck = v;
+                        v
+                    };
+                });
+            }
+            Kind::Prev => {
+                // Lane delayed copy: emit the slot, shadow this bar's src
+                // vector into it (arena order = src already updated).
+                let ck = format_ident!("{}_carry", idents[k]);
+                body.push(quote! {
+                    let #xk = { let o = #ck; #ck = #ea; o };
+                });
+            }
+            Kind::RollSum => {
+                // Lane ring step — ONE group op per bar, on the authority
+                // chosen by GROUP CLASS. Pure-sum group (the common case: a
+                // `RollSum` group is only shared with another `RollSum`): the
+                // VECTOR-ELEMENT `rings` — one non-mirror store, the leave as
+                // ONE vector read, no `to_array`/`from_array` at either end.
+                // A group that also carries a `RollMax`/`RollMin` must stay
+                // on the lane-major `ringb`: its rescan needs one lane's
+                // contiguous mirror window, and the vector layout cannot give
+                // a per-lane slice. Cap owner leaves by eviction, a shorter
+                // sibling by age `p` — the hoisted flag, no per-bar compare.
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let pk = format_ident!("{}_p", idents[k]);
+                let gk = format_ident!("{}_grp", idents[k]);
+                let cp = format_ident!("{}_cap", idents[k]);
+                let evi = format_ident!("{}_evi", idents[k]);
+                let step = if extrema_src.contains(&node.a) {
+                    quote! {
+                        let #xk = {
+                            ringb.feed_batch(#gk, #cp, gate + i, #ea.to_array());
+                            let leaves = if #evi {
+                                ringb
+                                    .evicted_batch(#gk)
+                                    .expect("cap roll steps on an evicting bar")
+                            } else {
+                                ringb.at_batch(#gk, #pk)
+                            };
+                            #ck = #ck + (#ea - Simd::<f64, L>::from_array(leaves));
+                            #ck * #mk
+                        };
+                    }
+                } else {
+                    quote! {
+                        let #xk = {
+                            rings.feed(#gk, #cp, gate + i, #ea);
+                            let leaves = if #evi {
+                                rings
+                                    .evicted(#gk)
+                                    .expect("cap roll steps on an evicting bar")
+                            } else {
+                                rings.at(#gk, #pk)
+                            };
+                            #ck = #ck + (#ea - leaves);
+                            #ck * #mk
+                        };
+                    }
+                };
+                body.push(step);
+            }
+            Kind::Hma => {
+                // Lane HMA — the scalar statement-for-statement mirror:
+                // two WMA steps, `2·o2 − o1`, then the tail's EXACT
+                // divide-before-subtract order. Per-lane ring ops: feed
+                // `diff` into each asset's own ring, read age m−1 after
+                // the push (the hand's post-push `front()` slot).
+                let ik = idents[k].clone();
+                let (s1, w1) = (format_ident!("{ik}_s1"), format_ident!("{ik}_w1"));
+                let (s2, w2) = (format_ident!("{ik}_s2"), format_ident!("{ik}_w2"));
+                let (wss, ss) = (format_ident!("{ik}_wss"), format_ident!("{ik}_ss"));
+                let (p1, p2f) = (format_ident!("{ik}_p1"), format_ident!("{ik}_p2f"));
+                let (m1, m2, mp, ww) = (
+                    format_ident!("{ik}_m1"),
+                    format_ident!("{ik}_m2"),
+                    format_ident!("{ik}_mp"),
+                    format_ident!("{ik}_ww"),
+                );
+                let (mm, mm1) = (format_ident!("{ik}_m"), format_ident!("{ik}_m1s"));
+                let (pv1, pv2) = (format_ident!("{ik}_pv1"), format_ident!("{ik}_pv2"));
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let old1 = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#pv1[a].add(i) },
+                        ));
+                        #w1 = #w1 - #s1;
+                        #s1 = #s1 + (#ea - old1);
+                        #w1 = #w1 + #ea * #p1;
+                        let o1 = #w1 * #m1;
+                        let old2 = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#pv2[a].add(i) },
+                        ));
+                        #w2 = #w2 - #s2;
+                        #s2 = #s2 + (#ea - old2);
+                        #w2 = #w2 + #ea * #p2f;
+                        let o2 = #w2 * #m2;
+                        let diff = Simd::<f64, L>::splat(2.0f64) * o2 - o1;
+                        #wss = #wss + diff * #mp;
+                        #ss = #ss + diff;
+                        let ds = diff.to_array();
+                        for a in 0..L {
+                            ringw[a].feed(#ki, #mm, gate + i, ds[a]);
+                        }
+                        let out = #wss / #ww;
+                        #wss = #wss - #ss;
+                        let mut olds = [0.0f64; L];
+                        for a in 0..L {
+                            olds[a] = ringw[a].at(#ki, #mm1);
+                        }
+                        #ss = #ss - Simd::<f64, L>::from_array(olds);
+                        out
+                    };
+                });
+            }
             Kind::Input => {
                 // `node.a` IS the stream slot for an Input node (the scalar
                 // arm reads `s{node.a}` directly) — `gather(node.a)` would
@@ -1800,6 +2482,11 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
             Kind::Div => body.push(quote! { let #xk = #ea / #eb; }),
             Kind::Max => body.push(quote! { let #xk = #ea.simd_max(#eb); }),
             Kind::Abs => body.push(quote! { let #xk = #ea.abs(); }),
+            Kind::Mirror => {
+                // identity copy — state mirror (see the scalar arm); the
+                // sink graph never reads it, LLVM DCEs the dead lane copy.
+                body.push(quote! { let #xk = #ea; });
+            }
             Kind::Fma => {
                 let ec = ev(node.c.expect("Fma: c operand"), &idents);
                 body.push(quote! { let #xk = #ea.mul_add(#eb, #ec); });
@@ -1892,6 +2579,50 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 } else {
                     quote! { simd_le }
                 };
+                if !matches!(p.nodes[node.a].kind, Kind::Input) {
+                    // Derived source (fisher): each lane's OWN ring instance
+                    // feeds once per bar (idempotent per instance — sibling
+                    // members calling is the arena's normal), then the
+                    // pointer arm's EXACT trail machine: +1, trigger mask,
+                    // fold select. Only DUE lanes walk a window — each its
+                    // own lane's contiguous mirror slice via `RingSet::window`
+                    // — the hand `min_chuncked` mask dispatch; same finder,
+                    // same `trail = lb − ri` rule, cannot drift.
+                    let gk = format_ident!("{}_grp", idents[k]);
+                    let cp = format_ident!("{}_cap", idents[k]);
+                    let lbk = format_ident!("{}_lb", idents[k]);
+                    body.push(quote! {
+                        let #xk = {
+                            ringb.feed_batch(#gk, #cp, gate + i, #ea.to_array());
+                            #tc = #tc + Simd::<usize, L>::splat(1usize);
+                            let resc = Simd::<usize, L>::splat(#pk).simd_le(#tc);
+                            let fold = #ea.#ge_or_le(#vc);
+                            let mut nv = fold.select(#ea, #vc);
+                            let mut nt = fold.select(Simd::<usize, L>::splat(0usize), #tc);
+                            let mask = resc.to_bitmask();
+                            if mask != 0 {
+                                let wins = ringb.window(#gk, #lbk + 1);
+                                let mut va = nv.to_array();
+                                let mut ta = nt.to_array();
+                                let mut lane = 0usize;
+                                while lane < L {
+                                    if mask & (1u64 << lane) != 0 {
+                                        let (rv, ri) = #finder(wins[lane]);
+                                        va[lane] = rv;
+                                        ta[lane] = #lbk - ri;
+                                    }
+                                    lane += 1;
+                                }
+                                nv = Simd::<f64, L>::from_array(va);
+                                nt = Simd::<usize, L>::from_array(ta);
+                            }
+                            #vc = nv;
+                            #tc = nt;
+                            #vc
+                        };
+                    });
+                    continue;
+                }
                 body.push(quote! {
                     let #xk = {
                         #tc = #tc + Simd::<usize, L>::splat(1usize);
@@ -2114,6 +2845,16 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
             let mut sumsqw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
             let mut wsumw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
             let mut trailw: Vec<[usize; crate::cse::MAX]> = vec![[0usize; crate::cse::MAX]; L];
+            // The ring/HMA carry states are PERSISTENT per asset: the warm
+            // exec fills them, the steady lane arms read the same instances
+            // (mirrors the scalar kernel, where one `rings`/`hacc` lives for
+            // the whole run). Non-ring patterns pay only the Vec allocation.
+            let mut ringw: Vec<crate::cse::kernel::warmup::RingSet> =
+                (0..L)
+                    .map(|_| crate::cse::kernel::warmup::RingSet::new())
+                    .collect();
+            let mut haccw: Vec<[[f64; 7]; crate::cse::MAX]> =
+                vec![[[0.0f64; 7]; crate::cse::MAX]; L];
             if n > 0 {
                 for a in 0..L {
                     let mut ptrs: [*mut f64; crate::cse::MAX_SINKS] =
@@ -2132,6 +2873,8 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                         &mut sumsqw[a],
                         &mut wsumw[a],
                         &mut trailw[a],
+                        &mut ringw[a],
+                        &mut haccw[a],
                         &mut v,
                         &mut ptrs,
                         &vals.sink_lead,
@@ -2144,6 +2887,7 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 })
                 .to_vec();
             }
+            #( #ring_replay )*
             #( #stream_arr_hoists )*
             #( #row_arrays )*
             #( #carry_hoists )*

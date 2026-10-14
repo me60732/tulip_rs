@@ -71,4 +71,56 @@ tulip_rs_macros::kernel! {
     // The densest hub: six rolls (two columns × three windows), four
     // combines, one pass.
     ichimoku_s_m: Ichimoku(s, m);
+
+    // ── ring-backed derived rolls ───────────────────────────────────────
+    // AO: two mean RollSums over the ONE interned medprice column — the
+    // first shape whose ring is a derived-source `Buffer<Cold>` (the hand's
+    // own type), capacity = group max (34), the 5-window leaving bar read
+    // by age. Scalar kernel only until the lane ring arm lands (ROADMAP
+    // step C); the lane dispatch correctly misses it meanwhile.
+    ao_s_m: Ao(s, m);
+    // Hull MA: the bespoke machine (E3 stage 3) — two inner WMA engines
+    // and the √p diff ring inside ONE node. Scalar-only until step C,
+    // like the ring rolls.
+    hma_n: Hma(n);
+    // Fisher Transform: the IIR/clamp/ln/prev chain over an EXTREMUM ring
+    // on the derived medprice column (the fourth ring shape). Scalar-only
+    // until the vec-ring wave gives it lanes + the packed twin (ROADMAP
+    // "M3-rings step C+"). Parity law: 1e-12 RELATIVE vs the hand.
+    fisher_n: Fisher(p);
+    // THE sharing showcase the old JIT failed at: AO and Fisher over ONE
+    // interned medprice - co-requesting adds zero arithmetic nodes at the
+    // merge (canary in cse_merge_test); one med compute and one ring feed
+    // serve all four rolls (2 sums + 2 extrema). This is the shape that
+    // must beat the JIT's ~3.5x medprice loss vs the hand.
+    ao_fisher_shared_med: Ao(s, m), Fisher(p);
+    // Stochastic: the shapes that unlocked RollSum skip/steady_from — slow
+    // %K is a mean with skip:2 over the division column, %D a mean over the
+    // slow line (two ring groups), both riding the canonical (k, k−1)
+    // price-roll trail pair.
+    stoch_kd: Stoch(k, s, d);
+    // The flagship triple: stoch's fast-%K rolls ARE willr's and donchian's
+    // (p, p−1) pair — two interned rolls feed all six output rows.
+    stoch_willr_donchian_shared_p: Stoch(p, s, d), Willr(p), DonchianChannel(p);
+    // RSI: two mean-Wilders chains over the Max-gated movement arms plus the
+    // 100·up/(up+down) glue; carries the engine's first lowered `Mirror`
+    // node (the hand's `prev_real` state copy — identity, computed, never
+    // stored). Scalar pair with the hand's `Rsi::indicator`; lanes ride the
+    // Wilders arm proven on the atr family.
+    rsi_n: Rsi(p);
+    // THE sharing flagship: stochrsi GRAFTS the whole rsi chain, so a
+    // co-requested `Rsi(p) + Stochrsi(p)` interns the movement gates, both
+    // Wilders chains, the division and the ×100 — stochrsi's optional RSI
+    // row and standalone rsi's primary ARE the same stored stream (one
+    // arena, three sinks, two extra ring-group members on the derived rsi
+    // column's extrema pair).
+    rsi_stochrsi_shared_p: Rsi(p), Stochrsi(p);
+    // CMO: two raw ring RollSums over the derived gain/loss columns (two
+    // ring groups), the movement chain RSI already computes, and two state
+    // Mirrors (`prev` = the close, `drop_real` = the close `p` bars back).
+    cmo_n: Cmo(p);
+    // The movement-sharing pair: `up_down(v, prev)` is the SAME node set in
+    // both recipes — Lag, diff, both Max gates intern once; RSI Wilder-
+    // smooths them, CMO rolls them up. Two rings, two sinks, one pass.
+    rsi_cmo_shared_p: Rsi(p), Cmo(p);
 }

@@ -162,6 +162,218 @@ fn bench_fused(c: &mut Criterion) {
             black_box(sig.hash())
         })
     });
+
+    // ── ring shapes, SINGLE asset (user gap 2026-10-13: every other pattern
+    // has its runonly pair here; the ring shapes had only fused_assets8
+    // rows). The lone shapes are DIAGNOSTIC denominators (hand's home turf
+    // per the merging doctrine); the headline pair is the fused arena: the
+    // engine's ONE pass vs the hand's TWO. ────────────────────────────────
+    use tulip_rs::indicators::ao::Ao;
+    use tulip_rs::indicators::fisher::Fisher;
+    use tulip_rs::indicators::hma::Hma;
+    let (h0, l0, c0) = hlc(0);
+    let hl: [&[f64]; 2] = [h0.as_slice(), l0.as_slice()];
+    let cl: [&[f64]; 1] = [c0.as_slice()];
+
+    let (_ra, sig_ra, vals_ra, _oa) =
+        erase_request(&Request::new().add(Ao::recipe(&[]), None)).unwrap();
+    g.bench_function("generated_runonly_ao_s_m", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_ra, &vals_ra, &hl).expect("ao template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_ao_s_m", |b| {
+        b.iter(|| {
+            let a = Ao::indicator(&hl, &[], None).unwrap();
+            black_box(a.0[0].len())
+        })
+    });
+
+    let (_rh, sig_rh, vals_rh, _oh) =
+        erase_request(&Request::new().add(Hma::recipe(&[9.0]), None)).unwrap();
+    g.bench_function("generated_runonly_hma_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_rh, &vals_rh, &cl).expect("hma template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_hma_n", |b| {
+        b.iter(|| {
+            let h = Hma::indicator(&cl, &[9.0], None).unwrap();
+            black_box(h.0[0].len())
+        })
+    });
+
+    let (_rf, sig_rf, vals_rf, _of) =
+        erase_request(&Request::new().add(Fisher::recipe(&[9.0]), None)).unwrap();
+    g.bench_function("generated_runonly_fisher_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_rf, &vals_rf, &hl).expect("fisher template");
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
+    g.bench_function("hand_runonly_fisher_n", |b| {
+        b.iter(|| {
+            let f = Fisher::indicator(&hl, &[9.0], None).unwrap();
+            black_box(f.0[0].len() + f.0[1].len())
+        })
+    });
+
+    // THE fused single-asset pair: one medprice + one ring feed serve all
+    // four rolls; the hand rival runs Ao and Fisher as TWO full passes.
+    let (_raf, sig_raf, vals_raf, _oaf) = erase_request(
+        &Request::new()
+            .add(Ao::recipe(&[]), None)
+            .add(Fisher::recipe(&[9.0]), None),
+    )
+    .unwrap();
+    g.bench_function("generated_runonly_ao_fisher_shared_med", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_raf, &vals_raf, &hl).expect("ao+fisher template");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_ao_fisher_shared_med", |b| {
+        b.iter(|| {
+            let a = Ao::indicator(&hl, &[], None).unwrap();
+            let f = Fisher::indicator(&hl, &[9.0], None).unwrap();
+            black_box(a.0[0].len() + f.0[0].len() + f.0[1].len())
+        })
+    });
+
+    // ── stoch — the skip/steady_from pair + THE flagship triple ──────────
+    use tulip_rs::indicators::donchianchannel::DonchianChannel;
+    use tulip_rs::indicators::stoch::Stoch;
+    use tulip_rs::indicators::willr::Willr;
+    let hlc3: [&[f64]; 3] = [h0.as_slice(), l0.as_slice(), c0.as_slice()];
+
+    let (_rsk, sig_rsk, vals_rsk, _osk) =
+        erase_request(&Request::new().add(Stoch::recipe(&[14.0, 3.0, 3.0]), None)).unwrap();
+    g.bench_function("generated_runonly_stoch_kd", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_rsk, &vals_rsk, &hlc3).expect("stoch template");
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
+    g.bench_function("hand_runonly_stoch_kd", |b| {
+        b.iter(|| {
+            let s = Stoch::indicator(&hlc3, &[14.0, 3.0, 3.0], None).unwrap();
+            black_box(s.0[0].len() + s.0[1].len())
+        })
+    });
+
+    // Flagship single-asset pair: ONE pass of the engine vs the hand's THREE
+    // — stoch's (14,13) roll pair IS willr's and donchian's.
+    let (_rsd, sig_rsd, vals_rsd, _osd) = erase_request(
+        &Request::new()
+            .add(Stoch::recipe(&[14.0, 3.0, 3.0]), None)
+            .add(Willr::recipe(&[14.0]), None)
+            .add(DonchianChannel::recipe(&[14.0]), None),
+    )
+    .unwrap();
+    g.bench_function("generated_runonly_stoch_willr_donchian_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_rsd, &vals_rsd, &hlc3).expect("triple template");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_stoch_willr_donchian_shared_p", |b| {
+        b.iter(|| {
+            let s = Stoch::indicator(&hlc3, &[14.0, 3.0, 3.0], None).unwrap();
+            let w = Willr::indicator(&hlc3, &[14.0], None).unwrap();
+            let d = DonchianChannel::indicator(&hl, &[14.0], None).unwrap();
+            black_box(
+                s.0[0].len()
+                    + s.0[1].len()
+                    + w.0[0].len()
+                    + d.0[0].len()
+                    + d.0[1].len()
+                    + d.0[2].len(),
+            )
+        })
+    });
+
+    // ── rsi_n — dual mean-Wilders chains over the Max-gated movement arms.
+    // Lone-shape diagnostic pair (hand `Rsi::indicator` is the oracle); the
+    // `prev_real` Mirror rides the arena as a dead identity on both axes.
+    use tulip_rs::indicators::rsi::Rsi;
+    let (_r1, sig_r1, vals_r1, _o1) =
+        erase_request(&Request::new().add(Rsi::recipe(&[14.0]), None)).unwrap();
+    g.bench_function("generated_runonly_rsi_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_r1, &vals_r1, &cl).expect("rsi template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_rsi_n", |b| {
+        b.iter(|| {
+            let r = Rsi::indicator(&cl, &[14.0], None).unwrap();
+            black_box(r.0[0].len())
+        })
+    });
+    // THE grafted-chain flagship: Rsi + StochRsi co-requested — the entire
+    // movement chain + both Wilders chains + division intern once, the
+    // optional rsi row aliases the primary. Hand rival runs the two full
+    // passes (and recomputes the shared chain twice).
+    use tulip_rs::indicators::stochrsi::StochRsi;
+    let (_rp, sig_rp, vals_rp, _op) = erase_request(
+        &Request::new()
+            .add(Rsi::recipe(&[14.0]), None)
+            .add(StochRsi::recipe(&[14.0]), Some(&[true])),
+    )
+    .unwrap();
+    g.bench_function("generated_runonly_rsi_stochrsi_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_rp, &vals_rp, &cl).expect("rsi+stochrsi template");
+            black_box(rows[0].len() + rows[1].len() + rows[2].len())
+        })
+    });
+    g.bench_function("hand_runonly_rsi_stochrsi_shared_p", |b| {
+        b.iter(|| {
+            let ri = Rsi::indicator(&cl, &[14.0], None).unwrap();
+            let sr = StochRsi::indicator(&cl, &[14.0], Some(&[true])).unwrap();
+            black_box(ri.0[0].len() + sr.0[0].len() + sr.0[1].len())
+        })
+    });
+
+    // ── cmo_n — twin ring sums over the Max-gated movement arms (lone
+    // diagnostic pair) + THE movement-sharing flagship vs the hand's TWO
+    // full passes (Rsi::indicator + Cmo::indicator).
+    use tulip_rs::indicators::cmo::Cmo;
+    let (_c1, sig_c1, vals_c1, _d1) =
+        erase_request(&Request::new().add(Cmo::recipe(&[14.0]), None)).unwrap();
+    g.bench_function("generated_runonly_cmo_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_c1, &vals_c1, &cl).expect("cmo template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_cmo_n", |b| {
+        b.iter(|| {
+            let c = Cmo::indicator(&cl, &[14.0], None).unwrap();
+            black_box(c.0[0].len())
+        })
+    });
+    let (_rc, sig_rc, vals_rc, _oc) = erase_request(
+        &Request::new()
+            .add(Rsi::recipe(&[14.0]), None)
+            .add(Cmo::recipe(&[14.0]), None),
+    )
+    .unwrap();
+    g.bench_function("generated_runonly_rsi_cmo_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_rc, &vals_rc, &cl).expect("rsi+cmo template");
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
+    g.bench_function("hand_runonly_rsi_cmo_shared_p", |b| {
+        b.iter(|| {
+            let ri = Rsi::indicator(&cl, &[14.0], None).unwrap();
+            let cm = Cmo::indicator(&cl, &[14.0], None).unwrap();
+            black_box(ri.0[0].len() + cm.0[0].len())
+        })
+    });
     g.finish();
 
     // ── PLAN REUSE ACROSS ASSETS ──────────────────────────────────────────
@@ -175,7 +387,7 @@ fn bench_fused(c: &mut Criterion) {
     let mut ga = c.benchmark_group("fused_assets");
     ga.sample_size(20);
 
-    ga.bench_function("hand_scan_apo_ppo_macd_shared_sl", |b| {
+    ga.bench_function("hand_scalar_scan_apo_ppo_macd_shared_sl", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_inputs {
@@ -188,7 +400,7 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
     // ONE (sig, vals) from setup; four cold kernel runs per iteration.
-    ga.bench_function("generated_scan_apo_ppo_macd_shared_sl", |b| {
+    ga.bench_function("generated_scalar_scan_apo_ppo_macd_shared_sl", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_inputs {
@@ -199,7 +411,7 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
     // Pair shapes over the same 4-asset scan.
-    ga.bench_function("hand_scan_apo_ppo_shared_sl", |b| {
+    ga.bench_function("hand_scalar_scan_apo_ppo_shared_sl", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_inputs {
@@ -210,7 +422,7 @@ fn bench_fused(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    ga.bench_function("generated_scan_apo_ppo_shared_sl", |b| {
+    ga.bench_function("generated_scalar_scan_apo_ppo_shared_sl", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_inputs {
@@ -334,7 +546,7 @@ fn bench_fused_atr(c: &mut Criterion) {
         .iter()
         .map(|(h, l, c)| [h.as_slice(), l.as_slice(), c.as_slice()])
         .collect();
-    g.bench_function("hand_scan_natr_supertrend_shared_p", |b| {
+    g.bench_function("hand_scalar_scan_natr_supertrend_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_three {
@@ -345,7 +557,7 @@ fn bench_fused_atr(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    g.bench_function("generated_scan_natr_supertrend_shared_p", |b| {
+    g.bench_function("generated_scalar_scan_natr_supertrend_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_three {
@@ -411,7 +623,7 @@ fn bench_fused_atr(c: &mut Criterion) {
         })
     });
     // ATR scan off one plan, scalar hand for the shape not yet scanned:
-    g.bench_function("hand_scan_atr_natr_shared_p", |b| {
+    g.bench_function("hand_scalar_scan_atr_natr_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_three {
@@ -422,7 +634,7 @@ fn bench_fused_atr(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    g.bench_function("generated_scan_atr_natr_shared_p", |b| {
+    g.bench_function("generated_scalar_scan_atr_natr_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_three {
@@ -481,7 +693,7 @@ fn bench_fused_atr(c: &mut Criterion) {
             black_box(rows[0].len() + rows[2].len() + rows[4].len())
         })
     });
-    g.bench_function("generated_scan_atr_multi", |b| {
+    g.bench_function("generated_scalar_scan_atr_multi", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_three {
@@ -493,7 +705,7 @@ fn bench_fused_atr(c: &mut Criterion) {
     });
     // Packed Wilders lanes across assets too (the by_assets comparison
     // needs the engine's BEST merged shape, not its scalar one).
-    g.bench_function("generated_scan_atr_multi_packed", |b| {
+    g.bench_function("generated_scalar_scan_atr_multi_packed", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_three {
@@ -618,7 +830,7 @@ fn bench_fused_wide(c: &mut Criterion) {
         &[allc[2].as_slice()],
         &[allc[3].as_slice()],
     ];
-    g.bench_function("generated_scan_ema_chains", |b| {
+    g.bench_function("generated_scalar_scan_ema_chains", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &allc_inputs {
@@ -628,7 +840,7 @@ fn bench_fused_wide(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    g.bench_function("generated_scan_ema_chains_packed", |b| {
+    g.bench_function("generated_scalar_scan_ema_chains_packed", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &allc_inputs {
@@ -792,7 +1004,7 @@ fn bench_fused_rolling(c: &mut Criterion) {
         &[allc[3].as_slice()],
     ];
     // MA pair across assets off ONE plan, vs the hand's two 4-asset calls.
-    g.bench_function("hand_scan_sma_wma_shared_p", |b| {
+    g.bench_function("hand_scalar_scan_sma_wma_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &allc_inputs {
@@ -803,7 +1015,7 @@ fn bench_fused_rolling(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    g.bench_function("generated_scan_sma_wma_shared_p", |b| {
+    g.bench_function("generated_scalar_scan_sma_wma_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &allc_inputs {
@@ -833,7 +1045,7 @@ fn bench_fused_rolling(c: &mut Criterion) {
         })
     });
     // BBands+Wma scan + by_assets rival.
-    g.bench_function("generated_scan_bbands_wma_shared_p", |b| {
+    g.bench_function("generated_scalar_scan_bbands_wma_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &allc_inputs {
@@ -857,7 +1069,7 @@ fn bench_fused_rolling(c: &mut Criterion) {
         })
     });
     // Six-smas scan (scalar + packed) + the 6×4-asset by_assets rival.
-    g.bench_function("generated_scan_sma_six", |b| {
+    g.bench_function("generated_scalar_scan_sma_six", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &allc_inputs {
@@ -867,7 +1079,7 @@ fn bench_fused_rolling(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    g.bench_function("generated_scan_sma_six_packed", |b| {
+    g.bench_function("generated_scalar_scan_sma_six_packed", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &allc_inputs {
@@ -1045,7 +1257,7 @@ fn bench_fused_roll(c: &mut Criterion) {
     let la_h2: [&[&[f64]]; 4] = [ba2[0], ba2[1], ba2[2], ba2[3]];
     let la_h3: [&[&[f64]]; 4] = [ba3[0], ba3[1], ba3[2], ba3[3]];
     // scans: hand (two scalar calls per asset) vs generated vs by_assets.
-    g.bench_function("hand_scan_max_min_shared_p", |b| {
+    g.bench_function("hand_scalar_scan_max_min_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1 {
@@ -1055,7 +1267,7 @@ fn bench_fused_roll(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    g.bench_function("generated_scan_max_min_shared_p", |b| {
+    g.bench_function("generated_scalar_scan_max_min_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1 {
@@ -1078,7 +1290,7 @@ fn bench_fused_roll(c: &mut Criterion) {
             black_box(out.iter().flatten().map(|r| r.len()).sum::<usize>())
         })
     });
-    g.bench_function("hand_scan_aroon_osc_shared_p", |b| {
+    g.bench_function("hand_scalar_scan_aroon_osc_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc2 {
@@ -1088,7 +1300,7 @@ fn bench_fused_roll(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    g.bench_function("generated_scan_aroon_osc_shared_p", |b| {
+    g.bench_function("generated_scalar_scan_aroon_osc_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc2 {
@@ -1111,7 +1323,7 @@ fn bench_fused_roll(c: &mut Criterion) {
             black_box(out.iter().flatten().map(|r| r.len()).sum::<usize>())
         })
     });
-    g.bench_function("hand_scan_willr_donchian_shared_p", |b| {
+    g.bench_function("hand_scalar_scan_willr_donchian_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc3 {
@@ -1122,7 +1334,7 @@ fn bench_fused_roll(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    g.bench_function("generated_scan_willr_donchian_shared_p", |b| {
+    g.bench_function("generated_scalar_scan_willr_donchian_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc3 {
@@ -1145,7 +1357,7 @@ fn bench_fused_roll(c: &mut Criterion) {
             black_box(out.iter().flatten().map(|r| r.len()).sum::<usize>())
         })
     });
-    g.bench_function("generated_scan_ichimoku_s_m", |b| {
+    g.bench_function("generated_scalar_scan_ichimoku_s_m", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc2 {
@@ -1405,7 +1617,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     g.sample_size(20);
 
     // ── apo_ppo_macd_shared_sl (S=1) ────────────────────────────────────────
-    g.bench_function("generated_scan8_apo_ppo_macd_shared_sl", |b| {
+    g.bench_function("generated_scalar_scan8_apo_ppo_macd_shared_sl", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1_8 {
@@ -1445,7 +1657,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── apo_ppo_shared_sl (S=1) ─────────────────────────────────────────────
-    g.bench_function("generated_scan8_apo_ppo_shared_sl", |b| {
+    g.bench_function("generated_scalar_scan8_apo_ppo_shared_sl", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1_8 {
@@ -1476,7 +1688,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── atr_natr_shared_p (S=3) ─────────────────────────────────────────────
-    g.bench_function("generated_scan8_atr_natr_shared_p", |b| {
+    g.bench_function("generated_scalar_scan8_atr_natr_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc3_8 {
@@ -1507,7 +1719,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── natr_supertrend_shared_p (S=3) ──────────────────────────────────────
-    g.bench_function("generated_scan8_natr_supertrend_shared_p", |b| {
+    g.bench_function("generated_scalar_scan8_natr_supertrend_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc3_8 {
@@ -1538,7 +1750,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── ema_six (S=1) ───────────────────────────────────────────────────────
-    g.bench_function("generated_scan8_ema_six", |b| {
+    g.bench_function("generated_scalar_scan8_ema_six", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1_8 {
@@ -1578,7 +1790,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── ema_chains (S=1) ────────────────────────────────────────────────────
-    g.bench_function("generated_scan8_ema_chains", |b| {
+    g.bench_function("generated_scalar_scan8_ema_chains", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1_8 {
@@ -1610,7 +1822,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── sma_six (S=1) ───────────────────────────────────────────────────────
-    g.bench_function("generated_scan8_sma_six", |b| {
+    g.bench_function("generated_scalar_scan8_sma_six", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1_8 {
@@ -1642,7 +1854,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── max_min_shared_p (S=1) ──────────────────────────────────────────────
-    g.bench_function("generated_scan8_max_min_shared_p", |b| {
+    g.bench_function("generated_scalar_scan8_max_min_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1_8 {
@@ -1673,7 +1885,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── aroon_osc_shared_p (S=2) ────────────────────────────────────────────
-    g.bench_function("generated_scan8_aroon_osc_shared_p", |b| {
+    g.bench_function("generated_scalar_scan8_aroon_osc_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc2_8 {
@@ -1704,7 +1916,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
 
     // ── willr_donchian_shared_p (S=3) ───────────────────────────────────────
-    g.bench_function("generated_scan8_willr_donchian_shared_p", |b| {
+    g.bench_function("generated_scalar_scan8_willr_donchian_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc3_8 {
@@ -1734,8 +1946,247 @@ fn bench_fused_assets8(c: &mut Criterion) {
         })
     });
 
+    // ── stoch_kd (S=3, 2026-10-14 — TWO ring groups: slow %K over the
+    // division column with the skip/steady_from fold, %D over the %K line;
+    // warmed per-asset, ONE batched feed + leave read per group per bar) ────
+    use tulip_rs::indicators::stoch::Stoch;
+    let (_sk8, sig_sk, vals_sk, _sk9) =
+        erase_request(&Request::new().add(Stoch::recipe(&[14.0, 3.0, 3.0]), None)).unwrap();
+    g.bench_function("generated_scalar_scan8_stoch_kd", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc3_8 {
+                let rows = try_run(&sig_sk, &vals_sk, s).expect("stoch template");
+                acc += rows[0].len() + rows[1].len();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_stoch_kd", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_sk, &vals_sk, &la3a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_sk, &vals_sk, &la3b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_stoch_kd", |b| {
+        b.iter(|| {
+            let s0 = Stoch::indicator_by_assets::<4>(&bh3a, &[14.0, 3.0, 3.0], None).unwrap();
+            let s1 = Stoch::indicator_by_assets::<4>(&bh3b, &[14.0, 3.0, 3.0], None).unwrap();
+            black_box(
+                s0.0.iter().flatten().map(|v| v.len()).sum::<usize>()
+                    + s1.0.iter().flatten().map(|v| v.len()).sum::<usize>(),
+            )
+        })
+    });
+
+    // ── stoch_willr_donchian_shared_p (S=3) — THE roll-interning flagship:
+    // stoch's (14,13) extrema pair IS willr's and donchian's, plus the two
+    // ring groups — EIGHT rows off six roll/sum engines in ONE pass. Rival:
+    // the hand trio (three full passes per batch).
+    let (_sw8, sig_swd, vals_swd, _sw9) = erase_request(
+        &Request::new()
+            .add(Stoch::recipe(&[14.0, 3.0, 3.0]), None)
+            .add(Willr::recipe(&[14.0]), None)
+            .add(DonchianChannel::recipe(&[14.0]), None),
+    )
+    .unwrap();
+    g.bench_function(
+        "generated_scalar_scan8_stoch_willr_donchian_shared_p",
+        |b| {
+            b.iter(|| {
+                let mut acc = 0usize;
+                for s in &sc3_8 {
+                    let rows = try_run(&sig_swd, &vals_swd, s).expect("stoch_wd template");
+                    acc += rows.iter().map(|r| r.len()).sum::<usize>();
+                }
+                black_box(acc)
+            })
+        },
+    );
+    g.bench_function("generated_lanes8_2x4_stoch_willr_donchian_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_swd, &vals_swd, &la3a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_swd, &vals_swd, &la3b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_stoch_willr_donchian_shared_p", |b| {
+        b.iter(|| {
+            let s0 = Stoch::indicator_by_assets::<4>(&bh3a, &[14.0, 3.0, 3.0], None).unwrap();
+            let w0 = Willr::indicator_by_assets::<4>(&bh3a, &[14.0], None).unwrap();
+            let d0 = DonchianChannel::indicator_by_assets::<4>(&bh2a, &[14.0], None).unwrap();
+            let s1 = Stoch::indicator_by_assets::<4>(&bh3b, &[14.0, 3.0, 3.0], None).unwrap();
+            let w1 = Willr::indicator_by_assets::<4>(&bh3b, &[14.0], None).unwrap();
+            let d1 = DonchianChannel::indicator_by_assets::<4>(&bh2b, &[14.0], None).unwrap();
+            black_box(
+                s0.0.iter().flatten().map(|v| v.len()).sum::<usize>()
+                    + w0.0[0][0].len()
+                    + d0.0.iter().flatten().map(|v| v.len()).sum::<usize>()
+                    + s1.0.iter().flatten().map(|v| v.len()).sum::<usize>()
+                    + w1.0[0][0].len()
+                    + d1.0.iter().flatten().map(|v| v.len()).sum::<usize>(),
+            )
+        })
+    });
+
+    // ── rsi_n (S=1: dual mean-Wilders chains over the Max-gated movement
+    // arms; first pattern whose lane lowering carries a K_MIRROR identity —
+    // dead-copy, DCE'd, the lane hit proves the kind emits clean) ──────────
+    use tulip_rs::indicators::rsi::Rsi;
+    let (_r8a, sig_r8, vals_r8, _r8b) =
+        erase_request(&Request::new().add(Rsi::recipe(&[14.0]), None)).unwrap();
+    g.bench_function("generated_scalar_scan8_rsi_n", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc1_8 {
+                let rows = try_run(&sig_r8, &vals_r8, s).expect("rsi template");
+                acc += rows[0].len();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_rsi_n", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_r8, &vals_r8, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_r8, &vals_r8, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_rsi_n", |b| {
+        b.iter(|| {
+            let r0 = Rsi::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
+            let r1 = Rsi::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
+            black_box(r0.0[0][0].len() + r1.0[0][0].len())
+        })
+    });
+
+    // ── rsi_stochrsi_shared_p (S=1) — THE grafted-chain flagship: one pass
+    // interns the whole movement chain + both Wilders chains + the division,
+    // and the optional rsi row is the SAME stored stream as the primary.
+    // Rival: the hand's two SIMD indicators per batch (each recomputes the
+    // shared chain in full — the old JIT's exact loss, now the engine's win).
+    use tulip_rs::indicators::stochrsi::StochRsi;
+    let (_rp8, sig_rp8, vals_rp8, _op8) = erase_request(
+        &Request::new()
+            .add(Rsi::recipe(&[14.0]), None)
+            .add(StochRsi::recipe(&[14.0]), Some(&[true])),
+    )
+    .unwrap();
+    g.bench_function("generated_scalar_scan8_rsi_stochrsi_shared_p", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc1_8 {
+                let rows = try_run(&sig_rp8, &vals_rp8, s).expect("rsi+stochrsi template");
+                acc += rows[0].len() + rows[1].len();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_rsi_stochrsi_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_rp8, &vals_rp8, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_rp8, &vals_rp8, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_rsi_stochrsi_shared_p", |b| {
+        b.iter(|| {
+            let ri0 = Rsi::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
+            let sr0 = StochRsi::indicator_by_assets::<4>(&bh1a, &[14.0], Some(&[true])).unwrap();
+            let ri1 = Rsi::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
+            let sr1 = StochRsi::indicator_by_assets::<4>(&bh1b, &[14.0], Some(&[true])).unwrap();
+            black_box(ri0.0[0][0].len() + ri1.0[0][0].len() + sr0.0[0][0].len() + sr1.0[0][0].len())
+        })
+    });
+
+    // ── cmo_n (S=1) — twin ring groups over the gain/loss columns; the
+    // batched lane engine steps both with ONE feed + one eviction read per
+    // group per bar. ────────────────────────────────────────────────────────
+    use tulip_rs::indicators::cmo::Cmo;
+    let (_cm8, sig_cm8, vals_cm8, _cn8) =
+        erase_request(&Request::new().add(Cmo::recipe(&[14.0]), None)).unwrap();
+    g.bench_function("generated_scalar_scan8_cmo_n", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc1_8 {
+                let rows = try_run(&sig_cm8, &vals_cm8, s).expect("cmo template");
+                acc += rows[0].len();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_cmo_n", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_cm8, &vals_cm8, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_cm8, &vals_cm8, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_cmo_n", |b| {
+        b.iter(|| {
+            let c0 = Cmo::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
+            let c1 = Cmo::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
+            black_box(c0.0[0][0].len() + c1.0[0][0].len())
+        })
+    });
+
+    // ── rsi_cmo_shared_p (S=1) — THE movement-sharing flagship: one pass
+    // computes Lag/diff/Max-gates once, Wilders pair AND ring sums consume
+    // them. Rival: the hand's two SIMD indicators per batch. ───────────────
+    let (_rc8, sig_rc8, vals_rc8, _rd8) = erase_request(
+        &Request::new()
+            .add(Rsi::recipe(&[14.0]), None)
+            .add(Cmo::recipe(&[14.0]), None),
+    )
+    .unwrap();
+    g.bench_function("generated_scalar_scan8_rsi_cmo_shared_p", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc1_8 {
+                let rows = try_run(&sig_rc8, &vals_rc8, s).expect("rsi+cmo template");
+                acc += rows[0].len() + rows[1].len();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_rsi_cmo_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_rc8, &vals_rc8, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_rc8, &vals_rc8, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_rsi_cmo_shared_p", |b| {
+        b.iter(|| {
+            let ri0 = Rsi::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
+            let cm0 = Cmo::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
+            let ri1 = Rsi::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
+            let cm1 = Cmo::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
+            black_box(ri0.0[0][0].len() + ri1.0[0][0].len() + cm0.0[0][0].len() + cm1.0[0][0].len())
+        })
+    });
+
     // ── ichimoku_s_m (S=2) ──────────────────────────────────────────────────
-    g.bench_function("generated_scan8_ichimoku_s_m", |b| {
+    g.bench_function("generated_scalar_scan8_ichimoku_s_m", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc2_8 {
@@ -1780,7 +2231,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
             .add(Wma::recipe(&[20.0]), None)
     };
     let (_n8, sig_bw, vals_bw, _o8) = erase_request(&bbands_wma()).unwrap();
-    g.bench_function("generated_scan8_sma_wma_shared_p", |b| {
+    g.bench_function("generated_scalar_scan8_sma_wma_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1_8 {
@@ -1809,7 +2260,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
             black_box(s0.0[0][0].len() + w0.0[0][0].len() + s1.0[0][0].len() + w1.0[0][0].len())
         })
     });
-    g.bench_function("generated_scan8_bbands_wma_shared_p", |b| {
+    g.bench_function("generated_scalar_scan8_bbands_wma_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc1_8 {
@@ -1847,7 +2298,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
             .add(Atr::recipe(&[21.0]), None)
     };
     let (_o8b, sig_am, vals_am, _p8) = erase_request(&atr_multi()).unwrap();
-    g.bench_function("generated_scan8_atr_multi", |b| {
+    g.bench_function("generated_scalar_scan8_atr_multi", |b| {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc3_8 {
@@ -1875,6 +2326,144 @@ fn bench_fused_assets8(c: &mut Criterion) {
                 acc += Atr::indicator_by_assets::<4>(&bh3b, &[p], None).unwrap().0[0][0].len();
             }
             black_box(acc)
+        })
+    });
+
+    // ── ao_s_m (S=2, ring-backed — the step-C lane shapes) ─────────────────
+    use tulip_rs::indicators::ao::Ao;
+    let ao_req = || Request::new().add(Ao::recipe(&[]), None);
+    let (_q8, sig_ao, vals_ao, _r8) = erase_request(&ao_req()).unwrap();
+    g.bench_function("generated_scalar_scan8_ao_s_m", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc2_8 {
+                let rows = try_run(&sig_ao, &vals_ao, s).expect("ao template");
+                acc += rows[0].len();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_ao_s_m", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_ao, &vals_ao, &la2a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_ao, &vals_ao, &la2b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_ao_s_m", |b| {
+        b.iter(|| {
+            let a0 = Ao::indicator_by_assets::<4>(&bh2a, &[], None).unwrap();
+            let a1 = Ao::indicator_by_assets::<4>(&bh2b, &[], None).unwrap();
+            black_box(a0.0[0][0].len() + a1.0[0][0].len())
+        })
+    });
+
+    // ── hma_n (S=1, bespoke machine + per-asset √n ring) ───────────────────
+    use tulip_rs::indicators::hma::Hma;
+    let hma_req = || Request::new().add(Hma::recipe(&[9.0]), None);
+    let (_s8, sig_hm, vals_hm, _t8) = erase_request(&hma_req()).unwrap();
+    g.bench_function("generated_scalar_scan8_hma_n", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc1_8 {
+                let rows = try_run(&sig_hm, &vals_hm, s).expect("hma template");
+                acc += rows[0].len();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_hma_n", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_hm, &vals_hm, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_hm, &vals_hm, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_hma_n", |b| {
+        b.iter(|| {
+            let h0 = Hma::indicator_by_assets::<4>(&bh1a, &[9.0], None).unwrap();
+            let h1 = Hma::indicator_by_assets::<4>(&bh1b, &[9.0], None).unwrap();
+            black_box(h0.0[0][0].len() + h1.0[0][0].len())
+        })
+    });
+
+    // ── fisher_n (S=2: extremum ring + IIR chain; LANES since 2026-10-13,
+    // lane `Ln` = the hand's SIMD ln_unchecked → lanes-vs-scalar is 1e-12) ──
+    use tulip_rs::indicators::fisher::Fisher;
+    let fisher_req = || Request::new().add(Fisher::recipe(&[9.0]), None);
+    let (_u8, sig_fi, vals_fi, _v8) = erase_request(&fisher_req()).unwrap();
+    g.bench_function("generated_scalar_scan8_fisher_n", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc2_8 {
+                let rows = try_run(&sig_fi, &vals_fi, s).expect("fisher template");
+                acc += rows[0].len() + rows[1].len();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_fisher_n", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_fi, &vals_fi, &la2a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_fi, &vals_fi, &la2b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_fisher_n", |b| {
+        b.iter(|| {
+            let f0 = Fisher::indicator_by_assets::<4>(&bh2a, &[9.0], None).unwrap();
+            let f1 = Fisher::indicator_by_assets::<4>(&bh2b, &[9.0], None).unwrap();
+            black_box(f0.0[0][0].len() + f1.0[0][0].len())
+        })
+    });
+
+    // THE sharing thesis (2026-10-13): AO + Fisher co-requested — ONE
+    // interned medprice, ONE ring group (2 sums + 2 extrema), one pass per
+    // asset. The old JIT re-ran medprice and lost ~3.5x here; the engine
+    // adds ZERO arithmetic nodes (canary `ao_fisher_intern_med_and_share_one_ring`).
+    // Rival: the hand pair — two full SIMD passes per batch.
+    let ao_fisher_req = || {
+        Request::new()
+            .add(Ao::recipe(&[]), None)
+            .add(Fisher::recipe(&[9.0]), None)
+    };
+    let (_w8, sig_af, vals_af, _x8) = erase_request(&ao_fisher_req()).unwrap();
+    g.bench_function("generated_scalar_scan8_ao_fisher_shared_med", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for s in &sc2_8 {
+                let rows = try_run(&sig_af, &vals_af, s).expect("ao+fisher template");
+                acc += rows.iter().map(|r| r.len()).sum::<usize>();
+            }
+            black_box(acc)
+        })
+    });
+    g.bench_function("generated_lanes8_2x4_ao_fisher_shared_med", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_af, &vals_af, &la2a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_af, &vals_af, &la2b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_pair_byassets2x4_ao_fisher", |b| {
+        b.iter(|| {
+            let a0 = Ao::indicator_by_assets::<4>(&bh2a, &[], None).unwrap();
+            let f0 = Fisher::indicator_by_assets::<4>(&bh2a, &[9.0], None).unwrap();
+            let a1 = Ao::indicator_by_assets::<4>(&bh2b, &[], None).unwrap();
+            let f1 = Fisher::indicator_by_assets::<4>(&bh2b, &[9.0], None).unwrap();
+            black_box(a0.0[0][0].len() + f0.0[0][0].len() + a1.0[0][0].len() + f1.0[0][0].len())
         })
     });
 

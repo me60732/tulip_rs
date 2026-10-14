@@ -260,40 +260,15 @@ impl Indicator<INPUTS, OPTIONS> for Ao {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Ao {
-    /// `AO = SMA(medprice, 5) − SMA(medprice, 34)` — the Awesome Oscillator.
-    /// Both SMAs roll over the DERIVED `med` (the shared `0.5·(high+low)`
-    /// `Medprice` node), so they are `RollSum{mean:true}` (ring-backed; one ring
-    /// per source — the two windows share `med`'s ring exactly as the hand shares
-    /// its single 34-buffer, not two buffers). Publish lead 34 (hand
-    /// `min_data = 35`). The optional mirrors `[short_sma, long_sma, medprice]`
-    /// follow the hand's declared order; the `med` sink is what lets AO fuse with
-    /// `supertrend`/`fisher` — all three read the SAME interned `med` node, so a
-    /// combined query computes `0.5·(high+low)` once per bar.
-    fn recipe(_options: &[f64]) -> crate::cse::Recipe {
-        let mut r = crate::cse::Recipe::new();
-        let med = r.sub::<crate::indicators::medprice::Medprice>(&[], &[0, 1]);
-        let short = r.add(crate::cse::Node::RollSum {
-            src: med,
-            period: SHORT_PERIOD as u32,
-            mean: true,
-            skip: 0,
-            steady_from: 0,
-        });
-        let long = r.add(crate::cse::Node::RollSum {
-            src: med,
-            period: LONG_PERIOD as u32,
-            mean: true,
-            skip: 0,
-            steady_from: 0,
-        });
-        let ao = r.add(crate::cse::Node::Sub { a: short, b: long });
-        r.kind = "ao";
-        r.options = Vec::new();
-        r.outputs
-            .push(crate::cse::Sink::iface_lead(ao, LONG_PERIOD as u32));
-        r.optional_outputs.push(crate::cse::Sink::iface(short));
-        r.optional_outputs.push(crate::cse::Sink::iface(long));
-        r.optional_outputs.push(crate::cse::Sink::iface(med));
-        r
+    /// `AO = SMA(medprice, 5) − SMA(medprice, 34)` — the Awesome Oscillator:
+    /// two mean `RollSum`s over the shared, interned `medprice` node
+    /// (ring-backed; one ring per source — the two windows share `med`'s
+    /// ring exactly as the hand shares its single 34-buffer). Publish lead
+    /// 34 (hand `min_data = 35`); optional mirrors `[short_sma, long_sma,
+    /// medprice]` in the hand's declared order. The graph lives in the leaf
+    /// (`cse::recipes::ao`) — one source shared with the `kernel!`
+    /// generator, mirroring every other family member.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::ao(options)
     }
 }
