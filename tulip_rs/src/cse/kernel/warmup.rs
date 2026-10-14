@@ -483,8 +483,6 @@ impl<const L: usize> SimdRingSet<L> {
                 .map(|s| {
                     s.map(|s| WarmRingSlot {
                         buf: s.buf.into_full(),
-                        last_t: s.last_t,
-                        evicted: Simd::splat(0.0),
                     })
                 })
                 .collect(),
@@ -492,12 +490,13 @@ impl<const L: usize> SimdRingSet<L> {
     }
 }
 
-/// A `Warm` ring slot: full by construction, so the eviction is a bare `T`.
+/// A `Warm` ring slot: full by construction. The steady loop drives it through
+/// ONE fused `feed_periods` per group per bar, so it carries no `last_t`
+/// idempotency guard and no eviction stash — the fused pre-push read returns
+/// every member's leave (and the eviction, for the cap owner) directly.
 #[derive(Clone)]
 pub struct WarmRingSlot<T: BufferElement> {
     buf: Buffer<Warm, T>,
-    last_t: usize,
-    evicted: T,
 }
 
 /// The steady-loop ring authority (fill-state law: NO steady bar ever touches
@@ -522,35 +521,25 @@ pub struct WarmRingSet<T: BufferElement> {
 }
 
 impl<T: BufferElement> WarmRingSet<T> {
-    /// This bar's value into group `g`: the bar's first caller pushes (taking
-    /// the eviction); later members are no-ops. No `cap` — capacity is fixed
-    /// by the ring the seam filled.
+    /// Push this bar's value for group `g` and read back every member's
+    /// leaving bar in ONE pass — the lane kernel's per-group ring step. Cost
+    /// per call: one store, one advance, `N` pre-push age reads; NO `last_t`
+    /// idempotency branch, NO eviction stash, NO `Option`, because the caller
+    /// is the group's single leader (arena order guarantees it precedes every
+    /// sibling, so nobody else pushes this bar).
+    ///
+    /// Ages need no cap adjustment: `period_to_idx` is `index - period - 1`,
+    /// so the pre-push read at a member's own period `p` lands on the same
+    /// slot the post-push `get_by_period(p)` used, and at `p == cap` it lands
+    /// on the slot about to be overwritten — the eviction. That identity is
+    /// what lets the cap-owner/sibling split disappear here.
     #[inline(always)]
-    pub fn feed(&mut self, g: usize, t: usize, v: T) {
-        let s = self.slots[g]
+    pub fn feed_periods<const N: usize>(&mut self, g: usize, v: T, ages: [usize; N]) -> [T; N] {
+        self.slots[g]
             .as_mut()
-            .expect("warm ring group missing at seam");
-        if s.last_t != t {
-            s.last_t = t;
-            s.evicted = s.buf.push_with_info(v);
-        }
-    }
-    /// This bar's eviction for the group (the cap window's leaving bar).
-    #[inline(always)]
-    pub fn evicted(&self, g: usize) -> T {
-        self.slots[g]
-            .as_ref()
-            .expect("warm ring group missing")
-            .evicted
-    }
-    /// `age` bars back, post-push (the hand's `get_by_period`).
-    #[inline(always)]
-    pub fn at(&self, g: usize, age: usize) -> T {
-        self.slots[g]
-            .as_ref()
-            .expect("warm ring group missing")
+            .expect("warm ring group missing at seam")
             .buf
-            .get_by_period(age)
+            .push_with_info_periods(v, ages)
     }
 }
 

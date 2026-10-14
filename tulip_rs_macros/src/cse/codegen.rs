@@ -807,16 +807,15 @@ fn run_fn(p: &Pattern) -> TokenStream {
         }
     }
     // Collect streams from nodes that read Inputs directly (Lag, Abs, Sub, etc.)
-    for (_k, node) in p.nodes.iter().enumerate() {
+    for (k, node) in p.nodes.iter().enumerate() {
         if matches!(node.kind, Kind::Input | Kind::Const) {
             continue; // leaf nodes don't read
         }
-        // Check if this node reads from an Input (a and b)
-        let a_is_input = p
-            .nodes
-            .get(node.a)
-            .map(|n| matches!(n.kind, Kind::Input))
-            .unwrap_or(false);
+        // The a-operand question IS the plan's published stream mode for this
+        // slot (`Price` = reads its source straight off a stream); the b and
+        // c operands stay plain arena edges — which operand sits where is
+        // wiring, not a layout decision.
+        let a_is_input = p.plan.is_price_src(k);
         let b_is_input = p
             .nodes
             .get(node.b)
@@ -2077,17 +2076,31 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
             Kind::RollSum => {
                 // Lane ring roll: carry = the window SUM (exec's `st[k]`,
                 // seeded per asset exactly like the Sma-family lanes). The
-                // group coordinates are ARENA facts — one (leader slot,
-                // capacity) pair drives all L ring instances; `evi` is the
-                // compile-once cap-owner flag (leave = eviction), siblings
-                // read age p. Mirrors the scalar hoist 1:1.
+                // group coordinates are ARENA facts the planner publishes —
+                // one leader slot drives all L ring instances.
+                //
+                // A LOCKSTEP (pure-sum) group needs no capacity and no
+                // cap-owner flag: its leave comes from the group leader's one
+                // fused `feed_periods` call, whose pre-push age read is the
+                // eviction at `p == cap` and the old `at(p)` otherwise. A
+                // RESCAN group still compares `p == cap` here because it rides
+                // the lane-major batched authority, which has no fused form.
                 let ck = format_ident!("{}_carry", ident_k);
                 let mk = format_ident!("{}_mult", ident_k);
                 let pk = format_ident!("{}_p", ident_k);
                 let gk = format_ident!("{}_grp", ident_k);
+                let ki = k;
+                if p.plan.is_lockstep(k) {
+                    carry_hoists.push(quote! {
+                        let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                        let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
+                        let #pk = vals.periods[#ki] as usize;
+                        let #gk = vals.ring_of[#ki] as usize;
+                    });
+                    continue;
+                }
                 let cp = format_ident!("{}_cap", ident_k);
                 let evi = format_ident!("{}_evi", ident_k);
-                let ki = k;
                 carry_hoists.push(quote! {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                     let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
@@ -2310,55 +2323,65 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::RollSum => {
-                // Lane ring step — ONE group op per bar, on the authority the
-                // published group class selects (`p.plan`, the same
-                // `lowering::ring_facts` the `SIG_*` const and `erase` run —
-                // the renderer reads the decision, it makes none). Pure-sum
-                // group (the common case: a `RollSum` group is only shared
-                // with another `RollSum`): the VECTOR-ELEMENT `rings` — one
-                // non-mirror store, the leave as ONE vector read, no
-                // `to_array`/`from_array` at either end. A group that also
-                // carries a `RollMax`/`RollMin` stays on the lane-major
-                // `ringb`: its rescan needs one lane's contiguous mirror
-                // window, and the vector layout cannot give a per-lane slice.
-                // Cap owner leaves by eviction, a shorter sibling by age `p` —
-                // the hoisted flag, no per-bar compare.
+                // Lane ring step — ONE group op per bar on the authority the
+                // published class selects. A pure-SUM (lockstep) group takes
+                // the vector-element `rings` WITH the fold: the group leader
+                // issues ONE `feed_periods` carrying every member's age and
+                // each member indexes its own leave out of the returned array.
+                // Per group per bar that costs one store, one advance and N
+                // pre-push age reads — no `last_t` idempotency branch, no
+                // eviction stash, no cap compare (the pre-push read at
+                // `p == cap` IS the eviction). A group carrying a
+                // `RollMax`/`RollMin` stays on the lane-major `ringb`: its
+                // rescan needs one lane's contiguous mirror window, which the
+                // vector layout cannot give, so it keeps the hoisted
+                // cap-owner flag.
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
-                let pk = format_ident!("{}_p", idents[k]);
                 let gk = format_ident!("{}_grp", idents[k]);
+                if p.plan.is_lockstep(k) {
+                    let ld = p.plan.leader[k] as usize;
+                    let members = p.plan.members_of(ld, p.nodes.len());
+                    let idx = members
+                        .iter()
+                        .position(|&m| m == k)
+                        .expect("roll is a member of its own group");
+                    let gv = format_ident!("gv{}", ld);
+                    let n = members.len();
+                    let ages: Vec<TokenStream> = members
+                        .iter()
+                        .map(|&m| {
+                            let pm = format_ident!("{}_p", idents[m]);
+                            quote! { #pm }
+                        })
+                        .collect();
+                    if p.plan.is_leader(k) {
+                        body.push(quote! {
+                            let #gv: [Simd<f64, L>; #n] =
+                                rings.feed_periods(#gk, #ea, [#(#ages),*]);
+                            let #xk = { #ck = #ck + (#ea - #gv[#idx]); #ck * #mk };
+                        });
+                    } else {
+                        body.push(quote! {
+                            let #xk = { #ck = #ck + (#ea - #gv[#idx]); #ck * #mk };
+                        });
+                    }
+                    continue;
+                }
+                let pk = format_ident!("{}_p", idents[k]);
                 let evi = format_ident!("{}_evi", idents[k]);
-                let step = if p.plan.is_rescan(k) {
-                    quote! {
-                        let #xk = {
-                            ringb.feed_batch(#gk, gate + i, #ea.to_array());
-                            let leaves = if #evi {
-                                ringb.evicted_batch(#gk)
-                            } else {
-                                ringb.at_batch(#gk, #pk)
-                            };
-                            #ck = #ck + (#ea - Simd::<f64, L>::from_array(leaves));
-                            #ck * #mk
+                body.push(quote! {
+                    let #xk = {
+                        ringb.feed_batch(#gk, gate + i, #ea.to_array());
+                        let leaves = if #evi {
+                            ringb.evicted_batch(#gk)
+                        } else {
+                            ringb.at_batch(#gk, #pk)
                         };
-                    }
-                } else {
-                    // The WARM authority: fullness is a type-level fact, so
-                    // `feed` needs no `cap` and the eviction is a bare vector
-                    // — no `Option` tag, no per-bar `expect`, no panic path.
-                    quote! {
-                        let #xk = {
-                            rings.feed(#gk, gate + i, #ea);
-                            let leaves = if #evi {
-                                rings.evicted(#gk)
-                            } else {
-                                rings.at(#gk, #pk)
-                            };
-                            #ck = #ck + (#ea - leaves);
-                            #ck * #mk
-                        };
-                    }
-                };
-                body.push(step);
+                        #ck = #ck + (#ea - Simd::<f64, L>::from_array(leaves));
+                        #ck * #mk
+                    };
+                });
             }
             Kind::Hma => {
                 // Lane HMA — the scalar statement-for-statement mirror:

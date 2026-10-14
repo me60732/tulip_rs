@@ -200,6 +200,19 @@ impl Plan {
     pub fn is_price_src(&self, k: usize) -> bool {
         self.price_src[k]
     }
+    /// The group led by `leader`, as member slots in arena order — which IS
+    /// the fused call's lane order: member `j` reads `leaves[j]`. Reads the
+    /// published leader table; it decides nothing.
+    pub fn members_of(&self, leader: usize, len: usize) -> Vec<usize> {
+        (0..len)
+            .filter(|&j| self.class[j] != RCLASS_NONE && self.leader[j] as usize == leader)
+            .collect()
+    }
+    /// Is `k` its group's leader — the one slot allowed to push the ring this
+    /// bar (arena order guarantees it precedes every sibling)?
+    pub fn is_leader(&self, k: usize) -> bool {
+        self.class[k] != RCLASS_NONE && self.leader[k] as usize == k
+    }
 }
 
 /// Group-class merge: a rescan member makes the whole group rescan-class;
