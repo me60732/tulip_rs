@@ -242,6 +242,128 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
 
+    // ── the shapes that landed after this group existed: ultosc, mass, ad,
+    // adosc, mom. The doctrine is one single-asset `runonly` pair per newly
+    // landed shape, and these are DIAGNOSTIC denominators — a lone indicator is
+    // the hand's home turf, so parity or a small loss here is the floor, not a
+    // regression to flag. The HEADLINE of this block is the last pair: mass
+    // merged into the apo+ppo+macd hub, four indicators in ONE arena. ──────
+    use tulip_rs::cse::recipes;
+    use tulip_rs::indicators::ad::Ad;
+    use tulip_rs::indicators::adosc::Adosc;
+    use tulip_rs::indicators::mass::Mass;
+    use tulip_rs::indicators::mom::Mom;
+    use tulip_rs::indicators::ultosc::Ultosc;
+    let v0 = col(0, |d| d.volume);
+    let hlc3: [&[f64]; 3] = [h0.as_slice(), l0.as_slice(), c0.as_slice()];
+    let hlc4: [&[f64]; 4] = [h0.as_slice(), l0.as_slice(), c0.as_slice(), v0.as_slice()];
+
+    let (_ru1, sig_run_ult, vals_run_ult, _ou1) =
+        erase_request(&Request::new().add(Ultosc::recipe(&[7.0, 14.0, 28.0]), None)).unwrap();
+    g.bench_function("generated_runonly_ultosc_s_m_l", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_run_ult, &vals_run_ult, &hlc3).expect("ultosc template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_ultosc_s_m_l", |b| {
+        b.iter(|| {
+            let u = Ultosc::indicator(&hlc3, &[7.0, 14.0, 28.0], None).unwrap();
+            black_box(u.0[0].len())
+        })
+    });
+
+    let (_ru2, sig_run_mass, vals_run_mass, _ou2) =
+        erase_request(&Request::new().add(Mass::recipe(&[40.0]), None)).unwrap();
+    g.bench_function("generated_runonly_mass_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_run_mass, &vals_run_mass, &hl).expect("mass template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_mass_n", |b| {
+        b.iter(|| {
+            let m = Mass::indicator(&hl, &[40.0], None).unwrap();
+            black_box(m.0[0].len())
+        })
+    });
+
+    let (_ru3, sig_run_ad, vals_run_ad, _ou3) =
+        erase_request(&Request::new().add(Ad::recipe(&[]), None)).unwrap();
+    g.bench_function("generated_runonly_ad", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_run_ad, &vals_run_ad, &hlc4).expect("ad template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_ad", |b| {
+        b.iter(|| {
+            let a = Ad::indicator(&hlc4, &[], None).unwrap();
+            black_box(a.0[0].len())
+        })
+    });
+
+    let (_ru4, sig_run_adosc, vals_run_adosc, _ou4) =
+        erase_request(&Request::new().add(Adosc::recipe(&[3.0, 10.0]), None)).unwrap();
+    g.bench_function("generated_runonly_adosc_s_l", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_run_adosc, &vals_run_adosc, &hlc4).expect("adosc template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_adosc_s_l", |b| {
+        b.iter(|| {
+            let a = Adosc::indicator(&hlc4, &[3.0, 10.0], None).unwrap();
+            black_box(a.0[0].len())
+        })
+    });
+
+    let (_ru5, sig_run_mom, vals_run_mom, _ou5) =
+        erase_request(&Request::new().add(Mom::recipe(&[10.0]), None)).unwrap();
+    g.bench_function("generated_runonly_mom_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_run_mom, &vals_run_mom, &cl).expect("mom template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_mom_n", |b| {
+        b.iter(|| {
+            let m = Mom::indicator(&cl, &[10.0], None).unwrap();
+            black_box(m.0[0].len())
+        })
+    });
+
+    // THE headline: mass merged into the apo+ppo+macd hub. Four indicator
+    // requests, ONE arena, five published rows — the hub's three share the
+    // `ema_s`/`ema_l`/`line` triple (apo's line IS macd's line), mass rides
+    // along for the single pass. The hand rival is four separate calls, which
+    // is what a dashboard actually does today.
+    const MASS_HUB: [f64; 4] = [40.0, 12.0, 26.0, 9.0];
+    let (_ru6, sig_run_hub, vals_run_hub, _ou6) =
+        erase_request(&Request::new().add(recipes::mass_apo_ppo_macd(&MASS_HUB), None)).unwrap();
+    g.bench_function("generated_runonly_mass_apo_ppo_macd", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_run_hub, &vals_run_hub, &hlc3).expect("mass+hub template");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_mass_apo_ppo_macd", |b| {
+        b.iter(|| {
+            let m = Mass::indicator(&hl, &[40.0], None).unwrap();
+            let a = Apo::indicator(&cl, &APO, None).unwrap();
+            let p = Ppo::indicator(&cl, &PPO, None).unwrap();
+            let d = Macd::indicator(&cl, &MACD, None).unwrap();
+            black_box(
+                m.0[0].len()
+                    + a.0[0].len()
+                    + p.0[0].len()
+                    + d.0[0].len()
+                    + d.0[1].len()
+                    + d.0[2].len(),
+            )
+        })
+    });
+
     // ── stoch — the skip/steady_from pair + THE flagship triple ──────────
     use tulip_rs::indicators::donchianchannel::DonchianChannel;
     use tulip_rs::indicators::stoch::Stoch;
@@ -1483,12 +1605,70 @@ fn bench_fused_assets8(c: &mut Criterion) {
         ],
     ];
     // ── Split into two batches of 4 for the headline row ───────────────────
+    // The VOLUME column, collected separately so `all_8` keeps its (hi, lo, cl)
+    // arity everywhere it is already destructured. Only the OHLCV patterns
+    // (`ad`, `adosc`) read it — hand `ad.rs::INPUTS = 4`.
+    let vol_8: Vec<Vec<f64>> = (0..8)
+        .map(|k| s8[k].1.iter().map(|d| d.volume).collect())
+        .collect();
+    let ba4_8: [&[&[f64]; 4]; 8] = [
+        &[
+            all_8[0].0.as_slice(),
+            all_8[0].1.as_slice(),
+            all_8[0].2.as_slice(),
+            vol_8[0].as_slice(),
+        ],
+        &[
+            all_8[1].0.as_slice(),
+            all_8[1].1.as_slice(),
+            all_8[1].2.as_slice(),
+            vol_8[1].as_slice(),
+        ],
+        &[
+            all_8[2].0.as_slice(),
+            all_8[2].1.as_slice(),
+            all_8[2].2.as_slice(),
+            vol_8[2].as_slice(),
+        ],
+        &[
+            all_8[3].0.as_slice(),
+            all_8[3].1.as_slice(),
+            all_8[3].2.as_slice(),
+            vol_8[3].as_slice(),
+        ],
+        &[
+            all_8[4].0.as_slice(),
+            all_8[4].1.as_slice(),
+            all_8[4].2.as_slice(),
+            vol_8[4].as_slice(),
+        ],
+        &[
+            all_8[5].0.as_slice(),
+            all_8[5].1.as_slice(),
+            all_8[5].2.as_slice(),
+            vol_8[5].as_slice(),
+        ],
+        &[
+            all_8[6].0.as_slice(),
+            all_8[6].1.as_slice(),
+            all_8[6].2.as_slice(),
+            vol_8[6].as_slice(),
+        ],
+        &[
+            all_8[7].0.as_slice(),
+            all_8[7].1.as_slice(),
+            all_8[7].2.as_slice(),
+            vol_8[7].as_slice(),
+        ],
+    ];
     let la1a: [&[&[f64]]; 4] = [ba1_8[0], ba1_8[1], ba1_8[2], ba1_8[3]];
     let la1b: [&[&[f64]]; 4] = [ba1_8[4], ba1_8[5], ba1_8[6], ba1_8[7]];
     let la2a: [&[&[f64]]; 4] = [ba2_8[0], ba2_8[1], ba2_8[2], ba2_8[3]];
     let la2b: [&[&[f64]]; 4] = [ba2_8[4], ba2_8[5], ba2_8[6], ba2_8[7]];
     let la3a: [&[&[f64]]; 4] = [ba3_8[0], ba3_8[1], ba3_8[2], ba3_8[3]];
     let la3b: [&[&[f64]]; 4] = [ba3_8[4], ba3_8[5], ba3_8[6], ba3_8[7]];
+    let la4a: [&[&[f64]]; 4] = [ba4_8[0], ba4_8[1], ba4_8[2], ba4_8[3]];
+    let la4b: [&[&[f64]]; 4] = [ba4_8[4], ba4_8[5], ba4_8[6], ba4_8[7]];
 
     // ── Hand rival in the SAME shape: `by_assets::<4>` twice, never `::<8>`.
     // This box has no 8-wide f64 (AVX2 max), so a `::<8>` call is just the
@@ -1501,6 +1681,8 @@ fn bench_fused_assets8(c: &mut Criterion) {
     let bh2b: [&[&[f64]; 2]; 4] = [ba2_8[4], ba2_8[5], ba2_8[6], ba2_8[7]];
     let bh3a: [&[&[f64]; 3]; 4] = [ba3_8[0], ba3_8[1], ba3_8[2], ba3_8[3]];
     let bh3b: [&[&[f64]; 3]; 4] = [ba3_8[4], ba3_8[5], ba3_8[6], ba3_8[7]];
+    let bh4a: [&[&[f64]; 4]; 4] = [ba4_8[0], ba4_8[1], ba4_8[2], ba4_8[3]];
+    let bh4b: [&[&[f64]; 4]; 4] = [ba4_8[4], ba4_8[5], ba4_8[6], ba4_8[7]];
 
     // ── Build scan vectors scN8 (Vec<[&[f64]; S]>) for each stream count ───
     let sc1_8: Vec<[&[f64]; 1]> = all_8.iter().map(|(_, _, c)| [c.as_slice()]).collect();
@@ -2109,6 +2291,197 @@ fn bench_fused_assets8(c: &mut Criterion) {
             let ri1 = Rsi::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
             let sr1 = StochRsi::indicator_by_assets::<4>(&bh1b, &[14.0], Some(&[true])).unwrap();
             black_box(ri0.0[0][0].len() + ri1.0[0][0].len() + sr0.0[0][0].len() + sr1.0[0][0].len())
+        })
+    });
+
+    // ── ultosc / mass — the FUSED-CONTAINER axis ───────────────────────────
+    // `ultosc_s_m_l` is the shape that finally prices the fused container's
+    // read cost: TWO independent pure-sum groups of THREE windows each, so the
+    // planner names ONE `MultiBuffer<2>` and a bar costs two stores plus ONE
+    // cursor advance for six folds (the hand answers it with `MultiBuffer<2>`
+    // too — `ultosc.rs:9` — so this pair is a like-for-like container contest,
+    // not a lone-shape race). `mass_n` is the DECLINES-TO-FUSE control: one
+    // group, nothing independent to pair with.
+    // `ultosc_natr_shared_pc` asks the timing version of a question the arena
+    // already answered structurally: co-requested, ultosc and natr share the
+    // `Lag{close,1}` anchor and NOTHING else (`K_MIN` stays 1, `K_ABS` stays 2
+    // — their two `tr` spellings are value-equal but not interning-equal, pinned
+    // by `ultosc_natr_shared_pc_sig_derived`), so this row prices what a
+    // one-node share buys.
+    use tulip_rs::indicators::mass::Mass;
+    use tulip_rs::indicators::ultosc::Ultosc;
+    let (_u8, sig_u8, vals_u8, _un8) =
+        erase_request(&Request::new().add(Ultosc::recipe(&[7.0, 14.0, 28.0]), None)).unwrap();
+    let (_m8, sig_m8, vals_m8, _mn8) =
+        erase_request(&Request::new().add(Mass::recipe(&[25.0]), None)).unwrap();
+    let (_up8, sig_up8, vals_up8, _unp8) = erase_request(
+        &Request::new()
+            .add(Ultosc::recipe(&[7.0, 14.0, 28.0]), None)
+            .add(Natr::recipe(&[14.0]), None),
+    )
+    .unwrap();
+
+    g.bench_function("generated_lanes8_2x4_ultosc_s_m_l", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_u8, &vals_u8, &la3a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_u8, &vals_u8, &la3b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_ultosc_s_m_l", |b| {
+        b.iter(|| {
+            let a = Ultosc::indicator_by_assets::<4>(&bh3a, &[7.0, 14.0, 28.0], None).unwrap();
+            let bb = Ultosc::indicator_by_assets::<4>(&bh3b, &[7.0, 14.0, 28.0], None).unwrap();
+            black_box(a.0[0][0].len() + bb.0[0][0].len())
+        })
+    });
+
+    g.bench_function("generated_lanes8_2x4_mass_n", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_m8, &vals_m8, &la2a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_m8, &vals_m8, &la2b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_mass_n", |b| {
+        b.iter(|| {
+            let a = Mass::indicator_by_assets::<4>(&bh2a, &[25.0], None).unwrap();
+            let bb = Mass::indicator_by_assets::<4>(&bh2b, &[25.0], None).unwrap();
+            black_box(a.0[0][0].len() + bb.0[0][0].len())
+        })
+    });
+
+    g.bench_function("generated_lanes8_2x4_ultosc_natr_shared_pc", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_up8, &vals_up8, &la3a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_up8, &vals_up8, &la3b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_ultosc_natr_shared_pc", |b| {
+        b.iter(|| {
+            let u0 = Ultosc::indicator_by_assets::<4>(&bh3a, &[7.0, 14.0, 28.0], None).unwrap();
+            let n0 = Natr::indicator_by_assets::<4>(&bh3a, &[14.0], None).unwrap();
+            let u1 = Ultosc::indicator_by_assets::<4>(&bh3b, &[7.0, 14.0, 28.0], None).unwrap();
+            let n1 = Natr::indicator_by_assets::<4>(&bh3b, &[14.0], None).unwrap();
+            black_box(u0.0[0][0].len() + n0.0[0][0].len() + u1.0[0][0].len() + n1.0[0][0].len())
+        })
+    });
+
+    // ── the MIXED-INPUT arena — the experiment the old JIT lost ────────────
+    // The user's standing question: `adosc + apo + ppo` was tried under the old
+    // Cranelift JIT (apo/ppo EMAs read PRICE, adosc's read the AD line) and
+    // "failed missurably in speed", blamed on cranelift's 2-lane ceiling. This
+    // arena is the same workload on the macro engine, where a derived-source
+    // `Ema` is literally the same arm a price-source one uses — no new
+    // machinery, so any difference here is the engine, not a special case.
+    //
+    // Authored as ONE recipe, not three co-requests, because stream slots are
+    // positional: `Apo`/`Ppo` bind price to `Input{0}` while this arena's slot 0
+    // is HIGH, so a naive co-request would silently compute APO/PPO over the
+    // high column. `recipes::adosc_apo_ppo` inlines the price chains onto
+    // `Input{2}` so the binding is explicit — and `adosc_apo_ppo_bit_exact`
+    // proves it by calling each hand on its OWN input array.
+    //
+    // Periods are all DISTINCT (adosc 3/10, apo 12/26, ppo 6/14) so nothing
+    // dedups by accident: `K_EMA` is 6 (pinned by `adosc_apo_ppo_sig_derived`),
+    // and the hand rival therefore does six EMA chains too. This row prices ONE
+    // pass over four columns with a non-price recurrence in it, against three
+    // separate hand passes.
+    use tulip_rs::indicators::ad::Ad;
+    use tulip_rs::indicators::adosc::Adosc;
+    const ADOSC_APO_PPO: [f64; 6] = [3.0, 10.0, 12.0, 26.0, 6.0, 14.0];
+    let (_ax8, sig_ax8, vals_ax8, _an8) = erase_request(
+        &Request::new().add(tulip_rs::cse::recipes::adosc_apo_ppo(&ADOSC_APO_PPO), None),
+    )
+    .unwrap();
+    let (_d8, sig_d8, vals_d8, _dn8) =
+        erase_request(&Request::new().add(Adosc::recipe(&[3.0, 10.0]), None)).unwrap();
+    let (_ad8, sig_ad8, vals_ad8, _ann8) =
+        erase_request(&Request::new().add(Ad::recipe(&[]), None)).unwrap();
+
+    g.bench_function("generated_lanes8_2x4_adosc_apo_ppo", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_ax8, &vals_ax8, &la4a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_ax8, &vals_ax8, &la4b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_adosc_apo_ppo", |b| {
+        b.iter(|| {
+            // Same six EMA chains, same three indicators — hand `adosc` takes
+            // OHLCV, hand `apo`/`ppo` take close only.
+            let a0 = Adosc::indicator_by_assets::<4>(&bh4a, &[3.0, 10.0], None).unwrap();
+            let p0 = Apo::indicator_by_assets::<4>(&bh1a, &[12.0, 26.0], None).unwrap();
+            let q0 = Ppo::indicator_by_assets::<4>(&bh1a, &[6.0, 14.0], None).unwrap();
+            let a1 = Adosc::indicator_by_assets::<4>(&bh4b, &[3.0, 10.0], None).unwrap();
+            let p1 = Apo::indicator_by_assets::<4>(&bh1b, &[12.0, 26.0], None).unwrap();
+            let q1 = Ppo::indicator_by_assets::<4>(&bh1b, &[6.0, 14.0], None).unwrap();
+            black_box(
+                a0.0[0][0].len()
+                    + p0.0[0][0].len()
+                    + q0.0[0][0].len()
+                    + a1.0[0][0].len()
+                    + p1.0[0][0].len()
+                    + q1.0[0][0].len(),
+            )
+        })
+    });
+
+    // Isolation rows, so the headline number is interpretable: `adosc_s_l` is
+    // the same non-price recurrence WITHOUT the two price indicators (one pass
+    // either way, no dedup to claim), and `ad` is the accumulator alone — the
+    // cheapest possible `Accum` cost. A lone shape is the hand's home turf, so
+    // these are diagnostics, not win claims.
+    g.bench_function("generated_lanes8_2x4_adosc_s_l", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_d8, &vals_d8, &la4a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_d8, &vals_d8, &la4b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_adosc_s_l", |b| {
+        b.iter(|| {
+            let a = Adosc::indicator_by_assets::<4>(&bh4a, &[3.0, 10.0], None).unwrap();
+            let bb = Adosc::indicator_by_assets::<4>(&bh4b, &[3.0, 10.0], None).unwrap();
+            black_box(a.0[0][0].len() + bb.0[0][0].len())
+        })
+    });
+
+    // NOTE the `_ohlcv` suffix: a row named `..._ad` is a PREFIX of
+    // `..._adosc_s_l`, so a Criterion substring filter on it silently matches
+    // three rows and the first-measured one is whoever ran first. The longer
+    // name keeps every filter unambiguous — one filter, one row, one number.
+    g.bench_function("generated_lanes8_2x4_ad_ohlcv", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_ad8, &vals_ad8, &la4a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_ad8, &vals_ad8, &la4b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_ad_ohlcv", |b| {
+        b.iter(|| {
+            let a = Ad::indicator_by_assets::<4>(&bh4a, &[], None).unwrap();
+            let bb = Ad::indicator_by_assets::<4>(&bh4b, &[], None).unwrap();
+            black_box(a.0[0][0].len() + bb.0[0][0].len())
         })
     });
 

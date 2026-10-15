@@ -115,6 +115,14 @@ pub enum Node {
         a: Id,
         b: Id,
     },
+    /// IEEE minNum, the exact mirror of [`Node::Max`] — it returns the OTHER
+    /// operand when one is NaN. The hand's `low.min(prev_close)` (ultosc's
+    /// true-low) is this and NOT a select: `WhereLt` pins `0.0` on one arm, so
+    /// the two disagree on NaN and on the `-0.0`/`+0.0` tie.
+    Min {
+        a: Id,
+        b: Id,
+    },
     WhereGe {
         a: Id,
         b: Id,
@@ -124,6 +132,36 @@ pub enum Node {
         a: Id,
         b: Id,
         t: Id,
+    },
+    /// `if a > b { t } else { 0.0 }` — the strict sibling of [`Node::WhereGe`].
+    WhereGt {
+        a: Id,
+        b: Id,
+        t: Id,
+    },
+    /// `if a <= b { 0.0 } else { t }` — the [`Node::WhereLt`] sibling that keeps
+    /// the value on the STRICT inverse of the guard. `ad`'s hand guard is
+    /// `if range <= eps { return self.ad }` — an EARLY RETURN, so the compute
+    /// branch is `!(a <= b)`: a NaN `range` makes `<=` false, the value arm
+    /// runs and poisons the carry. `WhereLt` cannot say this (its value arm is
+    /// `>=`, and the `a == b` boundary lands on the wrong side) and `WhereGt`
+    /// gets the polarity backwards — it pins `0.0` on a NaN compare, silently
+    /// UN-poisoning. This is the polarity the hand actually has.
+    WhereLe {
+        a: Id,
+        b: Id,
+        t: Id,
+    },
+    /// A single-rounding running total: `st[k] = a.mul_add(b, st[k])`, zero
+    /// init, feeding from `feeds[k]` like the other recurrences, with NO
+    /// weights. `Iir { a: 1.0, b: 1.0 }` over a `Mul` node is NOT the same math
+    /// — it rounds the product before adding it to the carry, and an unbounded
+    /// running total never washes the difference out. `Fma` cannot substitute
+    /// either: its `c` names a node, not this node's own carry.
+    /// Hand `ad.rs`: `ratio.mul_add(volume, self.ad)`.
+    Accum {
+        a: Id,
+        b: Id,
     },
     Hma {
         src: Id,

@@ -45,7 +45,8 @@ impl Merged {
                 | Node::Add { a, b }
                 | Node::Mul { a, b }
                 | Node::Div { a, b }
-                | Node::Max { a, b } => leads[a as usize].max(leads[b as usize]),
+                | Node::Max { a, b }
+                | Node::Min { a, b } => leads[a as usize].max(leads[b as usize]),
                 // A compare-select: defined once all three inputs are.
                 Node::WhereGe { a, b, t } => leads[a as usize]
                     .max(leads[b as usize])
@@ -53,6 +54,15 @@ impl Merged {
                 Node::WhereLt { a, b, t } => leads[a as usize]
                     .max(leads[b as usize])
                     .max(leads[t as usize]),
+                Node::WhereGt { a, b, t } => leads[a as usize]
+                    .max(leads[b as usize])
+                    .max(leads[t as usize]),
+                Node::WhereLe { a, b, t } => leads[a as usize]
+                    .max(leads[b as usize])
+                    .max(leads[t as usize]),
+                // A running total is defined once both operands are — the same
+                // rule as the product it fuses into one rounding.
+                Node::Accum { a, b } => leads[a as usize].max(leads[b as usize]),
                 Node::Abs { src } => leads[src as usize],
                 // A delayed read of a stream first has a value once the
                 // stream is `n` bars old.
@@ -465,8 +475,17 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         // different pointers), so it never earns an assembly on its own.
         Lag { .. } => (10, 0),
         Max { .. } => (11, 1),
+        // minNum is its own instruction (`minpd`/`minsd`), so it is NOT the
+        // `Max` formula id — one id means one instruction sequence, and
+        // sharing them would let the packer treat max and min as one region.
+        Min { .. } => (34, 1),
         WhereGe { .. } => (12, 2),
         WhereLt { .. } => (13, 2),
+        // The two new selects are their OWN instructions-per-guard pair, but a
+        // distinct shape id from 12/13: one id means one instruction sequence,
+        // and `cmpgt`/`cmple` are not `cmpgt`-or-`cmpge` of the existing arms.
+        WhereGt { .. } => (35, 2),
+        WhereLe { .. } => (36, 2),
         // `sum += x − old` then an optional scale: the Sma/RollSum identity.
         RollSum { mean: false, .. } => (14, 2),
         RollSum { mean: true, .. } => (15, 3),
@@ -493,6 +512,9 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         Iir { .. } => (3, 2),
         IirClamped { .. } => (33, 5),
         Prev { .. } => (32, 0),
+        // A running total is ONE fused instruction (`a.mul_add(b, st)`) — it is
+        // not formula 3, whose second operand is a scaled `src`.
+        Accum { .. } => (37, 1),
     }
 }
 
@@ -603,9 +625,21 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             b: g(b),
             t: g(t),
         },
+        WhereGt { a, b, t } => WhereGt {
+            a: g(a),
+            b: g(b),
+            t: g(t),
+        },
+        WhereLe { a, b, t } => WhereLe {
+            a: g(a),
+            b: g(b),
+            t: g(t),
+        },
+        Accum { a, b } => Accum { a: g(a), b: g(b) },
         Abs { src } => Abs { src: g(src) },
         Lag { src, n } => Lag { src: g(src), n },
         Max { a, b } => Max { a: g(a), b: g(b) },
+        Min { a, b } => Min { a: g(a), b: g(b) },
         Hma { src, period } => Hma {
             src: g(src),
             period,
@@ -755,7 +789,12 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         | Prev { src }
         | HtInPhase { src }
         | HtQuadrature { src } => visit(*src),
-        Sub { a, b } | Add { a, b } | Mul { a, b } | Div { a, b } | Max { a, b } => {
+        Sub { a, b } | Add { a, b } | Mul { a, b } | Div { a, b } | Max { a, b } | Min { a, b } => {
+            visit(*a);
+            visit(*b);
+        }
+        // A running total reads a node AND a column (volume), both graph edges.
+        Accum { a, b } => {
             visit(*a);
             visit(*b);
         }
@@ -765,6 +804,16 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
             visit(*t);
         }
         WhereLt { a, b, t } => {
+            visit(*a);
+            visit(*b);
+            visit(*t);
+        }
+        WhereGt { a, b, t } => {
+            visit(*a);
+            visit(*b);
+            visit(*t);
+        }
+        WhereLe { a, b, t } => {
             visit(*a);
             visit(*b);
             visit(*t);

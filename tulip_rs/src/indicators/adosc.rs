@@ -290,3 +290,24 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Adosc {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+/// The engine's recipe wiring for this indicator — the graph lives in
+/// `cse::recipes::adosc`, so the module keeps its math and the engine keeps
+/// its blindness to indicator identity.
+///
+/// This is the engine's first indicator whose recurrence reads a NON-PRICE
+/// source: both EMAs chain onto the AD accumulator, not a column. The hand's
+/// warm loop is already the engine's own `Ema`-over-a-derived-source convention
+/// statement for statement — `i == 0` assigns the seed (`ema = splat(ad)`),
+/// `i > 0` steps `calc` — because the AD line's lead is 0, so `feeds[k] = 0` and
+/// `exec` seeds at `t == 0` and steps from `t == 1`. Nothing about the shape
+/// needs a knob.
+///
+/// Publish lead `long − 1` is hand `min_data − 1` (`min_data = options[1]`).
+impl crate::cse::Planable for Adosc {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::adosc(options)
+    }
+}

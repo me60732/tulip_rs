@@ -62,14 +62,14 @@ impl State<Cold> {
         mass_line: &mut [f64],
     ) -> (usize, State<Warm>) {
         let (mut ema_state, mut ema_signal, mut buffer, mut sum) = (
-            EmaState::new(high[0] - low[0], 9).into_warm(),
+            EmaState::new((high[0] - low[0]).max(f64::EPSILON), 9).into_warm(),
             0.0,
             Buffer::new(period),
             0.0,
         );
         let mut i = 1;
         while !buffer.is_full() {
-            let hl_diff = high[i] - low[i];
+            let hl_diff = (high[i] - low[i]).max(f64::EPSILON);
             let ema = ema_state.calc(hl_diff);
             if i == 8 {
                 ema_signal = ema;
@@ -82,7 +82,7 @@ impl State<Cold> {
                     ema_state.inv_multiplier,
                 );
                 if i >= 16 {
-                    let mass = (ema / ema_signal).max(0.0);
+                    let mass = ema / ema_signal; //.max(0.0);
                     sum += mass;
                     buffer.push(mass);
                     if buffer.is_full() {
@@ -214,5 +214,19 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Mass {
             options,
             optional_outputs,
         )
+    }
+}
+
+/// The engine's recipe wiring — the graph itself lives in `cse::recipes::mass`.
+///
+/// Publish lead `period + 15` = hand `min_data − 1`: `init_state` writes
+/// `mass_line[0]` when the ring first fills (bar `period + 15`) and
+/// `cycle_mass` runs from `start = period + 16`. Those two magic `16`s are the
+/// arena's own chain leads (`ema9(hl)` = 8, `ema9` of that = 16), and a derived
+/// roll feeds at `lead(src)` — so the ring's first feed bar is 16 structurally,
+/// matching the hand's `if i >= 16` push gate with no knob.
+impl crate::cse::Planable for Mass {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::mass(options)
     }
 }

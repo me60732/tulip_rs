@@ -28,7 +28,7 @@ use tulip_rs_shared::cse::recipe::Node;
 use tulip_rs_shared::cse::recipes;
 use tulip_rs_shared::cse::Recipe;
 use tulip_rs_shared::cse::SinkSrc;
-use tulip_rs_shared::cse::{Plan, MAX};
+use tulip_rs_shared::cse::{bundles, Bundle, Plan, MAX};
 
 /// A `kernel!` pattern argument: a NAME symbol (dedup identity only) or a
 /// literal value (participates in dedup by equality, like the runtime).
@@ -57,6 +57,10 @@ pub enum Kind {
     Mul,
     Div,
     Max,
+    /// IEEE minNum — the exact mirror of `Max`, both ways (scalar `f64::min`,
+    /// lane `simd_min`), which is the hand's own split in `ultosc.rs` /
+    /// `ultosc_simd.rs`. NOT a `WhereLt` select: that pins `0.0` on one arm.
+    Min,
     Lag,
     Abs,
     Wilders,
@@ -69,6 +73,14 @@ pub enum Kind {
     Trail,
     WhereGe,
     WhereLt,
+    /// Strict select, value on `>` — `K_WHEREGT` (31).
+    WhereGt,
+    /// Guard select, zero on `<=` — `K_WHERELE` (32). The polarity an
+    /// early-return guard like `ad`'s `range <= eps` needs (see `Node::WhereLe`).
+    WhereLe,
+    /// Single-rounding running total `st = a.mul_add(b, st)` — `K_ACCUM` (33);
+    /// `a` is the node's own carry, so no existing kind can spell it.
+    Accum,
     Fma,
     /// `ln(src)` host call — `K_LN`.
     Ln,
@@ -104,6 +116,7 @@ impl Kind {
             Kind::Mul => 7,
             Kind::Div => 8,
             Kind::Max => 9,
+            Kind::Min => 30,
             Kind::Abs => 10,
             Kind::Lag => 11,
             Kind::Wilders => 4,
@@ -116,6 +129,9 @@ impl Kind {
             Kind::Trail => 21,
             Kind::WhereGe => 22,
             Kind::WhereLt => 23,
+            Kind::WhereGt => 31,
+            Kind::WhereLe => 32,
+            Kind::Accum => 33,
             Kind::Fma => 14,
             Kind::Ln => 26,
             Kind::Iir => 27,
@@ -176,11 +192,6 @@ pub struct Pattern {
     /// declare a shared node owns its name).
     pub names: Vec<Option<String>>,
     pub sinks: Vec<usize>,
-    /// Parallel to `sinks`: true = a recipe PRIMARY output (always stored),
-    /// false = a declared OPTIONAL sink (store gated at runtime by
-    /// `Values.sink_want`). Mirrors `Resolved` order: primaries then
-    /// optionals, per recipe in request order.
-    pub sink_is_primary: Vec<bool>,
     /// If true, same-source Ema chains run as SIMD lane groups (4-wide
     /// then 2-wide, remainder scalar). Chained EMAs and Wilders stay scalar.
     pub packed: bool,
@@ -192,6 +203,11 @@ pub struct Pattern {
     /// through, so expansion and runtime cannot disagree — the sig-consistency
     /// tests compare these fields as part of full struct equality.
     pub plan: Plan,
+    /// The container plan: which pure-sum ring groups share ONE fused
+    /// multi-series buffer (see [`Bundle`]). A group that appears in no bundle
+    /// keeps the plain per-group vector buffer. The planner owns this choice —
+    /// the emitter renders the containers this lists and never picks one.
+    pub bundles: Vec<Bundle>,
     /// The sink partition: which sinks share ONE physical output row. Two
     /// sinks share a row iff they store the same arena node (the dedup that
     /// makes a mirror free — the trio's apo line and macd line are one row,
@@ -307,6 +323,13 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Rsi" => recipes::rsi(&opts),
             "Stochrsi" => recipes::stochrsi(&opts),
             "Cmo" => recipes::cmo(&opts),
+            "Ultosc" => recipes::ultosc(&opts),
+            "Mass" => recipes::mass(&opts),
+            "Ad" => recipes::ad(&opts),
+            "Adosc" => recipes::adosc(&opts),
+            "AdoscApoPpo" => recipes::adosc_apo_ppo(&opts),
+            "Mom" => recipes::mom(&opts),
+            "MassApoPpoMacd" => recipes::mass_apo_ppo_macd(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
         built.push(r);
@@ -332,6 +355,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             Node::Mul { a, b } => ANode::new_simple(Kind::Mul, a as usize, b as usize),
             Node::Div { a, b } => ANode::new_simple(Kind::Div, a as usize, b as usize),
             Node::Max { a, b } => ANode::new_simple(Kind::Max, a as usize, b as usize),
+            Node::Min { a, b } => ANode::new_simple(Kind::Min, a as usize, b as usize),
             Node::Abs { src } => ANode::new_simple(Kind::Abs, src as usize, 0),
             Node::Lag { src, .. } => ANode::new_simple(Kind::Lag, src as usize, 0),
             Node::Mirror { src } => ANode::new_simple(Kind::Mirror, src as usize, 0),
@@ -347,6 +371,13 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             Node::WhereLt { a, b, t } => {
                 ANode::new_three(Kind::WhereLt, a as usize, b as usize, t as usize)
             }
+            Node::WhereGt { a, b, t } => {
+                ANode::new_three(Kind::WhereGt, a as usize, b as usize, t as usize)
+            }
+            Node::WhereLe { a, b, t } => {
+                ANode::new_three(Kind::WhereLe, a as usize, b as usize, t as usize)
+            }
+            Node::Accum { a, b } => ANode::new_simple(Kind::Accum, a as usize, b as usize),
             Node::Fma { a, b, c } => {
                 ANode::new_three(Kind::Fma, a as usize, b as usize, c as usize)
             }
@@ -420,11 +451,32 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
     );
     let mut kinds = [0u8; MAX];
     let mut a_slots = [0u32; MAX];
+    let mut b_slots = [0u32; MAX];
+    let mut c_slots = [0u32; MAX];
+    let mut d_slots = [0u32; MAX];
+    let mut e_slots = [0u32; MAX];
     for (k, node) in nodes.iter().enumerate() {
         kinds[k] = node.kind.tag();
         a_slots[k] = node.a as u32;
+        b_slots[k] = node.b as u32;
+        c_slots[k] = node.c.unwrap_or(0) as u32;
+        d_slots[k] = node.d as u32;
+        e_slots[k] = node.e as u32;
     }
     let plan = Plan::compute(&kinds, &a_slots, nodes.len());
+    // The container plan: which pure-sum ring groups share ONE fused buffer.
+    // Value-independence is dataflow over the arena's operand edges, so it is
+    // derived here from the same arrays the key is built from — the emitter
+    // never decides a container, it emits the containers this lists.
+    let bundles = bundles(
+        &kinds,
+        &a_slots,
+        &b_slots,
+        &c_slots,
+        &d_slots,
+        &e_slots,
+        nodes.len(),
+    );
 
     // The output-row partition (which sinks share one physical row), computed
     // here so both renderers read ONE structure instead of each building its
@@ -437,9 +489,9 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
         nodes,
         names,
         sinks,
-        sink_is_primary,
         packed,
         plan,
+        bundles,
         sink_plan,
     }
 }

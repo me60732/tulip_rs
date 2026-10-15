@@ -10,9 +10,15 @@ use tulip_rs::indicator_types::Indicator;
 mod tests {
     use super::*;
     use tulip_rs::cse::Planable;
+    use tulip_rs::indicators::ad::Ad;
+    use tulip_rs::indicators::adosc::Adosc;
     use tulip_rs::indicators::apo::Apo;
     use tulip_rs::indicators::macd::Macd;
+    use tulip_rs::indicators::mass::Mass;
+    use tulip_rs::indicators::mom::Mom;
+    use tulip_rs::indicators::natr::Natr;
     use tulip_rs::indicators::ppo::Ppo;
+    use tulip_rs::indicators::ultosc::Ultosc;
 
     fn apo_ppo_macd_shared_sl_req() -> Request {
         Request::new()
@@ -1770,6 +1776,602 @@ mod tests {
             let (cmo, _) = Cmo::indicator(&streams, &[14.0], None).unwrap();
             assert_bits(&out.rows[0], &rsi[0], "pair rsi row");
             assert_bits(&out.rows[1], &cmo[0], "pair cmo row");
+        }
+    }
+
+    /// ULTOSC erases to: ONE binary `Min` (true_low) and ONE binary `Max`
+    /// (true_high) over the shared `Lag{close,1}` anchor, and SIX ring
+    /// `RollSum`s forming TWO groups of THREE members each (short/medium/long
+    /// on the `bp` column, the same three on `tr`). Both group caps are
+    /// `long_period`, which is what makes them fusable into one
+    /// `MultiBuffer<2>` — the container the hand itself uses. Sink lead =
+    /// `long_period` (hand `min_data = long + 1`).
+    #[test]
+    fn ultosc_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_ultosc_s_m_l;
+        use tulip_rs::cse::signature::{K_LAG, K_MAX, K_MIN, K_ROLLSUM};
+        let req = Request::new().add(Ultosc::recipe(&[7.0, 14.0, 28.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_ultosc_s_m_l, "ultosc arena drifted from merge");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        assert_eq!(count(K_MIN), 1, "true_low: the only minNum node");
+        assert_eq!(count(K_MAX), 1, "true_high: the only maxNum node");
+        assert_eq!(count(K_LAG), 1, "prev_close is the shared anchor");
+        assert_eq!(count(K_ROLLSUM), 6, "three windows on two columns");
+        assert_eq!(vals.sink_lead[0], 28, "ultosc lead = long_period");
+
+        // The container-relevant fact, read off Values (not re-derived): two
+        // groups of three, both capped at the long window. `bundles()` is
+        // pinned against the REAL arena in the macro suite; here we assert the
+        // runtime binding that fused call is emitted from agrees with it.
+        let rolls: Vec<usize> = (0..sig.len as usize)
+            .filter(|&i| sig.kinds[i] == K_ROLLSUM)
+            .collect();
+        let mut groups: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
+        for &m in &rolls {
+            groups.entry(vals.ring_of[m] as usize).or_default().push(m);
+        }
+        assert_eq!(groups.len(), 2, "bp and tr are distinct ring groups");
+        for (leader, members) in &groups {
+            assert_eq!(members.len(), 3, "group {leader} carries three windows");
+            assert_eq!(
+                vals.ring_cap[*leader] as usize, 28,
+                "group {leader} cap = max member period = long"
+            );
+        }
+    }
+
+    /// ULTOSC bit-exact vs the hand on three data classes. `hi = s + 2`,
+    /// `lo = s − 1` keeps `tr > 0` so no `0/0` NaN appears; the FLAT class
+    /// exercises exact ties through the ring (every window sum identical), and
+    /// `assert_bits` would pin a NaN payload identically if one ever appeared.
+    #[test]
+    fn ultosc_bit_exact() {
+        const OPTS: [f64; 3] = [7.0, 14.0, 28.0];
+        let req = Request::new().add(Ultosc::recipe(&OPTS), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("ultosc registered");
+            let (u, _) = Ultosc::indicator(&streams, &OPTS, None).unwrap();
+            assert_bits(&out.rows[0], &u[0], "ultosc row");
+        }
+    }
+
+    /// ULTOSC + NATR co-requested: the answer to "is `tr` being shared?" —
+    /// **no**, and the counts say so rather than a timing hunch. The two
+    /// indicators compute the SAME true range in two different GRAPHS: ultosc
+    /// spells it `Sub(Max(hi,pc), Min(lo,pc))` (`tr_nodes` never builds a `Min`
+    /// node), natr spells it `Max(Max(Sub(hi,lo),Abs(Sub(hi,pc))),Abs(Sub(lo,pc)))`
+    /// through `atr_nodes`. CSE keys on kind + edges, so neither spelling can
+    /// intern into the other: `K_MIN` stays 1 (ultosc only) and `K_ABS` stays 2
+    /// (natr only). What DOES intern is the `Lag{close,1}` anchor — both
+    /// recipes build the identical node, so `K_LAG` is 1 across the pair, and
+    /// the three price Inputs are shared.
+    ///
+    /// Recorded because it is the interesting negative: `tr` is the hand's most
+    /// duplicated quantity, and value-equality is not structure-equality.
+    #[test]
+    fn ultosc_natr_shared_pc_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_ultosc_natr_shared_pc;
+        use tulip_rs::cse::signature::{K_ABS, K_LAG, K_MIN, K_ROLLSUM};
+        let pair = Request::new()
+            .add(Ultosc::recipe(&[7.0, 14.0, 28.0]), None)
+            .add(Natr::recipe(&[14.0]), None);
+        let (merged, sig, vals, _) = erase_request(&pair).unwrap();
+        assert_eq!(sig, SIG_ultosc_natr_shared_pc, "pair arena drifted");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+
+        // Shared: one anchor read for both true ranges, one ring feed per group.
+        assert_eq!(count(K_LAG), 1, "prev_close interns across the pair");
+        // NOT shared: two independent tr graphs, by construction.
+        assert_eq!(count(K_MIN), 1, "ultosc's true_low only — natr has no Min");
+        assert_eq!(count(K_ABS), 2, "natr's |hi−pc| and |lo−pc| only");
+        assert_eq!(count(K_ROLLSUM), 6, "ultosc's six folds; natr has none");
+        // `vals` agrees with the arena the fused call is emitted from, and pins
+        // the row order the hand pins below (ultosc primary, its two optionals,
+        // then natr's primary).
+        assert_eq!(merged.nodes.len(), sig.len as usize, "arena length");
+        assert_eq!(vals.sink_lead[0], 28, "ultosc lead = long");
+        assert_eq!(vals.sink_lead[3], 14, "natr lead = period");
+
+        let solo_u =
+            erase_request(&Request::new().add(Ultosc::recipe(&[7.0, 14.0, 28.0]), None)).unwrap();
+        let solo_n = erase_request(&Request::new().add(Natr::recipe(&[14.0]), None)).unwrap();
+        assert!(
+            sig.len < solo_u.1.len + solo_n.1.len,
+            "the pair dedups SOMETHING (the anchor + inputs): {} < {} + {}",
+            sig.len,
+            solo_u.1.len,
+            solo_n.1.len
+        );
+        // And the pair still beats the two solo passes on every class.
+        for s in [wiggle(), series(680, |_| 100.0)] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&pair, &streams).expect("pair registered");
+            let (u, _) = Ultosc::indicator(&streams, &[7.0, 14.0, 28.0], None).unwrap();
+            let (n, _) = Natr::indicator(&streams, &[14.0], None).unwrap();
+            assert_bits(&out.rows[0], &u[0], "pair ultosc row");
+            assert_bits(&out.rows[3], &n[0], "pair natr row");
+        }
+    }
+
+    /// MASS erases to the chain→chain→divide→fold topology the registry had no
+    /// other example of: one `Min`-free arena with `K_SUB` for the raw range,
+    /// `K_MAX` guarding it with `Const(EPSILON)`, TWO chained `K_EMA`s at the
+    /// hand's hardcoded period 9, one `K_DIV`, and exactly ONE ring group. The
+    /// hand's magic `16` shows up as `feeds`/leads, not as a knob.
+    #[test]
+    fn mass_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_mass_n;
+        use tulip_rs::cse::signature::{K_DIV, K_EMA, K_ROLLSUM, K_SUB};
+        let req = Request::new().add(Mass::recipe(&[25.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_mass_n, "mass arena drifted from merge");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        assert_eq!(count(K_EMA), 2, "ema9 over hl, ema9 over that");
+        assert_eq!(count(K_DIV), 1, "ema / ema_signal");
+        assert_eq!(count(K_SUB), 1, "raw high − low");
+        assert_eq!(count(K_ROLLSUM), 1, "one ring group, no fusion partner");
+        assert_eq!(vals.sink_lead[0], 40, "lead = period + 15");
+        // The chain leads ARE the hand's `16`: ema1 = 0+9−1 = 8, ema2 = 8+9−1
+        // = 16, and a derived roll feeds at lead(src) — so the ring's first
+        // feed bar is 16 with no `skip` spelled anywhere.
+        let rolls: Vec<usize> = (0..sig.len as usize)
+            .filter(|&i| sig.kinds[i] == K_ROLLSUM)
+            .collect();
+        assert_eq!(vals.feeds[rolls[0]], 16, "ring feeds at bar 16");
+        assert_eq!(vals.periods[rolls[0]], 25, "options[0] sizes the ring only");
+    }
+
+    /// MASS bit-exact vs the hand. `hi = s + 2 / lo = s − 1` keeps the range
+    /// away from the `EPSILON` clamp; `hi = lo = s` drives it straight into it
+    /// (every bar), which is where the hand's warm-up/steady agreement — fixed
+    /// 2026-10-15 — has to hold. If the hand's extra `calc_ema` application at
+    /// `i == 8` (assign, then recur, on the seed bar) diverges from the
+    /// engine's `t == feed → emit src` rule, it shows HERE, on row 0.
+    #[test]
+    fn mass_bit_exact() {
+        let req = Request::new().add(Mass::recipe(&[25.0]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice()];
+            let out = run_registered(&req, &streams).expect("mass registered");
+            let (m, _) = Mass::indicator(&streams, &[25.0], None).unwrap();
+            assert_bits(&out.rows[0], &m[0], "mass row (range)");
+
+            let flat = [s.as_slice(), s.as_slice()];
+            let out2 = run_registered(&req, &flat).expect("mass registered flat");
+            let (m2, _) = Mass::indicator(&flat, &[25.0], None).unwrap();
+            assert_bits(&out2.rows[0], &m2[0], "mass row (flat: high == low)");
+        }
+    }
+
+    /// A positive, finite, varying volume column — `ad`/`adosc` are the first
+    /// volume-consuming recipes, and every parity matrix here stays finite on
+    /// purpose (the hand's guard is only comparable under `0.0 * volume == 0.0`).
+    fn volume(n: usize) -> Vec<f64> {
+        series(n, |i| 1_000.0 + (i as f64 * 0.3).sin() * 500.0 + 500.0)
+    }
+
+    /// AD's arena: four streams (the hand's `(high, low, close, volume)` order),
+    /// ONE `Accum`, ONE `WhereLe`, and the structural proof that this is the
+    /// engine's first volume-driven recurrence — the accumulator's SECOND
+    /// operand is `Input{3}`, the volume column, not a price.
+    #[test]
+    fn ad_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_ad;
+        use tulip_rs::cse::signature::{K_ACCUM, K_ADD, K_CONST, K_DIV, K_INPUT, K_SUB, K_WHERELE};
+        let req = Request::new().add(Ad::recipe(&[]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_ad, "ad arena drifted from merge");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        assert_eq!(count(K_ACCUM), 1, "the running total is ONE node");
+        assert_eq!(count(K_WHERELE), 1, "the hand's early-return guard");
+        assert_eq!(count(K_DIV), 1, "clv = numer / range");
+        assert_eq!(count(K_SUB), 3, "range, (cl−lo), then −hi");
+        assert_eq!(count(K_ADD), 1, "…+ close (the hand's association)");
+        assert_eq!(count(K_INPUT), 4, "high, low, close, VOLUME");
+        assert_eq!(count(K_CONST), 1, "the f64::EPSILON threshold");
+        assert_eq!(sig.n_streams, 4, "four input columns");
+
+        let acc = (0..MAX).find(|i| sig.kinds[*i] == K_ACCUM).unwrap();
+        // The multiplier is the volume COLUMN, wired as a graph edge.
+        let b = sig.b[acc] as usize;
+        assert_eq!(sig.kinds[b], K_INPUT, "Accum{b} is an input stream");
+        assert_eq!(sig.a[b], 3, "…and it is stream 3 = volume");
+        // Lead 0 ⇒ it feeds from bar 0 (hand `State::new(0.0)`, min_data 1).
+        assert_eq!(vals.feeds[acc], 0, "the accumulator feeds from bar 0");
+        assert_eq!(vals.sink_lead[0], 0, "ad prints from bar 0");
+    }
+
+    /// AD bit-exact vs the hand over three finite classes, the third being the
+    /// guard's torture case: `high == low` makes `range == 0 <= eps` on EVERY
+    /// bar, so the hand returns its untouched carry and the whole row is +0.0.
+    #[test]
+    fn ad_bit_exact() {
+        let req = Request::new().add(Ad::recipe(&[]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &streams).expect("ad registered");
+            let (a, _) = Ad::indicator(&streams, &[], None).unwrap();
+            assert_bits(&out.rows[0], &a[0], "ad row");
+
+            // high == low ⇒ the guard fires on every bar ⇒ the carry never moves.
+            let flat = [s.as_slice(), s.as_slice(), s.as_slice(), vol.as_slice()];
+            let out2 = run_registered(&req, &flat).expect("ad registered flat");
+            let (a2, _) = Ad::indicator(&flat, &[], None).unwrap();
+            assert_bits(&out2.rows[0], &a2[0], "ad row (guard: high == low)");
+        }
+    }
+
+    /// The guard's boundary, on FINITE data. `range <= eps` is an EARLY return,
+    /// so the `range == eps` bar takes the ZERO arm; `WhereLt` (`<`) would put it
+    /// on the VALUE arm instead and start accumulating.
+    ///
+    /// Constructed exactly: `low = 0.0`, `high = f64::EPSILON` ⇒ `range = eps`
+    /// to the bit (any larger anchor would round `hi − lo` away from `eps`), and
+    /// `close = 0.0` ⇒ `numer = −eps` ⇒ `ratio = −1.0`, so a wrong polarity adds
+    /// `-volume` and shifts EVERY later bar — the divergence is permanent, not
+    /// one row. This is what makes the `WhereLe` choice tested rather than
+    /// asserted: NaN poisoning can't be pinned here (the matrices are finite),
+    /// but the boundary can.
+    #[test]
+    fn ad_guard_boundary_is_le_not_lt() {
+        let req = Request::new().add(Ad::recipe(&[]), None);
+        let n = 200;
+        let mut hi: Vec<f64> = (0..n).map(|i| 100.0 + i as f64).collect();
+        let mut lo: Vec<f64> = (0..n).map(|i| 98.0 + i as f64).collect();
+        let cl: Vec<f64> = (0..n).map(|i| 99.0 + i as f64).collect();
+        let vol = volume(n);
+        // Three boundary bars: range == EPSILON exactly, close == 0.0.
+        for i in [5usize, 60, 140] {
+            hi[i] = f64::EPSILON;
+            lo[i] = 0.0;
+        }
+        let mut close = cl;
+        for i in [5usize, 60, 140] {
+            close[i] = 0.0;
+        }
+
+        // Precondition, so the test can't pass for the wrong reason: the three
+        // bars really do land ON the boundary (subtraction is exact here).
+        for i in [5usize, 60, 140] {
+            assert_eq!(
+                hi[i] - lo[i],
+                f64::EPSILON,
+                "bar {i} must hit `range == eps` exactly"
+            );
+        }
+
+        let streams = [
+            hi.as_slice(),
+            lo.as_slice(),
+            close.as_slice(),
+            vol.as_slice(),
+        ];
+        let out = run_registered(&req, &streams).expect("ad registered");
+        let (a, _) = Ad::indicator(&streams, &[], None).unwrap();
+        assert_bits(&out.rows[0], &a[0], "ad row (range == EPSILON bars)");
+    }
+
+    /// ADOSC's arena is the point of the whole exercise: the recurrence reads a
+    /// DERIVED, volume-driven source. Both `Ema`s' `src` is the ONE `Accum`
+    /// node, and `feeds` is that node's lead (0), so the hand's
+    /// `init_state` seed-at-`i == 0`-then-step loop is the engine's ordinary
+    /// derived-source convention with no knob. Primary lead = `long − 1`.
+    #[test]
+    fn adosc_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_adosc_s_l;
+        use tulip_rs::cse::signature::{K_ACCUM, K_EMA, K_SUB, K_WHERELE};
+        let (short, long) = (3.0f64, 10.0f64);
+        let req = Request::new().add(Adosc::recipe(&[short, long]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_adosc_s_l, "adosc arena drifted from merge");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        assert_eq!(count(K_ACCUM), 1, "the ad line is ONE accumulator");
+        assert_eq!(count(K_WHERELE), 1, "and it is guarded once");
+        assert_eq!(count(K_EMA), 2, "short and long, over that line");
+        assert_eq!(count(K_SUB), 4, "range, (cl−lo), −hi, then ema_s − ema_l");
+
+        let acc = (0..MAX).find(|i| sig.kinds[*i] == K_ACCUM).unwrap();
+        let emas: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_EMA).collect();
+        assert_eq!(emas.len(), 2);
+        for e in &emas {
+            assert_eq!(
+                sig.a[*e] as usize, acc,
+                "ema {e} chains onto the AD accumulator, not a price column"
+            );
+            assert_eq!(vals.feeds[*e], 0, "lead(ad) = 0 ⇒ the ema feeds from bar 0");
+        }
+        assert_eq!(vals.sink_lead[0], (long - 1.0) as u32, "lead = long − 1");
+    }
+
+    /// MOM(p) = real[i] − real[i−p]: the pattern that puts `Values::lag_n` in a
+    /// PUBLISHED ROW. `cmo` already carries a multi-bar `Lag`, but it feeds only
+    /// a `Mirror` (state, `get_states`, M1) — so a steady-loop depth bug there is
+    /// invisible to every parity test ever written. Here the depth IS the value:
+    /// read one bar back instead of `p` and the row is `real[i] − real[i−1]`,
+    /// which differs from the hand at EVERY steady bar of a moving series.
+    ///
+    /// The warm prologue is NOT the suspect — `warmup.rs`'s `K_LAG` arm already
+    /// reads `vals.lag_n[k]` with the hand's clamp. The defect is the steady
+    /// loop's hard-coded `.sub(1)`, so the first wrong row lands at the first
+    /// steady index, right after the warm region ends.
+    #[test]
+    fn mom_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_mom_n;
+        use tulip_rs::cse::signature::{K_INPUT, K_LAG, K_SUB};
+        let req = Request::new().add(Mom::recipe(&[10.0]), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_mom_n, "mom arena drifted from merge");
+        let lag = (0..MAX).find(|i| sig.kinds[*i] == K_LAG).unwrap();
+        assert_eq!(vals.lag_n[lag], 10, "the depth is a VALUE, not structure");
+        assert_eq!(vals.sink_lead[0], 10, "lead = p (min_data p+1)");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        assert_eq!(count(K_LAG), 1);
+        assert_eq!(count(K_SUB), 1);
+        assert_eq!(count(K_INPUT), 1);
+    }
+
+    #[test]
+    fn mom_bit_exact() {
+        const P: [f64; 1] = [10.0];
+        let req = Request::new().add(Mom::recipe(&P), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let streams = [s.as_slice()];
+            let out = run_registered(&req, &streams).expect("mom registered");
+            let (m, _) = Mom::indicator(&streams, &P, None).unwrap();
+            assert_bits(&out.rows[0], &m[0], "mom row (lag depth = period)");
+        }
+    }
+
+    /// ADOSC bit-exact vs the hand — the measured answer to "did the
+    /// non-price input cost us anything" is the bench row; here the claim is
+    /// only that it is CORRECT on three finite classes.
+    #[test]
+    fn adosc_bit_exact() {
+        const OPTS: [f64; 2] = [3.0, 10.0];
+        let req = Request::new().add(Adosc::recipe(&OPTS), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &streams).expect("adosc registered");
+            let (a, _) = Adosc::indicator(&streams, &OPTS, None).unwrap();
+            assert_bits(&out.rows[0], &a[0], "adosc row");
+
+            let flat = [s.as_slice(), s.as_slice(), s.as_slice(), vol.as_slice()];
+            let out2 = run_registered(&req, &flat).expect("adosc registered flat");
+            let (a2, _) = Adosc::indicator(&flat, &OPTS, None).unwrap();
+            assert_bits(&out2.rows[0], &a2[0], "adosc row (guard: high == low)");
+        }
+    }
+
+    /// The MIXED-INPUT arena, structurally: six `Ema`s in one arena, TWO of them
+    /// chained onto the volume-driven `Accum` and FOUR onto the close `Input`.
+    /// The assertion that matters is the SOURCE each one names — this is the
+    /// guard against the stream-slot conflation class: `Apo`/`Ppo`'s own recipes
+    /// bind price to `Input{0}`, but here they must read `Input{2}`, because in
+    /// an OHLC arena slot 0 is HIGH.
+    #[test]
+    fn adosc_apo_ppo_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_adosc_apo_ppo;
+        use tulip_rs::cse::signature::{K_ACCUM, K_EMA, K_INPUT, K_SUB, K_WHERELE};
+        // adosc(3,10) · apo(12,26) · ppo(6,14) — all distinct, no accidental dedup.
+        const OPTS: [f64; 6] = [3.0, 10.0, 12.0, 26.0, 6.0, 14.0];
+        let req = Request::new().add(recipes::adosc_apo_ppo(&OPTS), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_adosc_apo_ppo, "mixed arena drifted from merge");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        assert_eq!(count(K_EMA), 6, "2 over the ad line + 4 over close");
+        assert_eq!(count(K_ACCUM), 1, "ONE volume accumulator");
+        assert_eq!(count(K_WHERELE), 1, "one guard");
+        assert_eq!(count(K_SUB), 6, "range, −hi, adosc, apo line, ppo line, …");
+        assert_eq!(count(K_INPUT), 4, "high, low, close, volume");
+
+        let acc = (0..MAX).find(|i| sig.kinds[*i] == K_ACCUM).unwrap();
+        // The close column: the Input node whose stream index is 2.
+        let close_node = (0..MAX)
+            .find(|i| sig.kinds[*i] == K_INPUT && sig.a[*i] == 2)
+            .unwrap();
+        let emas: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_EMA).collect();
+        let on_ad: Vec<usize> = emas
+            .iter()
+            .filter(|e| sig.a[**e] as usize == acc)
+            .copied()
+            .collect();
+        let on_close: Vec<usize> = emas
+            .iter()
+            .filter(|e| sig.a[**e] as usize == close_node)
+            .copied()
+            .collect();
+        assert_eq!(on_ad.len(), 2, "adosc's two EMAs chain onto the AD line");
+        assert_eq!(
+            on_close.len(),
+            4,
+            "apo + ppo read the CLOSE column (stream 2)"
+        );
+        assert_eq!(emas.len(), 6, "every EMA is accounted for");
+
+        // Primary leads, one per indicator, from each hand's own facts.
+        assert_eq!(vals.sink_lead[0], 9, "adosc lead = 10 − 1");
+        assert_eq!(vals.sink_lead[1], 25, "apo lead = 26 − 1");
+        assert_eq!(vals.sink_lead[2], 14, "ppo lead = 14");
+    }
+
+    /// ADOSC + APO + PPO in one arena, bit-exact against the three HANDS — each
+    /// called with its own arity (`Adosc` gets OHLCV, `Apo`/`Ppo` get close
+    /// only). This is the test that would fail if the composing recipe had
+    /// bound apo/ppo to `Input{0}`: their rows would come out computed over the
+    /// HIGH column while every `SIG_*` check still passed.
+    #[test]
+    fn adosc_apo_ppo_bit_exact() {
+        const OPTS: [f64; 6] = [3.0, 10.0, 12.0, 26.0, 6.0, 14.0];
+        let req = Request::new().add(recipes::adosc_apo_ppo(&OPTS), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let ohlcv = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &ohlcv).expect("mixed arena registered");
+            assert_eq!(out.rows.len(), 3, "three primary rows");
+
+            // Each hand on ITS OWN input array.
+            let (os, _) = Adosc::indicator(&ohlcv, &[3.0, 10.0], None).unwrap();
+            let (ap, _) = Apo::indicator(&[s.as_slice()], &[12.0, 26.0], None).unwrap();
+            let (pp, _) = Ppo::indicator(&[s.as_slice()], &[6.0, 14.0], None).unwrap();
+            assert_bits(&out.rows[0], &os[0], "mixed arena: adosc row");
+            assert_bits(&out.rows[1], &ap[0], "mixed arena: apo row");
+            assert_bits(&out.rows[2], &pp[0], "mixed arena: ppo row");
+        }
+    }
+
+    /// The four-indicator dashboard arena, structurally. The assertion that
+    /// matters is WHICH column the hub reads: `Apo`/`Ppo`/`Macd`'s own recipes
+    /// bind price to `Input{0}`, but this arena's slot 0 is HIGH (mass is an
+    /// OHLC shape), so the composing recipe must bind the hub to `Input{2}`.
+    /// Get that wrong and the arena still erases, still matches its `SIG_*`
+    /// constant, and still counts 5 EMAs — only the values are APO/MACD over the
+    /// high column. `mass_apo_ppo_macd_bit_exact` is therefore the real guard;
+    /// this test pins the structure that makes it meaningful.
+    #[test]
+    fn mass_apo_ppo_macd_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_mass_apo_ppo_macd;
+        use tulip_rs::cse::signature::{K_DIV, K_EMA, K_INPUT, K_MAX, K_MUL, K_ROLLSUM, K_SUB};
+        // mass 40 (the classic), hub 12/26, signal 9.
+        const OPTS: [f64; 4] = [40.0, 12.0, 26.0, 9.0];
+        let req = Request::new().add(recipes::mass_apo_ppo_macd(&OPTS), None);
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_mass_apo_ppo_macd, "arena drifted from merge");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        // 2 hub close-EMAs + 1 signal + mass's two 9-EMAs.
+        assert_eq!(count(K_EMA), 5);
+        assert_eq!(count(K_ROLLSUM), 1, "mass's one ring group");
+        assert_eq!(count(K_MAX), 1, "the hl_diff epsilon clamp");
+        assert_eq!(count(K_INPUT), 3, "high, low, CLOSE");
+
+        let node_of_stream = |want: u32| -> usize {
+            (0..MAX)
+                .find(|i| sig.kinds[*i] == K_INPUT && sig.a[*i] == want)
+                .unwrap()
+        };
+        let hi = node_of_stream(0);
+        let lo = node_of_stream(1);
+        let cl = node_of_stream(2);
+
+        let emas: Vec<usize> = (0..MAX).filter(|i| sig.kinds[*i] == K_EMA).collect();
+        let on_close: Vec<usize> = emas
+            .iter()
+            .filter(|e| sig.a[**e] as usize == cl)
+            .copied()
+            .collect();
+        assert_eq!(
+            on_close.len(),
+            2,
+            "the hub's short+long EMAs read CLOSE (stream 2), not the high column"
+        );
+
+        // mass's range is `Sub{Input{0}, Input{1}}` — the OHLC pair.
+        let ranges: Vec<usize> = (0..MAX)
+            .filter(|i| {
+                sig.kinds[*i] == K_SUB && sig.a[*i] as usize == hi && sig.b[*i] as usize == lo
+            })
+            .collect();
+        assert_eq!(ranges.len(), 1, "mass's high−low over streams 0 and 1");
+
+        // Leads, one per hand: apo/macd line `l−1`, ppo `l`, signal+hist
+        // `l+g−2`, mass `p+15`.
+        assert_eq!(vals.sink_lead[0], 25, "line lead = 26 − 1");
+        assert_eq!(vals.sink_lead[1], 26, "ppo lead = 26");
+        assert_eq!(vals.sink_lead[2], 33, "signal lead = 26 + 9 − 2");
+        assert_eq!(vals.sink_lead[3], 33, "hist lead = 26 + 9 − 2");
+        assert_eq!(vals.sink_lead[4], 55, "mass lead = 40 + 15");
+
+        // The dedup claim: APO, PPO and MACD share the ema_s/ema_l/line triple,
+        // so the arena is strictly smaller than the four solo arenas added up.
+        let solo = |r: Request| erase_request(&r).unwrap().1.len;
+        let sum = solo(Request::new().add(Mass::recipe(&[40.0]), None))
+            + solo(Request::new().add(Apo::recipe(&[12.0, 26.0]), None))
+            + solo(Request::new().add(Ppo::recipe(&[12.0, 26.0]), None))
+            + solo(Request::new().add(Macd::recipe(&[12.0, 26.0, 9.0]), None));
+        assert!(
+            sig.len < sum,
+            "the arena dedups: {} < {} (four solos)",
+            sig.len,
+            sum
+        );
+        // And mass's share is ZERO — its source is high−low, not close.
+        assert_eq!(count(K_MUL), 1, "only ppo's ×100");
+        assert_eq!(count(K_DIV), 2, "ppo's ratio and mass's ratio");
+    }
+
+    /// Bit-exactness of the four-indicator arena against all FOUR hands, each
+    /// called on its own input arity: `Mass` gets `[high, low]`, the hub gets
+    /// `[close]`. This is the test that would fail if the composing recipe had
+    /// bound the hub to stream 0 — APO/PPO/MACD would come out over the HIGH
+    /// column while every structural count in `mass_apo_ppo_macd_sig_derived`
+    /// still passed.
+    #[test]
+    fn mass_apo_ppo_macd_bit_exact() {
+        const OPTS: [f64; 4] = [40.0, 12.0, 26.0, 9.0];
+        let req = Request::new().add(recipes::mass_apo_ppo_macd(&OPTS), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let arena = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &arena).expect("mass+hub arena registered");
+            assert_eq!(out.rows.len(), 5, "line, ppo, signal, hist, mass");
+
+            let hub = [s.as_slice()];
+            let (ap, _) = Apo::indicator(&hub, &[12.0, 26.0], None).unwrap();
+            let (pp, _) = Ppo::indicator(&hub, &[12.0, 26.0], None).unwrap();
+            let (mac, _) = Macd::indicator(&hub, &[12.0, 26.0, 9.0], None).unwrap();
+            let two = [hi.as_slice(), lo.as_slice()];
+            let (mm, _) = Mass::indicator(&two, &[40.0], None).unwrap();
+
+            assert_bits(&out.rows[0], &ap[0], "mass+hub: apo line");
+            assert_bits(&out.rows[0], &mac[0], "mass+hub: macd line IS apo's line");
+            assert_bits(&out.rows[1], &pp[0], "mass+hub: ppo");
+            assert_bits(&out.rows[2], &mac[1], "mass+hub: signal");
+            assert_bits(&out.rows[3], &mac[2], "mass+hub: histogram");
+            assert_bits(&out.rows[4], &mm[0], "mass+hub: mass index");
         }
     }
 }

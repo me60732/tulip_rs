@@ -123,4 +123,60 @@ tulip_rs_macros::kernel! {
     // both recipes — Lag, diff, both Max gates intern once; RSI Wilder-
     // smooths them, CMO rolls them up. Two rings, two sinks, one pass.
     rsi_cmo_shared_p: Rsi(p), Cmo(p);
+    // ULTOSC is the B-axis container test the rest of the registry cannot
+    // make: `bp` and `tr` are TWO independent pure-sum groups of THREE members
+    // each (short, medium, long), so the planner's `bundles()` names ONE fused
+    // `MultiBuffer<2>` for all six folds — the container the hand itself chose
+    // (`ultosc.rs` imports `MultiBuffer as Buffer` and pushes `[bp, tr]` in one
+    // call). The per-group fold cannot reach this: it leaves two buffer calls
+    // per bar where one exists. Three sinks (`ultosc` lead = long, `tr`/`bp`
+    // lead 1) publish the hand's own primary rows.
+    ultosc_s_m_l: Ultosc(s, m, l);
+    // MASS: one ring group over a TWO-stage EMA chain (`Max(Sub(hi,lo),eps)` →
+    // `ema9` → `ema9` → divide), so it is the registry's chain→chain→Div→fold
+    // topology test — the hand's magic `16`s are the chain leads, not a knob.
+    mass_n: Mass(p);
+    // The pair the user asked for, to ANSWER A STRUCTURAL QUESTION by node
+    // count rather than by timing: ultosc's `tr` is `Max(hi,pc) − Min(lo,pc)`
+    // while natr's is `Max(Max(hi−lo,|hi−pc|),|lo−pc|)` — equal in value,
+    // different GRAPHS, so CSE (which keys on kind+edges) cannot intern them.
+    // What DOES share is the `Lag{close,1}` anchor. Pinned by
+    // `ultosc_natr_shared_pc_sig_derived`.
+    ultosc_natr_shared_pc: Ultosc(s, m, l), Natr(p);
+    // AD: the registry's first VOLUME-consuming pattern and its first
+    // `Accum` — one running total over `clv·volume` with the hand's
+    // early-return guard (`Node::WhereLe`) and a lead-0 sink. No options.
+    ad: Ad();
+    // ADOSC: the first indicator whose RECURRENCE reads a derived source
+    // rather than a column — two `Ema`s chained onto the AD accumulator.
+    // This is the shape the old JIT was tried with (`adosc + apo + ppo`) and
+    // failed measurably on; here it costs no new machinery, because a
+    // derived-source Ema is the same arm a price-source one uses.
+    adosc_s_l: Adosc(s, l);
+    // NOT registered: a cross-convention co-request. Stream slots are purely
+    // POSITIONAL and nothing in `merge`/`erase` checks that two recipes agree on
+    // what `Input{i}` means — price recipes (`apo`/`ppo`/`ema`/`sma`) bind
+    // `Input{0}=close`, OHLC recipes (`ultosc`/`mass`/`atr`/`ad`/`adosc`) bind
+    // `Input{0}=high`. Every pattern above pairs within ONE convention, so a
+    // mismatch has never had a chance to fire. `Adosc + Apo + Ppo` as three
+    // recipes would intern apo/ppo's "close" onto the adosc HIGH column: a
+    // silently wrong arena that still passes every `SIG_*` equality test,
+    // because the drift is in the recipe, not the erase.
+    // The mixed-input shape the old JIT lost on is therefore authored as ONE
+    // recipe that owns the arena (inline the apo/ppo chain over `Input{2}`),
+    // exactly as `stochrsi` inlines the rsi chain instead of co-requesting it.
+    adosc_apo_ppo: AdoscApoPpo(s, l, a1, b1, a2, b2);
+    // MOM: the pattern that makes `Values::lag_n` observable IN A ROW — the
+    // hand pairs bar i with bar i−p, so a steady-loop depth other than `p` is a
+    // wrong value, not a state-only artefact. `cmo` carries the same
+    // `Lag{…, period}` but feeds it only to a `Mirror`, which is why the depth
+    // bug stayed masked.
+    mom_n: Mom(p);
+    // MASS + THE HUB, one arena: mass is an OHLC shape and apo/ppo/macd are
+    // price shapes, so this is a COMPOSING recipe, never a co-request (slots are
+    // positional — see the `Adosc + Apo + Ppo` note above). The hub's three
+    // requests share ONE `ema_s`/`ema_l`/`line` triple, so four indicators cost
+    // three EMA chains + one ring group; mass's own chain is independent and is
+    // merged for the PASS, not for the math.
+    mass_apo_ppo_macd: MassApoPpoMacd(p, s, l, g);
 }

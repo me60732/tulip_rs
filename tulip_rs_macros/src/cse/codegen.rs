@@ -5,7 +5,7 @@
 //! slots, every number comes from `Values` by slot — params stay runtime.
 
 use crate::cse::planner::{Kind, Pattern};
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use std::collections::HashMap;
 
@@ -369,7 +369,13 @@ fn sig_const(p: &Pattern) -> TokenStream {
         .map(|x| {
             if matches!(
                 x.kind,
-                Kind::SuperTrend | Kind::Fma | Kind::WhereGe | Kind::WhereLt | Kind::IirClamped
+                Kind::SuperTrend
+                    | Kind::Fma
+                    | Kind::WhereGe
+                    | Kind::WhereLt
+                    | Kind::WhereGt
+                    | Kind::WhereLe
+                    | Kind::IirClamped
             ) {
                 x.c.unwrap_or(0) as u32
             } else {
@@ -408,9 +414,166 @@ fn sig_const(p: &Pattern) -> TokenStream {
     }
 }
 
+/// The element type a steady loop runs on: `f64` for the scalar kernel,
+/// `Simd<f64, L>` for the lane kernel. This is the merge's core — the two
+/// renderers carry the SAME arithmetic and used to each hold their own copy
+/// of every line below, which is exactly how the paths drifted once (the
+/// non-mirror ring split landed on the lane path only). An arm that differs
+/// in STRUCTURE, not spelling — `WhereGe`/`WhereLt` (a branch is the
+/// hand's NaN contract, a select is the lane form), `Ln` (libm vs the hand's
+/// SIMD polynomial), the trail rescans, `SuperTrend`, `Hma` — is deliberately
+/// NOT here: those are per-path by design, not by accident.
+struct Shape {
+    lanes: bool,
+}
+
+impl Shape {
+    /// The six shared binary ops. `Max`/`Min` are IEEE maxNum/minNum both ways
+    /// — the hand's own NaN rule, spelled `f64::max`/`f64::min` on scalars and
+    /// `simd_max`/`simd_min` on lanes (its own split, `ultosc.rs` vs
+    /// `ultosc_simd.rs`). Per bar each is ONE instruction on either axis.
+    fn binop(&self, kind: &Kind, ea: &TokenStream, eb: &TokenStream) -> TokenStream {
+        match kind {
+            Kind::Sub => quote! { #ea - #eb },
+            Kind::Add => quote! { #ea + #eb },
+            Kind::Mul => quote! { #ea * #eb },
+            Kind::Div => quote! { #ea / #eb },
+            Kind::Max => {
+                if self.lanes {
+                    quote! { #ea.simd_max(#eb) }
+                } else {
+                    quote! { #ea.max(#eb) }
+                }
+            }
+            Kind::Min => {
+                if self.lanes {
+                    quote! { #ea.simd_min(#eb) }
+                } else {
+                    quote! { #ea.min(#eb) }
+                }
+            }
+            other => unreachable!("binop called with {other:?}"),
+        }
+    }
+
+    /// `|a|` — the same call on both element types (portable_simd provides
+    /// `abs` for `Simd<f64, L>`).
+    fn abs(&self, ea: &TokenStream) -> TokenStream {
+        quote! { #ea.abs() }
+    }
+}
+
+/// One chain step: `st = st.mul_add(first, src * second); st` — one fmul then
+/// one fma, in the hand's operand order, element type notwithstanding (both
+/// `f64` and `Simd<f64, L>` carry `mul_add`, so the recurrence needs no
+/// per-shape spelling; only `binop`'s `max` and the branch/select kinds do).
+///
+/// `Ema`/`Iir` pass `(inv, mult)`; mean-`Wilders` passes `(mult, inv)` — the
+/// SAME two instructions with the magnitudes in the other slots, which is why
+/// they are two lanes of one formula rather than two emitter rules (see the
+/// `ema::calc` / `wilders::calc` pair in the hand modules). Per-slot: the
+/// steady loop pays 1 fmul + 1 fma + 1 register carry.
+fn chain_step(carry: &Ident, first: &Ident, second: &Ident, src: &TokenStream) -> TokenStream {
+    quote! { #carry = #carry.mul_add(#first, #src * #second); #carry }
+}
+
+/// The output-row layout BOTH kernels share, derived from the planner's
+/// `SinkPlan`: per-group min-lead folds, optional-group `want` flags, row
+/// sizes, arena offsets, the total arena size, and which groups are
+/// optional-only. The scalar and lane renderers emit these declarations
+/// verbatim and differ only in how they WRITE a row (one pointer vs a
+/// per-lane scatter), so the layout itself has exactly one implementation.
+///
+/// Why `want` is hoisted instead of tested per bar: a per-bar `if want` guard
+/// costs ~2 cyc/bar because LLVM will not unswitch three independent guards
+/// (measured 15.3 → 19.0 µs). Instead the steady loop is emitted twice and
+/// `any_opt` picks the copy once outside it, so the primary-only path keeps
+/// zero per-bar branches.
+struct RowLayout {
+    minl: Vec<TokenStream>,
+    want: Vec<TokenStream>,
+    rsz: Vec<TokenStream>,
+    off: Vec<TokenStream>,
+    total: TokenStream,
+    opt_group_ids: Vec<usize>,
+}
+
+fn row_layout(p: &Pattern, idents: &[String]) -> RowLayout {
+    let groups = &p.sink_plan.groups;
+    let optional = &p.sink_plan.optional;
+    let ng = groups.len();
+    let mut minl = Vec::with_capacity(ng);
+    let mut want = Vec::new();
+    let mut rsz = Vec::with_capacity(ng);
+    let mut off = Vec::with_capacity(ng);
+    for (gidx, members) in groups.iter().enumerate() {
+        // A group's min lead comes from its leader sink's node ident.
+        let leader = members[0];
+        let ident_g = idents[p.sinks[leader]].clone();
+        let g = format_ident!("minl_{}_{}", ident_g, gidx);
+        // Sink leads are named by the sink slot, to match `lead_hoists`.
+        let l_leader = format_ident!("{}_{}", ident_g, leader);
+        if members.len() == 1 {
+            minl.push(quote! { let #g = #l_leader; });
+        } else {
+            let mut min_expr = quote! { #l_leader };
+            for &m in &members[1..] {
+                let m_ident = idents[p.sinks[m]].clone();
+                let l_m = format_ident!("{}_{}", m_ident, m);
+                min_expr = quote! { #min_expr.min(#l_m) };
+            }
+            minl.push(quote! { let #g = #min_expr; });
+        }
+        // Optional-only groups (no primary member) need a runtime want flag.
+        if optional[gidx] {
+            let gwant = format_ident!("want{}", gidx);
+            let mut want_expr = quote! { false };
+            for &m in members.iter() {
+                want_expr = quote! { #want_expr | vals.sink_want[#m] };
+            }
+            want.push(quote! { let #gwant = #want_expr; });
+        }
+        let rsz_g = format_ident!("rsz{}", gidx);
+        rsz.push(quote! { let #rsz_g = n.saturating_sub(#g); });
+        let off_g = format_ident!("off{}", gidx);
+        if gidx == 0 {
+            off.push(quote! { let #off_g = 0usize; });
+        } else {
+            let off_prev = format_ident!("off{}", gidx - 1);
+            let rsz_prev = format_ident!("rsz{}", gidx - 1);
+            off.push(quote! { let #off_g = #off_prev + #rsz_prev; });
+        }
+    }
+    let opt_group_ids = optional
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| **o)
+        .map(|(g, _)| g)
+        .collect();
+    let total = if ng == 0 {
+        quote! { 0usize }
+    } else {
+        let mut acc = quote! { rsz0 };
+        for gidx in 1..ng {
+            let rsz_gidx = format_ident!("rsz{}", gidx);
+            acc = quote! { #acc + #rsz_gidx };
+        }
+        acc
+    };
+    RowLayout {
+        minl,
+        want,
+        rsz,
+        off,
+        total,
+        opt_group_ids,
+    }
+}
+
 fn run_fn(p: &Pattern) -> TokenStream {
     let name = format_ident!("{}", p.name);
     let sig = format_ident!("SIG_{}", name);
+    let shape = Shape { lanes: false };
 
     // Build idents for display-only naming (role names or fallback x{k})
     let idents = build_idents(p);
@@ -736,20 +899,25 @@ fn run_fn(p: &Pattern) -> TokenStream {
             }
         }
     }
-    // IIR-family carry hoists (Kind::Iir/IirClamped/Prev): the recurrence
+    // IIR-family carry hoists (Kind::Iir/IirClamped/Prev/Accum): the recurrence
     // locals ride `st[k]` (exec seeded/carried them — idling below feed
     // left the hand's zero init untouched), weights are VALUES
     // (`mults`=a/`invms`=b), and IirClamped's four clamp Consts read by
     // slot through the signature's b/c/d/e refs (compile-time literals).
+    // Accum is the same carry slot with NO weights — its multiplier is a node
+    // (volume), not a value, so it hoists like `Prev` and stops there.
     for (k, node) in p.nodes.iter().enumerate() {
-        if !matches!(node.kind, Kind::Iir | Kind::IirClamped | Kind::Prev) {
+        if !matches!(
+            node.kind,
+            Kind::Iir | Kind::IirClamped | Kind::Prev | Kind::Accum
+        ) {
             continue;
         }
         let ident_k = idents[k].clone();
         let ck = format_ident!("{}_carry", ident_k);
         let ki = k;
         roll_hoists.push(quote! { let mut #ck = st[#ki]; });
-        if node.kind == Kind::Prev {
+        if matches!(node.kind, Kind::Prev | Kind::Accum) {
             continue;
         }
         let mk = format_ident!("{}_mult", ident_k);
@@ -771,6 +939,19 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 let #lv = vals.consts[#e];
             });
         }
+    }
+    // Lag depths are VALUES (`Values::lag_n`), never structure — the same rev-2
+    // law that keeps every period out of the Signature. Hoisted once per node so
+    // the steady loop carries a register instead of a load; legality (depth ≤
+    // max_gate + 1) is decided in `erase`, not here.
+    let mut lag_hoists = Vec::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind != Kind::Lag {
+            continue;
+        }
+        let lk = format_ident!("{}_lag", idents[k]);
+        let ki = k;
+        lag_hoists.push(quote! { let #lk = vals.lag_n[#ki] as usize; });
     }
     let mut lead_hoists = Vec::new();
     for s in 0..p.sinks.len() {
@@ -956,26 +1137,19 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     };
                     let mk = format_ident!("{}_mult", ident_k);
                     let ik = format_ident!("{}_inv", ident_k);
-                    body.push(quote! {
-                        let #xk = { #ck = #ck.mul_add(#ik, #src * #mk); #ck };
-                    });
+                    let step = chain_step(&ck, &ik, &mk, &src);
+                    body.push(quote! { let #xk = { #step }; });
                 }
             }
-            Kind::Sub | Kind::Add | Kind::Mul | Kind::Div | Kind::Max => {
+            Kind::Sub | Kind::Add | Kind::Mul | Kind::Div | Kind::Max | Kind::Min => {
                 let (ea, eb) = (ev(node.a, &idents), ev(node.b, &idents));
-                let stmt = match node.kind {
-                    Kind::Sub => quote! { let #xk = #ea - #eb; },
-                    Kind::Add => quote! { let #xk = #ea + #eb; },
-                    Kind::Mul => quote! { let #xk = #ea * #eb; },
-                    Kind::Div => quote! { let #xk = #ea / #eb; },
-                    Kind::Max => quote! { let #xk = #ea.max(#eb); },
-                    _ => unreachable!(),
-                };
-                body.push(stmt);
+                let v = shape.binop(&node.kind, &ea, &eb);
+                body.push(quote! { let #xk = #v; });
             }
             Kind::Abs => {
                 let ea = ev(node.a, &idents);
-                body.push(quote! { let #xk = #ea.abs(); });
+                let v = shape.abs(&ea);
+                body.push(quote! { let #xk = #v; });
             }
             Kind::Mirror => {
                 // State mirror (rsi's `prev_real`, cmo's `prev`/`drop_real`):
@@ -997,10 +1171,15 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 body.push(quote! { let #xk = #ea.mul_add(#eb, #ec); });
             }
             Kind::Lag => {
-                // steady read is one bar back: `s{stream}[i-1]`
+                // steady read is `n` bars back, `n` being the hoisted VALUE
+                // (`vals.lag_n[k]`) — `s{stream}` is already pre-sliced at
+                // `gate`, so `.sub(n)` lands on bar `gate + i − n`. The depth is
+                // NOT structure: hard-coding one here was the masked bug `mom`
+                // exposes. Legality (n ≤ max_gate + 1) is enforced in `erase`.
                 let stream = p.nodes[node.a].a;
                 let sp = format_ident!("s{}", stream);
-                body.push(quote! { let #xk = unsafe { *#sp.add(i).sub(1) }; });
+                let lk = format_ident!("{}_lag", idents[k]);
+                body.push(quote! { let #xk = unsafe { *#sp.add(i).sub(#lk) }; });
             }
             Kind::Sma => {
                 // hand `cycle_sma` step verbatim: `sum += real[i] −
@@ -1219,6 +1398,30 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     let #xk = if #ea < #eb { 0.0 } else { #ec };
                 });
             }
+            Kind::WhereGt => {
+                let (ea, eb, ec) = (
+                    ev(node.a, &idents),
+                    ev(node.b, &idents),
+                    ev(node.c.expect("WhereGt: t operand"), &idents),
+                );
+                body.push(quote! {
+                    let #xk = if #ea > #eb { #ec } else { 0.0 };
+                });
+            }
+            Kind::WhereLe => {
+                // An EARLY-RETURN guard (`if a <= b { return carry }`): the
+                // compute branch is `!(a <= b)`, so `<=` pins the zero and a
+                // NaN compare — false for `<=` — runs the value arm and
+                // poisons, exactly like the hand.
+                let (ea, eb, ec) = (
+                    ev(node.a, &idents),
+                    ev(node.b, &idents),
+                    ev(node.c.expect("WhereLe: t operand"), &idents),
+                );
+                body.push(quote! {
+                    let #xk = if #ea <= #eb { 0.0 } else { #ec };
+                });
+            }
             Kind::RollMax | Kind::RollMin => {
                 let ident_k = idents[k].clone();
                 let vc = format_ident!("{}_carry", ident_k);
@@ -1312,9 +1515,8 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 let ik = format_ident!("{}_inv", ident_k);
                 let src = ev(node.a, &idents);
                 if node.kind == Kind::Iir {
-                    body.push(quote! {
-                        let #xk = { #ck = #ck.mul_add(#ik, #src * #mk); #ck };
-                    });
+                    let step = chain_step(&ck, &ik, &mk, &src);
+                    body.push(quote! { let #xk = { #step }; });
                 } else {
                     let ht = format_ident!("{}_hi_t", ident_k);
                     let hv = format_ident!("{}_hi_v", ident_k);
@@ -1344,6 +1546,17 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 let src = ev(node.a, &idents);
                 body.push(quote! {
                     let #xk = { let x = #ck; #ck = #src; x };
+                });
+            }
+            Kind::Accum => {
+                // Single-rounding running total (Node::Accum doc): the ONE fma
+                // the hand spells, `ratio.mul_add(volume, st)` — and the
+                // published value IS the carry, so no separate sink read.
+                let ident_k = idents[k].clone();
+                let ck = format_ident!("{}_carry", ident_k);
+                let (ea, eb) = (ev(node.a, &idents), ev(node.b, &idents));
+                body.push(quote! {
+                    let #xk = { #ck = #ea.mul_add(#eb, #ck); #ck };
                 });
             }
             Kind::Wilders => {
@@ -1402,9 +1615,8 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     let chain_v = ev(node.a, &idents);
                     let mk = format_ident!("{}_mult", ident_k);
                     let ik = format_ident!("{}_inv", ident_k);
-                    body.push(quote! {
-                        let #xk = { #ck = #ck.mul_add(#mk, #chain_v * #ik); #ck };
-                    });
+                    let step = chain_step(&ck, &mk, &ik, &chain_v);
+                    body.push(quote! { let #xk = { #step }; });
                 }
             }
             Kind::SuperTrend => {
@@ -1470,108 +1682,15 @@ fn run_fn(p: &Pattern) -> TokenStream {
     // Now: G groups, each with leader (first appearance) and members
     let ng = group_members.len();
 
-    // ---- per-group min lead computation (runtime) ----
-    let mut group_minl: Vec<TokenStream> = Vec::new();
-    for (gidx, members) in group_members.iter().enumerate() {
-        // Group g points to sink node p.sinks[members[0]]; use that ident as minl suffix
-        let leader = members[0];
-        let leader_sink_node = p.sinks[leader];
-        // Group min uses ident + gidx suffix per task requirement
-        let ident_g = idents[leader_sink_node].clone();
-        let g = format_ident!("minl_{}_{}", ident_g, gidx);
-        // Sink leads use ident + s suffix (per sink slot)
-        let l_leader = format_ident!("{}_{}", idents[p.sinks[leader]], leader);
-        if members.len() == 1 {
-            // Single member: min is just its lead
-            group_minl.push(quote! { let #g = #l_leader; });
-        } else {
-            // Multiple members: fold min over all members' leads
-            let mut min_expr = quote! { #l_leader };
-            for &m in &members[1..] {
-                // Build l_m using the node's ident
-                let m_sink_node = p.sinks[m];
-                let m_ident = idents[m_sink_node].clone();
-                let l_m = format_ident!("{}_{}", m_ident, m);
-                min_expr = quote! { #min_expr.min(#l_m) };
-            }
-            group_minl.push(quote! { let #g = #min_expr; });
-        }
-    }
-
-    // ---- per-group want hoists — OPTIONAL-only groups need a runtime flag.
-    // A group with any PRIMARY member is always stored (primaries are always
-    // wanted), so it gets neither hoist nor guard. The steady loop is then
-    // EMITTED TWICE (see `steady` below): `any_opt` picks the copy at
-    // runtime — the primary-only path keeps exactly its pre-flags store set
-    // with zero per-bar branches (per-bar `if want` guards cost ~2 cyc/bar:
-    // LLVM will not unswitch three independent guards, measured 15.3→19.0).
-    let mut group_want: Vec<TokenStream> = Vec::new();
-    for (gidx, members) in group_members.iter().enumerate() {
-        if !group_is_optional[gidx] {
-            continue;
-        }
-        let gwant = format_ident!("want{}", gidx);
-        let mut want_expr = quote! { false };
-        for &m in members.iter() {
-            want_expr = quote! { #want_expr | vals.sink_want[#m] };
-        }
-        group_want.push(quote! { let #gwant = #want_expr; });
-    }
-    let opt_group_ids: Vec<usize> = group_is_optional
-        .iter()
-        .enumerate()
-        .filter(|(_, o)| **o)
-        .map(|(g, _)| g)
-        .collect();
-
-    // ---- per-group row size (runtime) - computed after n is known ----
-    let mut group_rsz: Vec<TokenStream> = Vec::new();
-    for (gidx, members) in group_members.iter().enumerate() {
-        // Group min uses ident + gidx suffix per task requirement
-        let g = format_ident!("minl_{}_{}", idents[p.sinks[members[0]]], gidx);
-        // Keep rsz as plain numeric per task requirement
-        let rsz_g = format_ident!("rsz{}", gidx);
-        group_rsz.push(quote! { let #rsz_g = n.saturating_sub(#g); });
-    }
-
-    // ---- arena offsets (computed from row sizes) ----
-    let mut off_decl: Vec<TokenStream> = Vec::new();
-    if ng > 0 {
-        // Keep off and rsz as plain numeric per task requirement
-        // Arena offsets: off0=0, off1=off0+rsz0, etc.
-        for gidx in 0..ng {
-            let off_g = format_ident!("off{}", gidx);
-            if gidx == 0 {
-                off_decl.push(quote! { let #off_g = 0usize; });
-            } else {
-                let prev = gidx - 1;
-                let off_prev = format_ident!("off{}", prev);
-                let rsz_prev = format_ident!("rsz{}", prev);
-                off_decl.push(quote! { let #off_g = #off_prev + #rsz_prev; });
-            }
-        }
-    }
-
-    // Total arena size - compute from group 0's ident
-    let total_expr = if ng == 0 {
-        quote! { 0usize }
-    } else {
-        // Get the ident for group 0 (unused, kept for readability)
-        let _leader0 = group_members[0][0];
-        let _ident0 = idents[p.sinks[_leader0]].clone();
-        // Initialize acc with "rsz0" (plain numeric per task requirement)
-        let rsz_ident_0 = format_ident!("rsz0");
-        let mut acc = quote! { #rsz_ident_0 };
-        for gidx in 1..ng {
-            // Get the ident for group gidx
-            let _leader_gidx = group_members[gidx][0];
-            let _ident_gidx = idents[p.sinks[_leader_gidx]].clone();
-            // Keep rsz as plain numeric per task requirement
-            let rsz_gidx = format_ident!("rsz{}", gidx);
-            acc = quote! { #acc + #rsz_gidx };
-        }
-        quote! { #acc }
-    };
+    // The row layout (min leads, want flags, row sizes, arena offsets, total)
+    // is shared with the lane kernel — one implementation in `row_layout`.
+    let row = row_layout(p, &idents);
+    let group_minl = &row.minl;
+    let group_want = &row.want;
+    let group_rsz = &row.rsz;
+    let off_decl = &row.off;
+    let total_expr = &row.total;
+    let opt_group_ids = &row.opt_group_ids;
 
     // Arena allocation (exact jit.rs pattern)
     let arena_alloc = if ng == 0 {
@@ -1713,7 +1832,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
         }
     } else {
         let mut any_opt = quote! { false };
-        for &g in &opt_group_ids {
+        for &g in opt_group_ids {
             let w = format_ident!("want{}", g);
             any_opt = quote! { #any_opt | #w };
         }
@@ -1807,6 +1926,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
             #( #st_trend_hoists )*
             #( #st_step_hoists )*
             #( #roll_hoists )*
+            #( #lag_hoists )*
             #( #const_hoists )*
 
             #steady
@@ -1835,6 +1955,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
 fn run_assets_fn(p: &Pattern) -> TokenStream {
     let name = format_ident!("{}_assets", p.name);
     let sig = format_ident!("SIG_{}", p.name);
+    let shape = Shape { lanes: true };
     let idents = build_idents(p);
 
     // ---- sink groups: the planner's partition, the SAME structure the scalar
@@ -1844,7 +1965,6 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
     let group_members = &p.sink_plan.groups;
     let group_of = &p.sink_plan.group_of;
     let group_is_optional = &p.sink_plan.optional;
-    let ng = group_members.len();
 
     // ---- per-sink lead hoists + per-group min-lead / want / rsz / offs ----
     let mut lead_hoists: Vec<TokenStream> = Vec::new();
@@ -1854,63 +1974,15 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
         let l = format_ident!("{}_{}", ident_s, s);
         lead_hoists.push(quote! { let #l = vals.sink_lead[#s] as usize; });
     }
-    let mut group_minl: Vec<TokenStream> = Vec::new();
-    let mut group_want: Vec<TokenStream> = Vec::new();
-    let mut group_rsz: Vec<TokenStream> = Vec::new();
-    let mut off_decl: Vec<TokenStream> = Vec::new();
-    for (gidx, members) in group_members.iter().enumerate() {
-        let leader = members[0];
-        let ident_g = idents[p.sinks[leader]].clone();
-        let g = format_ident!("minl_{}_{}", ident_g, gidx);
-        let l_leader = format_ident!("{}_{}", ident_g, leader);
-        if members.len() == 1 {
-            group_minl.push(quote! { let #g = #l_leader; });
-        } else {
-            let mut min_expr = quote! { #l_leader };
-            for &m in &members[1..] {
-                let m_ident = idents[p.sinks[m]].clone();
-                let l_m = format_ident!("{}_{}", m_ident, m);
-                min_expr = quote! { #min_expr.min(#l_m) };
-            }
-            group_minl.push(quote! { let #g = #min_expr; });
-        }
-        // Optionality is the planner's fact for this group (every member an
-        // optional sink), read from the shared partition — not recomputed here.
-        if group_is_optional[gidx] {
-            let gwant = format_ident!("want{}", gidx);
-            let mut want_expr = quote! { false };
-            for &m in members.iter() {
-                want_expr = quote! { #want_expr | vals.sink_want[#m] };
-            }
-            group_want.push(quote! { let #gwant = #want_expr; });
-        }
-        let rsz_g = format_ident!("rsz{}", gidx);
-        group_rsz.push(quote! { let #rsz_g = n.saturating_sub(#g); });
-        let off_g = format_ident!("off{}", gidx);
-        if gidx == 0 {
-            off_decl.push(quote! { let #off_g = 0usize; });
-        } else {
-            let off_prev = format_ident!("off{}", gidx - 1);
-            let rsz_prev = format_ident!("rsz{}", gidx - 1);
-            off_decl.push(quote! { let #off_g = #off_prev + #rsz_prev; });
-        }
-    }
-    let opt_group_ids: Vec<usize> = group_is_optional
-        .iter()
-        .enumerate()
-        .filter(|(_, o)| **o)
-        .map(|(g, _)| g)
-        .collect();
-    let total_expr = if ng == 0 {
-        quote! { 0usize }
-    } else {
-        let mut acc = quote! { rsz0 };
-        for gidx in 1..ng {
-            let rsz_gidx = format_ident!("rsz{}", gidx);
-            acc = quote! { #acc + #rsz_gidx };
-        }
-        acc
-    };
+    // The row layout is the SAME function the scalar kernel calls — the two
+    // kernels differ only in how they write a row, not in how they size them.
+    let row = row_layout(p, &idents);
+    let group_minl = &row.minl;
+    let group_want = &row.want;
+    let group_rsz = &row.rsz;
+    let off_decl = &row.off;
+    let total_expr = &row.total;
+    let opt_group_ids = &row.opt_group_ids;
 
     // ---- stream base arrays (one per Input slot actually read) ----
     let mut used_slots: Vec<usize> = Vec::new();
@@ -2073,6 +2145,15 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                 });
             }
+            Kind::Accum => {
+                // Lane running total: the carry slot ONLY — no `mult`/`inv`,
+                // because the multiplier is a NODE (volume), not a value.
+                let ck = format_ident!("{}_carry", ident_k);
+                let ki = k;
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                });
+            }
             Kind::RollSum => {
                 // Lane ring roll: carry = the window SUM (exec's `st[k]`,
                 // seeded per asset exactly like the Sma-family lanes). The
@@ -2159,6 +2240,13 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     let #pv2: [*const f64; L] = std::array::from_fn(|a| unsafe { #sfa[a].sub(#n2) });
                 });
             }
+            Kind::Lag => {
+                // Lane Lag depth is the same runtime VALUE as the scalar arm
+                // (one per-node `usize`, identical for every lane — the lanes
+                // differ in SERIES, never in depth).
+                let lk = format_ident!("{}_lag", ident_k);
+                carry_hoists.push(quote! { let #lk = vals.lag_n[#ki] as usize; });
+            }
             _ => {}
         }
     }
@@ -2195,11 +2283,15 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
     // +48 % slower there (hma lanes 166.9 vs 113.3 µs, same-binary A/B) —
     // batching pays where the L× protocol calls dominate, not where one
     // scalar push inlines into the consumer's bespoke tail.
+    // The planner's container choice, honoured not re-derived: a bundled group
+    // is fed and read through its bundle's ONE multi-series buffer, so it
+    // leaves the per-group list entirely.
+    let bundled: Vec<usize> = p.bundles.iter().flat_map(|b| b.groups.clone()).collect();
     let groups: Vec<usize> = p
         .plan
         .leaders(p.nodes.len())
         .into_iter()
-        .filter(|&k| p.plan.is_batched(k))
+        .filter(|&k| p.plan.is_batched(k) && !bundled.contains(&k))
         .collect();
     let mut ring_replay: Vec<TokenStream> = Vec::new();
     {
@@ -2228,6 +2320,61 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
             });
         }
         let mut decls: Vec<TokenStream> = Vec::new();
+        // The planner's fused containers: ONE multi-series buffer per bundle.
+        // Capacity is the max member period across the bundle (a runtime
+        // NUMBER on `Values`, never a pattern fact) and the replay start is the
+        // earliest feed. Those two choices are provably safe together: if every
+        // group is individually full at the seam, the bundle is too, because
+        // `gate - lo_b >= gate - lo_g >= cap_g` for the widest group, and
+        // `cap_b = cap_g` for that group.
+        for (bi, b) in p.bundles.iter().enumerate() {
+            let bu = format_ident!("bu{}", bi);
+            let bb = b.groups.len();
+            let cap = b
+                .groups
+                .iter()
+                .map(|&g| quote! { vals.ring_cap[#g] as usize })
+                .reduce(|acc, e| quote! { std::cmp::max(#acc, #e) })
+                .expect("a bundle has at least two groups");
+            let lo = b
+                .groups
+                .iter()
+                .map(|&g| quote! { vals.feeds[#g] as usize })
+                .reduce(|acc, e| quote! { std::cmp::min(#acc, #e) })
+                .expect("a bundle has at least two groups");
+            decls.push(quote! {
+                let mut #bu = crate::cse::kernel::warmup::BundleRings::<L, #bb>::new(#cap);
+            });
+            // Every series reads its OWN history; a series whose group is
+            // narrower than the bundle clamps to its own last slot. That slot
+            // sits deeper than the series ever asks for in the steady loop, so
+            // its value is inert — and the clamp is what keeps the read inside
+            // the ring (`period_to_idx` wraps by ONE capacity, so a raw
+            // bundle-deep age would index out of bounds, not around).
+            let fills = b.groups.iter().map(|&g| {
+                quote! {
+                    Simd::<f64, L>::from_array(std::array::from_fn(|a| {
+                        ringw[a].at(#g, age.min(vals.ring_cap[#g] as usize - 1))
+                    }))
+                }
+            });
+            ring_replay.push(quote! {
+                {
+                    let cap = #cap;
+                    let lo = #lo;
+                    if gate > lo {
+                        let nrep = std::cmp::min(cap, gate - lo);
+                        for age in (0..nrep).rev() {
+                            let v: [Simd<f64, L>; #bb] = [ #(#fills),* ];
+                            #bu.fill(v);
+                        }
+                    }
+                }
+            });
+            ring_replay.push(quote! {
+                let mut #bu = #bu.into_warm();
+            });
+        }
         if groups.iter().any(|&g| p.plan.takes_mirror(g)) {
             decls.push(quote! {
                 let mut ringb = crate::cse::kernel::warmup::RingSetL::<L>::new();
@@ -2284,9 +2431,8 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
                 let ik = format_ident!("{}_inv", idents[k]);
-                body.push(quote! {
-                    let #xk = { #ck = #ck.mul_add(#ik, #ea * #mk); #ck };
-                });
+                let step = chain_step(&ck, &ik, &mk, &ea);
+                body.push(quote! { let #xk = { #step }; });
             }
             Kind::IirClamped => {
                 // Text-for-text the hand `fisher_simd::calc_fisher`: the ONE
@@ -2322,6 +2468,16 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     let #xk = { let o = #ck; #ck = #ea; o };
                 });
             }
+            Kind::Accum => {
+                // Lane running total — one fused instruction per lane on the
+                // pre-bound operands (`#ea`/`#eb` are bound once above the
+                // match, the same pair the selects use): the multiplier `#eb`
+                // is a NODE, and for `ad` it is the volume column.
+                let ck = format_ident!("{}_carry", idents[k]);
+                body.push(quote! {
+                    let #xk = { #ck = #ea.mul_add(#eb, #ck); #ck };
+                });
+            }
             Kind::RollSum => {
                 // Lane ring step — ONE group op per bar on the authority the
                 // published class selects. A pure-SUM (lockstep) group takes
@@ -2341,6 +2497,59 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let gk = format_ident!("{}_grp", idents[k]);
                 if p.plan.is_lockstep(k) {
                     let ld = p.plan.leader[k] as usize;
+                    // The planner's container decision, read not re-derived: a
+                    // group inside a bundle pushes through the bundle's ONE
+                    // multi-series buffer instead of `rings`. The fused call is
+                    // issued at the bundle's FIRST member (the plan guarantees
+                    // every bundled source precedes it) and costs one push and
+                    // one advance for the whole bundle; each member then folds
+                    // against its own `(series, rank)` leave, which is the same
+                    // bar the per-group fold would have read.
+                    let fused = p
+                        .bundles
+                        .iter()
+                        .position(|b| b.groups.contains(&ld))
+                        .map(|bi| (bi, &p.bundles[bi]));
+                    if let Some((bi, bundle)) = fused {
+                        let bu = format_ident!("bu{}", bi);
+                        let buv = format_ident!("buv{}", bi);
+                        let s = bundle.series_of(ld).expect("group is in the bundle");
+                        let j = bundle
+                            .members
+                            .iter()
+                            .position(|&m| m == k)
+                            .expect("member is in the bundle");
+                        let bb = bundle.groups.len();
+                        let nn = bundle.members.len();
+                        if j == 0 {
+                            let vals: Vec<TokenStream> = bundle
+                                .groups
+                                .iter()
+                                .map(|&g| {
+                                    let ea_g = ev(p.nodes[g].a, &idents);
+                                    quote! { #ea_g }
+                                })
+                                .collect();
+                            let ages: Vec<TokenStream> = bundle
+                                .members
+                                .iter()
+                                .map(|&m| {
+                                    let pm = format_ident!("{}_p", idents[m]);
+                                    quote! { #pm }
+                                })
+                                .collect();
+                            body.push(quote! {
+                                let #buv: [[Simd<f64, L>; #nn]; #bb] =
+                                    #bu.feed([#(#vals),*], [#(#ages),*]);
+                                let #xk = { #ck = #ck + (#ea - #buv[#s][#j]); #ck * #mk };
+                            });
+                        } else {
+                            body.push(quote! {
+                                let #xk = { #ck = #ck + (#ea - #buv[#s][#j]); #ck * #mk };
+                            });
+                        }
+                        continue;
+                    }
                     let members = p.plan.members_of(ld, p.nodes.len());
                     let idx = members
                         .iter()
@@ -2453,24 +2662,24 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
                 let ik = format_ident!("{}_inv", idents[k]);
-                body.push(quote! {
-                    let #xk = { #ck = #ck.mul_add(#ik, #ea * #mk); #ck };
-                });
+                let step = chain_step(&ck, &ik, &mk, &ea);
+                body.push(quote! { let #xk = { #step }; });
             }
             Kind::Wilders => {
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
                 let ik = format_ident!("{}_inv", idents[k]);
-                body.push(quote! {
-                    let #xk = { #ck = #ck.mul_add(#mk, #ea * #ik); #ck };
-                });
+                let step = chain_step(&ck, &mk, &ik, &ea);
+                body.push(quote! { let #xk = { #step }; });
             }
-            Kind::Sub => body.push(quote! { let #xk = #ea - #eb; }),
-            Kind::Add => body.push(quote! { let #xk = #ea + #eb; }),
-            Kind::Mul => body.push(quote! { let #xk = #ea * #eb; }),
-            Kind::Div => body.push(quote! { let #xk = #ea / #eb; }),
-            Kind::Max => body.push(quote! { let #xk = #ea.simd_max(#eb); }),
-            Kind::Abs => body.push(quote! { let #xk = #ea.abs(); }),
+            Kind::Sub | Kind::Add | Kind::Mul | Kind::Div | Kind::Max | Kind::Min => {
+                let v = shape.binop(&node.kind, &ea, &eb);
+                body.push(quote! { let #xk = #v; });
+            }
+            Kind::Abs => {
+                let v = shape.abs(&ea);
+                body.push(quote! { let #xk = #v; });
+            }
             Kind::Mirror => {
                 // identity copy — state mirror (see the scalar arm); the
                 // sink graph never reads it, LLVM DCEs the dead lane copy.
@@ -2481,11 +2690,15 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 body.push(quote! { let #xk = #ea.mul_add(#eb, #ec); });
             }
             Kind::Lag => {
+                // Depth is the hoisted VALUE (`vals.lag_n[k]`), not a literal —
+                // `sp{s}` is pre-sliced at `gate`, so every lane reads
+                // `bar gate + i − n`. Legality is enforced in `erase`.
                 let s = stream_slot(node.a);
                 let sfa = format_ident!("sp{}", s);
+                let lk = format_ident!("{}_lag", idents[k]);
                 body.push(quote! {
                     let #xk = Simd::<f64, L>::from_array(std::array::from_fn(
-                        |a| unsafe { *#sfa[a].add(i).sub(1) },
+                        |a| unsafe { *#sfa[a].add(i).sub(#lk) },
                     ));
                 });
             }
@@ -2499,6 +2712,21 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let ec = ev(node.c.expect("WhereLt: t operand"), &idents);
                 body.push(quote! {
                     let #xk = #ea.simd_lt(#eb).select(Simd::<f64, L>::splat(0.0f64), #ec);
+                });
+            }
+            Kind::WhereGt => {
+                let ec = ev(node.c.expect("WhereGt: t operand"), &idents);
+                body.push(quote! {
+                    let #xk = #ea.simd_gt(#eb).select(#ec, Simd::<f64, L>::splat(0.0f64));
+                });
+            }
+            Kind::WhereLe => {
+                // Branchless, and NaN-correct the same way the scalar arm is:
+                // `simd_le` is false for a NaN `a`, so the VALUE lane runs and
+                // poisons — the hand's early-return guard, not a zero-fill.
+                let ec = ev(node.c.expect("WhereLe: t operand"), &idents);
+                body.push(quote! {
+                    let #xk = #ea.simd_le(#eb).select(Simd::<f64, L>::splat(0.0f64), #ec);
                 });
             }
             Kind::Sma => {
@@ -2761,7 +2989,7 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
         }
     } else {
         let mut any_opt = quote! { false };
-        for &g in &opt_group_ids {
+        for &g in opt_group_ids {
             let w = format_ident!("want{}", g);
             any_opt = quote! { #any_opt | #w };
         }

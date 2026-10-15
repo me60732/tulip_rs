@@ -221,4 +221,89 @@ mod tests {
         );
         assert_eq!(q.nodes.len(), 10, "distinct periods -> distinct chains");
     }
+
+    /// CMO on the REAL merged arena: its gain and loss sums are independent
+    /// columns with equal ages, so the planner puts them in ONE fused
+    /// container — and the emitted kernel must actually build and feed it. A
+    /// parity run cannot tell a working fold from an empty bundle list, so this
+    /// pins the firing, not just the safety.
+    #[test]
+    fn cmo_fuses_its_gain_and_loss_sums() {
+        let p = build(&[("Cmo", vec![l(9.0)])], false);
+        assert_eq!(p.bundles.len(), 1, "one fused container");
+        let b = &p.bundles[0];
+        assert_eq!(b.groups.len(), 2, "two sum groups share it");
+        assert_eq!(b.members.len(), 2, "one member each: ages = members");
+        assert_eq!(
+            b.call_site(),
+            *b.members.iter().min().unwrap(),
+            "the fused call sits at the first member"
+        );
+        for &m in &b.members {
+            assert!(
+                p.nodes[m].a < b.call_site(),
+                "every bundled source ({}) precedes the fused call site ({})",
+                p.nodes[m].a,
+                b.call_site()
+            );
+        }
+        let out = codegen::expand(&[p]).to_string();
+        assert!(out.contains("BundleRings"), "the container is emitted");
+        assert!(out.contains("bu0"), "and it is the one fed");
+    }
+
+    /// ULTOSC is the WIDE bundle: two independent pure-sum groups of THREE
+    /// members each (`bp` and `tr` at short/medium/long), so the fused call
+    /// carries six ages for two series — one push and ONE cursor advance for
+    /// all six folds. cmo proved B=2/N=1; this is the shape that tests the
+    /// `B × N` read cost the container choice is paid for, and the hand itself
+    /// answers with `MultiBuffer<2>` (`ultosc.rs:9`).
+    #[test]
+    fn ultosc_bundles_two_groups_of_three_members() {
+        let p = build(&[("Ultosc", vec![l(7.0), l(14.0), l(28.0)])], false);
+        assert_eq!(p.bundles.len(), 1, "bp and tr share one container");
+        let b = &p.bundles[0];
+        assert_eq!(b.groups.len(), 2, "two series");
+        assert_eq!(b.members.len(), 6, "three windows per series");
+        assert_eq!(b.call_site(), *b.members.iter().min().unwrap());
+        for &g in &b.groups {
+            assert_ne!(b.series_of(g), None, "group {g} has a series");
+        }
+        for &m in &b.members {
+            assert_ne!(b.rank_of(m), None, "member {m} has a rank");
+            assert!(
+                p.nodes[m].a < b.call_site(),
+                "member {m}'s source {} must precede the fused call site {}",
+                p.nodes[m].a,
+                b.call_site()
+            );
+        }
+        // The long member's age equals the container capacity, so its
+        // pre-push read IS the eviction — no cap flag anywhere in the call.
+        let out = codegen::expand(&[p]).to_string();
+        assert!(out.contains("BundleRings"), "the fused container is built");
+        assert!(out.contains("bu0"), "and named by the plan");
+        assert!(
+            !out.contains("feed_periods"),
+            "a bundled arena emits no per-group fold at all"
+        );
+    }
+
+    /// STOCH on the real arena: %D rolls the SAME BAR's %K output, so no fused
+    /// push can carry both — the plan must refuse, and no fused container may
+    /// appear in the kernel. This is the shape the user pointed at in
+    /// `stoch.rs`: two single buffers there are correct, not unoptimised.
+    #[test]
+    fn stoch_refuses_to_fuse_its_two_sums() {
+        let p = build(&[("Stoch", vec![l(9.0), l(3.0), l(3.0)])], false);
+        assert!(
+            p.bundles.is_empty(),
+            "d_line reads k_line's output this bar: separate containers"
+        );
+        let out = codegen::expand(&[p]).to_string();
+        assert!(
+            !out.contains("BundleRings"),
+            "a refused arena emits no fused container"
+        );
+    }
 }

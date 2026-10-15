@@ -119,8 +119,14 @@ impl Request {
                     Node::Mul { a, b } => (4, a as u64, b as u64, 0),
                     Node::Div { a, b } => (5, a as u64, b as u64, 0),
                     Node::Max { a, b } => (6, a as u64, b as u64, 0),
+                    // minNum is a distinct computation from maxNum (different
+                    // instruction), so it gets its own key — never tag 6.
+                    Node::Min { a, b } => (35, a as u64, b as u64, 0),
                     Node::WhereGe { a, b, t } => (22, a as u64, b as u64, t as u64),
                     Node::WhereLt { a, b, t } => (30, a as u64, b as u64, t as u64),
+                    Node::WhereGt { a, b, t } => (36, a as u64, b as u64, t as u64),
+                    Node::WhereLe { a, b, t } => (37, a as u64, b as u64, t as u64),
+                    Node::Accum { a, b } => (38, a as u64, b as u64, 0),
                     Node::Const { bits } => (7, bits, 0, 0),
                     Node::HighPass { input, period } => (8, input as u64, period as u64, 0),
                     Node::SuperSmoother { src, period } => (9, src as u64, period as u64, 0),

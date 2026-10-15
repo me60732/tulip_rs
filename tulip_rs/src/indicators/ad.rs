@@ -131,3 +131,21 @@ impl Indicator<INPUTS, OPTIONS> for Ad {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+/// The engine's recipe wiring for this indicator — the graph lives in
+/// `cse::recipes::ad`, so the module keeps its math and the engine keeps
+/// its blindness to indicator identity.
+///
+/// The two facts the recipe has to reproduce are the EARLY-RETURN guard
+/// (`if range <= f64::EPSILON { return self.ad }` → `Node::WhereLe`, whose value
+/// arm a NaN compare takes just like the hand) and the single fused rounding of
+/// `ratio.mul_add(volume, self.ad)` (`Node::Accum` — an `Iir{1,1}` over a `Mul`
+/// would round the product first). Publish lead 0: `min_data = 1` and
+/// `output_length = data_len`, so bar 0 prints from the zero-initialized carry.
+impl crate::cse::Planable for Ad {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::ad(options)
+    }
+}

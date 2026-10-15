@@ -89,6 +89,29 @@ pub const K_IIRCLAMPED: u8 = 28;
 /// src node ran first; below `feeds[k]` both sides are the zero init — the
 /// hand's first-bar signal is its zero-initialized carry).
 pub const K_PREV: u8 = 29;
+/// IEEE minNum — the exact mirror of `K_MAX`, spelled `f64::min` on the scalar
+/// axis and `simd_min` on the lane axis (the hand's own split: `ultosc.rs`
+/// `low.min(prev_close)` vs `ultosc_simd.rs` `low.simd_min(prev_close)`). NOT
+/// a `WhereLt` select — that pins `0.0` on one arm, so it disagrees on NaN and
+/// on the `-0.0`/`+0.0` tie. Its own `lane_formula` id, because `minpd` and
+/// `maxpd` are different instructions and one id means one instruction
+/// sequence.
+pub const K_MIN: u8 = 30;
+/// Strict select keeping the value on `>`: `if a > b { t } else { 0.0 }` — the
+/// `K_WHEREGE` sibling. On NaN the compare is false, so this takes the PINNED
+/// zero; that is the opposite of an early-return guard, which computes. See
+/// [`K_WHERELE`] for the polarity a `range <= eps` guard needs.
+pub const K_WHEREGT: u8 = 31;
+/// The `K_WHERELT` sibling that keeps the value on `a > b` *by negating `<=`*:
+/// `if a <= b { 0.0 } else { t }`. A NaN compare makes `<=` false, so the value
+/// arm runs and poisons — which is exactly the hand's early-return guard
+/// (`ad.rs`: `if range <= eps { return self.ad }`).
+pub const K_WHERELE: u8 = 32;
+/// Single-rounding running total `st[k] = a.mul_add(b, st[k])` — zero init,
+/// gated by `feeds[k]` like the other recurrences, no weights. Distinct from
+/// `K_IIR` (which double-rounds the product) and from `K_FMA` (whose third
+/// operand is a node, not this node's own carry).
+pub const K_ACCUM: u8 = 33;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -360,6 +383,7 @@ pub fn erase(
             Node::Mul { a: x, b: y } => (K_MUL, x, y, 0),
             Node::Div { a: x, b: y } => (K_DIV, x, y, 0),
             Node::Max { a: x, b: y } => (K_MAX, x, y, 0),
+            Node::Min { a: x, b: y } => (K_MIN, x, y, 0),
             Node::Abs { src } => (K_ABS, src, 0, 0),
             Node::Lag { src, n } => {
                 // price-stream reads only (recipe.rs asserts); clamp rule
@@ -409,6 +433,15 @@ pub fn erase(
             Node::Trail { src } => (K_TRAIL, src, 0, 0),
             Node::WhereGe { a, b, t } => (K_WHEREGE, a, b, t),
             Node::WhereLt { a, b, t } => (K_WHERELT, a, b, t),
+            Node::WhereGt { a, b, t } => (K_WHEREGT, a, b, t),
+            Node::WhereLe { a, b, t } => (K_WHERELE, a, b, t),
+            Node::Accum { a, b } => {
+                // A recurrence with two node operands and no weights: it starts
+                // accumulating once BOTH are defined, exactly like the product it
+                // fuses (`Mul`'s lead rule), and idles at its zero init below.
+                vals.feeds[k] = leads[a as usize].max(leads[b as usize]);
+                (K_ACCUM, a, b, 0)
+            }
             Node::Sma { src, period } => {
                 // Price-sourced rolling sum only: the steady step reads the
                 // leaving bar `src[t − p]` straight off the stream, which is
@@ -618,6 +651,17 @@ pub fn erase(
     }
     sig.n_sinks = s as u32;
     vals.max_gate = vals.sink_lead[..s].iter().copied().max().unwrap_or(0);
+    // Lag legality, decided HERE and not in the emitter: the steady loop reads
+    // `bar − lag_n[k]` off a pointer already pre-sliced at `gate = max_gate + 1`,
+    // so a depth past `max_gate + 1` loads BEFORE bar 0 — that is UB, not a wrong
+    // value, and no parity test could see it coming. A shape whose published rows
+    // start shallower than one of its own lag reads is therefore rejected here and
+    // falls to the next tier, exactly as an over-wide arena does.
+    for k in 0..sig.len as usize {
+        if sig.kinds[k] == K_LAG && vals.lag_n[k] > vals.max_gate + 1 {
+            return None;
+        }
+    }
     Some((sig, vals, owners))
 }
 

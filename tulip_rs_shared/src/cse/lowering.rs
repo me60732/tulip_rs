@@ -23,7 +23,7 @@
 //! `Values::ring_cap` at the group's leader slot. This module owns the
 //! partition, the class, and the laws that follow from the class.
 
-use super::signature::{K_CONST, K_HMA, K_INPUT, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, MAX};
+use super::signature::{K_CONST, K_HMA, K_INPUT, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_UNUSED, MAX};
 
 /// The slot is not ring-backed (not a roll at all, or a price-sourced
 /// extremum, whose window is a stream slice — the hand's `max.rs` pointer
@@ -215,6 +215,200 @@ impl Plan {
     }
 }
 
+/// How many groups one fused container may carry. The fused read costs
+/// `B × N` ages (one shared age list applied to every series, because
+/// `push_with_info_periods` takes ONE period array), while fusion saves one
+/// cursor advance per extra series: `B` series cost `B−1` advances saved and
+/// `(B−1) × N` loads added. Past a handful of series the loads win, so the
+/// partition stops here instead of bundling the whole arena.
+pub const MAX_BUNDLE_SERIES: usize = 4;
+
+/// One fused container: the ring groups that share a single multi-series
+/// buffer, and therefore one push and ONE cursor advance per bar.
+///
+/// A `MultiBuffer<B, T, S>` holds `B` value vectors under a single
+/// `index`/`capacity` and its push takes all `B` values up front, so a bundle
+/// is legal exactly when
+///
+/// * every group is [`RCLASS_SUM`] — LOCKSTEP: same bar, same age layout. A
+///   rescan group's triggers fire on different bars per lane, and only the
+///   per-lane contiguous mirror window can serve them;
+/// * the groups are mutually value-independent — no group's roll reads another
+///   group's roll output *in the same bar*. Stoch's `d_line = RollSum{k_line}`
+///   is the serial case: `k_line`'s value for this bar does not exist yet when
+///   the fused push would have to be issued, which is why the hand kernel uses
+///   two single buffers and why that is correct, not unoptimised;
+/// * every source slot precedes every member slot (`max src < min member`):
+///   the fused call is emitted at the bundle's FIRST member, so all `B` values
+///   must already be bound there.
+///
+/// Capacity is not a condition and does not appear: the container is sized by
+/// the max member period over the whole bundle (a VALUE, on `Values`), and a
+/// fused read is bit-exact at any capacity ≥ the age asked for because the age
+/// index is absolute from the write cursor — a series whose own group is
+/// smaller simply has older slots it never reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bundle {
+    /// Group leader slots, arena order. A group's SERIES index in the fused
+    /// container is its position here.
+    pub groups: Vec<usize>,
+    /// Every member slot of every group, arena order — this order IS the fused
+    /// call's age list, so member `m` reads `results[series][rank]` with
+    /// `rank` its position here.
+    pub members: Vec<usize>,
+}
+
+impl Bundle {
+    /// The fused call site: the bundle's first member slot.
+    pub fn call_site(&self) -> usize {
+        self.members[0]
+    }
+    /// Which series of the container `group`'s values are pushed into.
+    pub fn series_of(&self, group: usize) -> Option<usize> {
+        self.groups.iter().position(|&g| g == group)
+    }
+    /// Where `member`'s own period sits in the fused age list.
+    pub fn rank_of(&self, member: usize) -> Option<usize> {
+        self.members.iter().position(|&m| m == member)
+    }
+}
+
+/// The container plan: the bundles of TWO OR MORE groups only. A group left
+/// out keeps the plain single-series vector buffer — the fused form buys
+/// nothing for one series, so it must not be paid for.
+///
+/// A pure function of the same arena arrays [`ring_facts`] reads, so it is
+/// determined by the key exactly like the class table: two arenas that erase
+/// to one `Signature` get one identical bundle list.
+pub fn bundles(
+    kinds: &[u8; MAX],
+    a: &[u32; MAX],
+    b: &[u32; MAX],
+    c: &[u32; MAX],
+    d: &[u32; MAX],
+    e: &[u32; MAX],
+    len: usize,
+) -> Vec<Bundle> {
+    let (class, leader) = ring_facts(kinds, a, len);
+
+    // Pure-sum group leaders, arena order — the only class that may fuse.
+    let mut sums: Vec<usize> = Vec::new();
+    let mut members: Vec<Vec<usize>> = Vec::new();
+    for k in 0..len {
+        if class[k] == RCLASS_SUM && leader[k] as usize == k {
+            let mut ms = Vec::new();
+            for j in 0..len {
+                if class[j] == RCLASS_SUM && leader[j] as usize == k {
+                    ms.push(j);
+                }
+            }
+            sums.push(k);
+            members.push(ms);
+        }
+    }
+
+    // Dependencies: a group reads another group's output iff some member's
+    // source has a member of that group among its ancestors.
+    let deps: Vec<Vec<usize>> = sums
+        .iter()
+        .zip(members.iter())
+        .map(|(&g, ms)| {
+            let mut out = Vec::new();
+            for &m in ms {
+                for h in 0..sums.len() {
+                    if sums[h] == g || out.contains(&sums[h]) {
+                        continue;
+                    }
+                    if reaches(kinds, a, b, c, d, e, len, a[m] as usize, &members[h]) {
+                        out.push(sums[h]);
+                    }
+                }
+            }
+            out
+        })
+        .collect();
+
+    let mut out: Vec<Bundle> = Vec::new();
+    let mut src_max: Vec<usize> = Vec::new(); // max source slot per bundle
+    for gi in 0..sums.len() {
+        let g = sums[gi];
+        let lo = members[gi].iter().copied().min().unwrap_or(g);
+        let hi = members[gi]
+            .iter()
+            .map(|&m| a[m] as usize)
+            .max()
+            .unwrap_or(usize::MAX);
+        let mut placed = false;
+        for bi in 0..out.len() {
+            if out[bi].groups.len() >= MAX_BUNDLE_SERIES {
+                continue;
+            }
+            // Neither direction may read the other's roll output.
+            let conflict = out[bi].groups.iter().any(|&h| {
+                deps[gi].contains(&h)
+                    || deps[sums.iter().position(|&s| s == h).unwrap()].contains(&g)
+            });
+            // The shared call site is the bundle's first member, so every
+            // source in the merged bundle must precede it.
+            let ssa = hi < out[bi].call_site() && src_max[bi] < lo;
+            if !conflict && ssa {
+                let ms = members[gi].clone();
+                out[bi].groups.push(g);
+                out[bi].members.extend(ms);
+                out[bi].members.sort();
+                src_max[bi] = src_max[bi].max(hi);
+                placed = true;
+                break;
+            }
+        }
+        if !placed {
+            out.push(Bundle {
+                groups: vec![g],
+                members: members[gi].clone(),
+            });
+            src_max.push(hi);
+        }
+    }
+    // Only real fusions: a one-group bundle stays on the single-series buffer.
+    out.retain(|b| b.groups.len() > 1);
+    out
+}
+
+/// Does `start` reach any of `targets` through the arena's operand edges?
+/// A `0` edge reads as "no edge": slot 0 can never be a ring member (a member
+/// always comes after its own source), so skipping it cannot hide a
+/// dependency between two groups.
+fn reaches(
+    kinds: &[u8; MAX],
+    a: &[u32; MAX],
+    b: &[u32; MAX],
+    c: &[u32; MAX],
+    d: &[u32; MAX],
+    e: &[u32; MAX],
+    len: usize,
+    start: usize,
+    targets: &[usize],
+) -> bool {
+    let mut seen = [false; MAX];
+    let mut stack = vec![start];
+    while let Some(k) = stack.pop() {
+        if targets.contains(&k) {
+            return true;
+        }
+        if seen[k] || kinds[k] == K_UNUSED {
+            continue;
+        }
+        seen[k] = true;
+        for &edge in &[a[k], b[k], c[k], d[k], e[k]] {
+            let j = edge as usize;
+            if j != 0 && j < len && !seen[j] {
+                stack.push(j);
+            }
+        }
+    }
+    false
+}
+
 /// Group-class merge: a rescan member makes the whole group rescan-class;
 /// `RCLASS_NONE` at a leader means "this is the first member". The `Hma`
 /// machine never shares a group (it keys on itself), so its class is final.
@@ -327,6 +521,89 @@ mod tests {
         assert_eq!(class[5], RCLASS_SUM);
         assert_eq!(leader[4], 4, "own leader");
         assert_eq!(leader[5], 5, "own leader");
+    }
+
+    /// The same CMO arena on the container axis: two independent sums whose
+    /// sources both precede both members — ONE fused container, and the fused
+    /// age list is the member list in arena order.
+    #[test]
+    fn independent_sums_share_one_container() {
+        let bs = bundled(
+            &[K_INPUT, K_SUB, K_MAX, K_MAX, K_ROLLSUM, K_ROLLSUM],
+            &[0, 0, 1, 1, 2, 3],
+        );
+        assert_eq!(bs.len(), 1, "the gain and loss sums fuse");
+        assert_eq!(bs[0].groups, vec![4, 5], "series order is arena order");
+        assert_eq!(bs[0].members, vec![4, 5]);
+        assert_eq!(bs[0].call_site(), 4, "one call, at the first member");
+        assert_eq!(bs[0].series_of(5), Some(1));
+        assert_eq!(bs[0].rank_of(5), Some(1));
+    }
+
+    /// STOCH's law, stated as the refusal: `d_line = RollSum{k_line}` reads
+    /// `k_line`'s output for the SAME bar, so no fused push can carry both —
+    /// which is why the hand kernel keeps two single buffers. The plan must
+    /// publish that refusal, not leave it to the emitter's judgement.
+    #[test]
+    fn a_serial_roll_chain_refuses_to_bundle() {
+        let bs = bundled(&[K_INPUT, K_ROLLSUM, K_ROLLSUM], &[0, 0, 1]);
+        assert!(
+            bs.is_empty(),
+            "k_line -> d_line is a serial dependency: two containers"
+        );
+    }
+
+    /// The SSA guard: a second group whose source is computed AFTER the first
+    /// member sits cannot join its container — the fused push would have to
+    /// read a value that does not exist yet at the call site.
+    #[test]
+    fn a_late_source_blocks_the_container() {
+        // 0=Input, 1=RollSum over 0, 2=Add over 1, 3=RollSum over 2
+        let bs = bundled(&[K_INPUT, K_ROLLSUM, K_ADD, K_ROLLSUM], &[0, 0, 1, 2]);
+        assert!(bs.is_empty(), "slot 3's source is slot 2, after slot 1");
+    }
+
+    /// Two sums over a shared derived column are ONE group (AO), so the
+    /// container plan says nothing about them — the group fold already fuses.
+    #[test]
+    fn one_group_is_not_a_bundle() {
+        let bs = bundled(
+            &[K_INPUT, K_ADD, K_DIV, K_ROLLSUM, K_ROLLSUM],
+            &[0, 0, 1, 2, 2],
+        );
+        assert!(bs.is_empty(), "one group is already one container");
+    }
+
+    /// The HMA machine's bespoke ring and a rescan group are both outside the
+    /// container plan: only pure-sum lockstep groups may fuse.
+    #[test]
+    fn only_pure_sum_groups_are_bundled() {
+        let bs = bundled(
+            &[K_INPUT, K_ADD, K_ROLLSUM, K_ROLLMAX, K_HMA],
+            &[0, 0, 2, 2, 1],
+        );
+        assert!(bs.is_empty(), "one sum only: nothing to fuse with");
+    }
+
+    /// The container plan is a function of the key alone, like the class
+    /// table: the same arena always yields the same bundles.
+    #[test]
+    fn bundles_are_a_pure_function_of_the_key() {
+        let kinds = [K_INPUT, K_SUB, K_MAX, K_MAX, K_ROLLSUM, K_ROLLSUM];
+        let a = [0u32, 0, 1, 1, 2, 3];
+        assert_eq!(bundled(&kinds, &a), bundled(&kinds, &a));
+    }
+
+    /// Container plan over a `kinds`/`a` arena (every other edge array is
+    /// zero — the shapes under test carry no multi-operand nodes beyond `a`).
+    fn bundled(kinds: &[u8], a: &[u32]) -> Vec<Bundle> {
+        let mut k = [K_UNUSED; MAX];
+        let mut aa = [0u32; MAX];
+        for (i, &x) in kinds.iter().enumerate() {
+            k[i] = x;
+            aa[i] = a[i];
+        }
+        bundles(&k, &aa, &aa, &aa, &aa, &aa, kinds.len())
     }
 
     /// The HMA machine keys its `√p` diff ring on ITSELF — a group of one,

@@ -6,6 +6,8 @@
 
 use tulip_rs::cse::*;
 use tulip_rs::indicator_types::Indicator;
+use tulip_rs::indicators::ad::Ad;
+use tulip_rs::indicators::adosc::Adosc;
 use tulip_rs::indicators::apo::Apo;
 use tulip_rs::indicators::aroon::Aroon;
 use tulip_rs::indicators::aroonosc::AroonOsc;
@@ -22,6 +24,7 @@ use tulip_rs::indicators::ppo::Ppo;
 use tulip_rs::indicators::sma::Sma;
 use tulip_rs::indicators::stddev::StdDev;
 use tulip_rs::indicators::supertrend::SuperTrend;
+use tulip_rs::indicators::ultosc::Ultosc;
 use tulip_rs::indicators::willr::Willr;
 use tulip_rs::indicators::wma::Wma;
 
@@ -48,6 +51,14 @@ fn hi(k: usize) -> Vec<f64> {
 }
 fn lo(k: usize) -> Vec<f64> {
     price(k).iter().map(|v| v - 0.5 - 0.4 * k as f64).collect()
+}
+
+/// A positive, finite volume column per asset slot — `ad`/`adosc` are the first
+/// volume-consuming patterns, so the lane harness needs a fourth stream.
+fn vol(k: usize) -> Vec<f64> {
+    series(N, |i| {
+        1_000.0 + (i as f64 * 0.07 + 0.4 * k as f64).sin() * 400.0 + 400.0 + k as f64
+    })
 }
 
 /// The lane-vs-scalar gate: one plan, L assets, every lane byte-identical to
@@ -768,6 +779,47 @@ fn lanes_cmo_match_scalar_and_hand() {
     }
 }
 
+/// ULTOSC on lanes — the shape the B-axis container was built for. `bp` and
+/// `tr` are two independent pure-sum groups of THREE members each, so the
+/// planner names ONE `MultiBuffer<2>` (one push, ONE cursor advance) for all
+/// six folds; the long member's age equals capacity, so its pre-push read IS
+/// the eviction. The hand answers the same problem with `MultiBuffer<2>`
+/// itself (`ultosc.rs:9`), and its bar-0 skip comes from the arena for free:
+/// `Lag{close,1}` gives `bp`/`tr` lead 1, and a derived roll feeds at
+/// `feeds[k] = lead(src)`.
+///
+/// Valid OHLC, one phase per asset — mixed-phase triples are legal for
+/// engine-vs-engine but not for a hand pin (see `lanes_atr_natr_match_hand`).
+/// `ultosc` is the only PRIMARY row here (`tr`/`bp` are optional sinks), and its
+/// lead is `long_period` per the hand's `min_data`.
+#[test]
+fn lanes_ultosc_match_scalar_and_hand() {
+    const OPTS: [f64; 3] = [7.0, 14.0, 28.0];
+    let req = Request::new().add(Ultosc::recipe(&OPTS), None);
+    let (h0, h1, h2, h3) = (hi(0), hi(1), hi(2), hi(3));
+    let (l0, l1, l2, l3) = (lo(0), lo(1), lo(2), lo(3));
+    let (p0, p1, p2, p3) = (price(0), price(1), price(2), price(3));
+    let assets3: [[&[f64]; 3]; 4] = [
+        [h0.as_slice(), l0.as_slice(), p0.as_slice()],
+        [h1.as_slice(), l1.as_slice(), p1.as_slice()],
+        [h2.as_slice(), l2.as_slice(), p2.as_slice()],
+        [h3.as_slice(), l3.as_slice(), p3.as_slice()],
+    ];
+    let a: [&[&[f64]]; 4] = [&assets3[0], &assets3[1], &assets3[2], &assets3[3]];
+    lanes_match_scalar(&req, &a, "ultosc L4");
+    let b: [&[&[f64]]; 2] = [&assets3[1], &assets3[2]];
+    lanes_match_scalar(&req, &b, "ultosc L2");
+    let out = run_assets_registered(&req, &a).expect("ultosc lane hit");
+    for (k, asset) in assets3.iter().enumerate() {
+        let (u, _) = Ultosc::indicator(asset, &OPTS, None).unwrap();
+        assert_eq!(
+            out.per_asset[k].rows[0].as_slice(),
+            u[0].as_slice(),
+            "ultosc hand pin lane {k}"
+        );
+    }
+}
+
 /// The movement-sharing pair on lanes: Rsi + Cmo co-requested intern the
 /// whole `up_down` stage (`Lag{1}`, both Subs, both Max gates, the shared
 /// `Mirror{real}`) — two Wilders chains and two ring groups off ONE movement
@@ -802,6 +854,124 @@ fn lanes_rsi_cmo_shared_match_scalar_and_hand() {
             out.per_asset[k].rows[1].as_slice(),
             cmo[0].as_slice(),
             "rsi_cmo cmo hand lane {k}"
+        );
+    }
+}
+
+/// AD on lanes: the first pattern whose recurrence multiplies by a COLUMN that
+/// is not a price, so this is the gate for the lane `Accum` arm (one fused
+/// `mul_add` per lane, carry seeded per asset) and the lane `WhereLe` arm.
+///
+/// The second call deliberately feeds `high == low`: `range` is then `0 <= eps`
+/// on EVERY bar, so the guard must take the pinned zero and the accumulator
+/// must stay `+0.0` end-to-end. That is what makes the guard's lane arm tested
+/// rather than merely compiled — take the value arm by mistake and `numer/0.0`
+/// is `NaN`, which poisons the carry for every later bar and every lane.
+#[test]
+fn lanes_ad_match_scalar_and_hand() {
+    let req = Request::new().add(Ad::recipe(&[]), None);
+    let (h0, h1, h2, h3) = (hi(0), hi(1), hi(2), hi(3));
+    let (l0, l1, l2, l3) = (lo(0), lo(1), lo(2), lo(3));
+    let (p0, p1, p2, p3) = (price(0), price(1), price(2), price(3));
+    let (v0, v1, v2, v3) = (vol(0), vol(1), vol(2), vol(3));
+    let assets4: [[&[f64]; 4]; 4] = [
+        [h0.as_slice(), l0.as_slice(), p0.as_slice(), v0.as_slice()],
+        [h1.as_slice(), l1.as_slice(), p1.as_slice(), v1.as_slice()],
+        [h2.as_slice(), l2.as_slice(), p2.as_slice(), v2.as_slice()],
+        [h3.as_slice(), l3.as_slice(), p3.as_slice(), v3.as_slice()],
+    ];
+    let a: [&[&[f64]]; 4] = [&assets4[0], &assets4[1], &assets4[2], &assets4[3]];
+    lanes_match_scalar(&req, &a, "ad L4");
+    let b: [&[&[f64]]; 2] = [&assets4[1], &assets4[2]];
+    lanes_match_scalar(&req, &b, "ad L2");
+
+    let out = run_assets_registered(&req, &a).expect("ad lane hit");
+    for (k, asset) in assets4.iter().enumerate() {
+        let (ad, _) = Ad::indicator(asset, &[], None).unwrap();
+        assert_eq!(
+            out.per_asset[k].rows[0].as_slice(),
+            ad[0].as_slice(),
+            "ad hand pin lane {k}"
+        );
+    }
+
+    // The guard torture set: high == low on every bar of every lane.
+    let flat: [[&[f64]; 4]; 4] = [
+        [p0.as_slice(), p0.as_slice(), p0.as_slice(), v0.as_slice()],
+        [p1.as_slice(), p1.as_slice(), p1.as_slice(), v1.as_slice()],
+        [p2.as_slice(), p2.as_slice(), p2.as_slice(), v2.as_slice()],
+        [p3.as_slice(), p3.as_slice(), p3.as_slice(), v3.as_slice()],
+    ];
+    let fa: [&[&[f64]]; 4] = [&flat[0], &flat[1], &flat[2], &flat[3]];
+    lanes_match_scalar(&req, &fa, "ad L4 flat");
+    let fout = run_assets_registered(&req, &fa).expect("ad flat lane hit");
+    for (k, asset) in flat.iter().enumerate() {
+        let (ad, _) = Ad::indicator(asset, &[], None).unwrap();
+        assert_eq!(
+            fout.per_asset[k].rows[0].as_slice(),
+            ad[0].as_slice(),
+            "ad flat hand pin lane {k}"
+        );
+        // And the guard really does hold the carry at its zero init.
+        assert!(
+            fout.per_asset[k].rows[0]
+                .iter()
+                .all(|v| v.to_bits() == 0u64),
+            "ad flat lane {k}: every bar must be +0.0"
+        );
+    }
+}
+
+/// ADOSC on lanes — the shape the old JIT lost badly on: the RECURRENCE reads a
+/// derived, volume-driven source (both `Ema`s chain onto the AD accumulator)
+/// while the co-requested `Apo`/`Ppo` read close. Lanes must reproduce the
+/// scalar plan byte-for-byte on the primary row and both optional EMA rows.
+#[test]
+fn lanes_adosc_match_scalar_and_hand() {
+    const OPTS: [f64; 2] = [3.0, 10.0];
+    let req = Request::new().add(Adosc::recipe(&OPTS), None);
+    let (h0, h1, h2, h3) = (hi(0), hi(1), hi(2), hi(3));
+    let (l0, l1, l2, l3) = (lo(0), lo(1), lo(2), lo(3));
+    let (p0, p1, p2, p3) = (price(0), price(1), price(2), price(3));
+    let (v0, v1, v2, v3) = (vol(0), vol(1), vol(2), vol(3));
+    let assets4: [[&[f64]; 4]; 4] = [
+        [h0.as_slice(), l0.as_slice(), p0.as_slice(), v0.as_slice()],
+        [h1.as_slice(), l1.as_slice(), p1.as_slice(), v1.as_slice()],
+        [h2.as_slice(), l2.as_slice(), p2.as_slice(), v2.as_slice()],
+        [h3.as_slice(), l3.as_slice(), p3.as_slice(), v3.as_slice()],
+    ];
+    let a: [&[&[f64]]; 4] = [&assets4[0], &assets4[1], &assets4[2], &assets4[3]];
+    lanes_match_scalar(&req, &a, "adosc L4");
+    let b: [&[&[f64]]; 2] = [&assets4[1], &assets4[2]];
+    lanes_match_scalar(&req, &b, "adosc L2");
+
+    let out = run_assets_registered(&req, &a).expect("adosc lane hit");
+    for (k, asset) in assets4.iter().enumerate() {
+        let (os, _) = Adosc::indicator(asset, &OPTS, None).unwrap();
+        assert_eq!(
+            out.per_asset[k].rows[0].as_slice(),
+            os[0].as_slice(),
+            "adosc hand pin lane {k}"
+        );
+    }
+
+    // Guard torture: high == low ⇒ the AD line is pinned at zero, so both EMA
+    // chains step on zeros and the oscillator must be exactly zero throughout.
+    let flat: [[&[f64]; 4]; 4] = [
+        [p0.as_slice(), p0.as_slice(), p0.as_slice(), v0.as_slice()],
+        [p1.as_slice(), p1.as_slice(), p1.as_slice(), v1.as_slice()],
+        [p2.as_slice(), p2.as_slice(), p2.as_slice(), v2.as_slice()],
+        [p3.as_slice(), p3.as_slice(), p3.as_slice(), v3.as_slice()],
+    ];
+    let fa: [&[&[f64]]; 4] = [&flat[0], &flat[1], &flat[2], &flat[3]];
+    lanes_match_scalar(&req, &fa, "adosc L4 flat");
+    let fout = run_assets_registered(&req, &fa).expect("adosc flat lane hit");
+    for k in 0..4 {
+        assert!(
+            fout.per_asset[k].rows[0]
+                .iter()
+                .all(|v| v.abs().to_bits() == 0u64),
+            "adosc flat lane {k}: zero ad ⇒ zero oscillator"
         );
     }
 }

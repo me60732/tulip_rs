@@ -16,12 +16,13 @@
 //! * `Max` = IEEE maxNum via `f64::max` (the hand's own NaN rule).
 
 use crate::cse::signature::{
-    Signature, Values, K_ABS, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HMA, K_IIR, K_IIRCLAMPED,
-    K_INPUT, K_LAG, K_LN, K_MAX, K_MIRROR, K_MUL, K_PREV, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SMA,
-    K_SQRT, K_STDDEV, K_SUB, K_SUPERTREND, K_TRAIL, K_WHEREGE, K_WHERELT, K_WILDERS, K_WMA, MAX,
-    MAX_SINKS,
+    Signature, Values, K_ABS, K_ACCUM, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HMA, K_IIR,
+    K_IIRCLAMPED, K_INPUT, K_LAG, K_LN, K_MAX, K_MIN, K_MIRROR, K_MUL, K_PREV, K_ROLLMAX,
+    K_ROLLMIN, K_ROLLSUM, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERTREND, K_TRAIL, K_WHEREGE,
+    K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS, K_WMA, MAX, MAX_SINKS,
 };
 use crate::ring_buffer::buffer::BufferElement;
+use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
 use crate::ring_buffer::multi_buffer::multi_mirror_buffer::MultiMirrorBuffer;
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer;
@@ -499,6 +500,80 @@ pub struct WarmRingSlot<T: BufferElement> {
     buf: Buffer<Warm, T>,
 }
 
+/// FUSED-CONTAINER authority — the B axis. One
+/// [`MultiBuffer`] carrying the `B` ring groups the planner put in one
+/// [`crate::cse::lowering::Bundle`]: `B` value vectors under ONE shared
+/// `index`/`capacity`, so a bar costs B stores and ONE cursor advance for the
+/// whole bundle instead of B advances, and every member of every group reads
+/// its own leave out of the one returned array (`results[series][rank]`).
+///
+/// Why the groups in a bundle may share one cursor: they are all `RCLASS_SUM`
+/// (lockstep — same bar, same age layout) and mutually value-independent (no
+/// group reads another's roll output this bar), which is exactly the two
+/// conditions the planner publishes. The container is created ONLY for a
+/// bundle; a group that stands alone keeps `SimdRingSet`'s plain vector buffer
+/// per group, so a shape with nothing to fuse pays nothing for the machinery.
+///
+/// Unequal group capacities inside one bundle are not a hazard: the buffer is
+/// sized by the max, and a member only ever reads its OWN ages (≤ its own
+/// group's cap), so the older slots of a shorter series — filled here with
+/// whatever `ringw.at` wraps out of its own window — are never read.
+pub struct BundleRings<const L: usize, const B: usize> {
+    buf: MultiBuffer<B, Simd<f64, L>, Cold>,
+}
+
+impl<const L: usize, const B: usize> BundleRings<L, B> {
+    #[inline(always)]
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            buf: MultiBuffer::new(capacity.max(1)),
+        }
+    }
+    /// Seam replay: this bar's `B` series values, one advance for all of them.
+    #[inline(always)]
+    pub fn fill(&mut self, values: [Simd<f64, L>; B]) {
+        self.buf.push(values);
+    }
+    /// The checked seam: `into_full` debug-asserts every vector `is_full`, so
+    /// a bundle the replay left short trips here in a debug build instead of
+    /// reading a zero slot in release — the same fill-state law the per-group
+    /// authorities enforce.
+    pub fn into_warm(self) -> WarmBundleRings<L, B> {
+        WarmBundleRings {
+            buf: self.buf.into_full(),
+        }
+    }
+}
+
+/// The `Warm` side of [`BundleRings`]. Fullness is a type-level fact, so the
+/// fused push returns every age directly — no `Option`, no cap argument, no
+/// `last_t` guard.
+///
+/// Budget per bar for the whole bundle: B stores, ONE advance, B × N pre-push
+/// age reads (the ONE shared age list is applied to every series, so a series
+/// pays reads for its siblings' ages too — `(B−1) × N` extra loads bought with
+/// `B−1` fewer advances, which is why the planner caps a bundle's series
+/// count). The read at a member's own period `p` is the post-push
+/// `get_by_period(p)`, and at `p == capacity` it lands on the slot about to be
+/// overwritten — the eviction — so no cap-owner flag and no `+1` adjustment
+/// anywhere.
+pub struct WarmBundleRings<const L: usize, const B: usize> {
+    buf: MultiBuffer<B, Simd<f64, L>, Warm>,
+}
+
+impl<const L: usize, const B: usize> WarmBundleRings<L, B> {
+    /// Push this bar's value for every series and read back every member's
+    /// leaving bar in ONE pass — the bundle's whole per-bar ring step.
+    #[inline(always)]
+    pub fn feed<const N: usize>(
+        &mut self,
+        values: [Simd<f64, L>; B],
+        ages: [usize; N],
+    ) -> [[Simd<f64, L>; N]; B] {
+        self.buf.push_with_info_periods(values, ages)
+    }
+}
+
 /// The steady-loop ring authority (fill-state law: NO steady bar ever touches
 /// a `Cold` buffer). One ring per GROUP, element type `T` — `Simd<f64, L>` for
 /// the lane kernel's vector-element sums. Because fullness is a type-level
@@ -744,6 +819,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                 K_MUL => v[SIG.a[k] as usize] * v[SIG.b[k] as usize],
                 K_DIV => v[SIG.a[k] as usize] / v[SIG.b[k] as usize],
                 K_MAX => v[SIG.a[k] as usize].max(v[SIG.b[k] as usize]),
+                K_MIN => v[SIG.a[k] as usize].min(v[SIG.b[k] as usize]),
                 K_ABS => v[SIG.a[k] as usize].abs(),
                 K_MIRROR => v[SIG.a[k] as usize],
                 K_SQRT => v[SIG.a[k] as usize].sqrt(),
@@ -1077,6 +1153,37 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         0.0
                     } else {
                         v[SIG.c[k] as usize]
+                    }
+                }
+                K_WHEREGT => {
+                    if v[SIG.a[k] as usize] > v[SIG.b[k] as usize] {
+                        v[SIG.c[k] as usize]
+                    } else {
+                        0.0
+                    }
+                }
+                K_WHERELE => {
+                    // An EARLY-RETURN guard: the hand computes whenever
+                    // `a <= b` is FALSE, and a NaN makes it false too — so the
+                    // value arm (and its poison) runs. `K_WHEREGT` would pin
+                    // `0.0` here and silently un-poison.
+                    if v[SIG.a[k] as usize] <= v[SIG.b[k] as usize] {
+                        0.0
+                    } else {
+                        v[SIG.c[k] as usize]
+                    }
+                }
+                K_ACCUM => {
+                    // Single-rounding running total: ONE fma and NO weights —
+                    // the multiplier is a NODE (volume), which is why `K_IIR`
+                    // cannot spell it. Idles below `feeds[k]` with the carry at
+                    // its zero init, exactly like `K_IIR`.
+                    let feed = vals.feeds[k] as usize;
+                    if t < feed {
+                        0.0
+                    } else {
+                        st[k] = v[SIG.a[k] as usize].mul_add(v[SIG.b[k] as usize], st[k]);
+                        st[k]
                     }
                 }
                 K_SUPERTREND => {

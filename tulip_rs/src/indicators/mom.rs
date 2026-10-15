@@ -131,3 +131,21 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Mom {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+/// The engine's recipe wiring for this indicator — the graph lives in
+/// `cse::recipes::mom`, so the module keeps its math and the engine keeps
+/// its blindness to indicator identity.
+///
+/// `MOM(p) = real[i] − real[i − p]`, and its `Lag` depth is a VALUE
+/// (`Values::lag_n`), not structure. The hand's `cycle_mom` pairs bar `i` with
+/// bar `i − p` and publishes from bar `p` (`min_data = p + 1`,
+/// `output_length = len − p`), so this is the pattern where a steady-loop read
+/// of the WRONG depth shows up in the published row — `cmo`'s `Lag{…, period}`
+/// never could, because there the lag only feeds a `Mirror` (state).
+impl crate::cse::Planable for Mom {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::mom(options)
+    }
+}

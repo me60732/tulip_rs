@@ -766,6 +766,162 @@ pub fn cmo(options: &[f64]) -> Recipe {
     r
 }
 
+/// `ULTOSC(short, medium, long)` — Ultimate Oscillator: the weighted ratio of
+/// three-window buying-pressure and true-range sums.
+///
+/// The arena mirrors `ultosc.rs` statement for statement. `true_low =
+/// Min(low, prev)`, `true_high = Max(high, prev)`, `bp = close − true_low`,
+/// `tr = true_high − true_low`, then SIX raw sums (mean: false — the hand
+/// divides sums by sums, never scales a window) and the tail
+/// `(4·bps/trs + 2·bps_m/trs_m + bps_l/trs_l) · (100.0/7.0)`, parenthesised in
+/// that order because association is visible.
+///
+/// **Why `Lag` and not `Prev`:** the hand seeds `prev_close = close[0]`
+/// (`State::new(long_period, close[0])`) and its warm-up loop is
+/// `.skip(1).take(long_period)`, so bar 0 is never computed and never pushed.
+/// `Node::Lag`'s clamp rule reads sample 0 for `t < n` — the same value the hand
+/// holds at bar 0 — and it gives `prev` LEAD 1, so `bp`/`tr` inherit lead 1 and
+/// the ring first feeds at bar 1. That propagation is why `skip` stays 0: the
+/// feed start comes from the structure, not from a knob.
+///
+/// **The container this shape is the test for:** `bp` and `tr` are two
+/// independent pure-sum groups of THREE members each (short, medium, long), all
+/// three windows read through one capacity (`long`), and the long member's leave
+/// is the eviction at `p == cap`. `lowering::bundles()` fuses the pair into ONE
+/// `MultiBuffer<2>` — which is precisely the hand's own `Buffer<2, f64, S>` — so
+/// one push and one cursor advance per bar serve all six folds.
+pub fn ultosc(options: &[f64]) -> Recipe {
+    let (short, medium, long) = (options[0] as u32, options[1] as u32, options[2] as u32);
+    let mut r = Recipe::new();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+
+    let prev = r.add(Node::Lag { src: cl, n: 1 });
+    r.tag(prev, "prev_close");
+    let tl = r.add(Node::Min { a: lo, b: prev });
+    r.tag(tl, "true_low");
+    let th = r.add(Node::Max { a: hi, b: prev });
+    r.tag(th, "true_high");
+    let bp = r.add(Node::Sub { a: cl, b: tl });
+    r.tag(bp, "bp");
+    let tr = r.add(Node::Sub { a: th, b: tl });
+    r.tag(tr, "tr");
+
+    // Two groups of three members, all six slots AFTER both sources: that is
+    // what lets `bundles()` place one fused call at the first sum node (its SSA
+    // guard is max src < min member).
+    let roll = |p: u32, src: Id| Node::RollSum {
+        src,
+        period: p,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    };
+    let bp_s = r.add(roll(short, bp));
+    r.tag(bp_s, "bp_sum_s");
+    let bp_m = r.add(roll(medium, bp));
+    r.tag(bp_m, "bp_sum_m");
+    let bp_l = r.add(roll(long, bp));
+    r.tag(bp_l, "bp_sum_l");
+    let tr_s = r.add(roll(short, tr));
+    r.tag(tr_s, "tr_sum_s");
+    let tr_m = r.add(roll(medium, tr));
+    r.tag(tr_m, "tr_sum_m");
+    let tr_l = r.add(roll(long, tr));
+    r.tag(tr_l, "tr_sum_l");
+
+    let four = r.constant(4.0);
+    let two = r.constant(2.0);
+    let div = r.constant(100.0 / 7.0);
+    let bp_s4 = r.add(Node::Mul { a: four, b: bp_s });
+    let w_s = r.add(Node::Div { a: bp_s4, b: tr_s });
+    let bp_m2 = r.add(Node::Mul { a: two, b: bp_m });
+    let w_m = r.add(Node::Div { a: bp_m2, b: tr_m });
+    let third = r.add(Node::Div { a: bp_l, b: tr_l });
+    // `reduce_sum()` over the hand's 2-lane vector is this add; then `+ third`,
+    // then the scale — the same left-to-right order `ultosc.rs` writes.
+    let pair = r.add(Node::Add { a: w_s, b: w_m });
+    let wsum = r.add(Node::Add { a: pair, b: third });
+    let line = r.add(Node::Mul { a: wsum, b: div });
+    r.tag(line, "ultosc");
+
+    r.kind = "ultosc";
+    r.options = options.to_vec();
+    // hand `State` field order: bp_sums_2x (short, medium), tr_sums_2x (short,
+    // medium), bp_long_sum, tr_long_sum. All six are consumed by the published
+    // ratio, so this list changes no liveness today; `get_states` for a
+    // MultiBuffer-shaped hand state is M1 and not wired.
+    r.tail_inputs = vec![bp_s, bp_m, tr_s, tr_m, bp_l, tr_l];
+    r.outputs.push(Sink::iface_lead(line, long));
+    // `tr` and `bp` are OPTIONAL, not primary: the hand allocates them with
+    // `init_optional_outputs_eff!(optional_outputs, &[false, false], …)`, so a
+    // primary-only request emits ONE row. (The `Info.outputs` table lists all
+    // three; the allocation site is the authority — same rule as `atr`'s `tr`.)
+    r.optional_outputs.push(Sink::iface_lead(tr, 1));
+    r.optional_outputs.push(Sink::iface_lead(bp, 1));
+    r
+}
+
+/// `MASS(period)` — Mass Index: the raw window sum of `ema9(hl) / ema9(ema9(hl))`.
+///
+/// Mirrors `mass.rs`: `hl = Max(Sub(hi,lo), Const(EPSILON))` (`:112`), two
+/// chained period-9 `Ema`s, the ratio (`:116`, unclamped in BOTH phases since
+/// 2026-10-15 — the warm-up used to keep a `.max(0.0)` the steady loop had
+/// commented out), then `sum += mass − evicted`, a raw `RollSum` of capacity
+/// `period`.
+///
+/// The two magic `16`s of the hand fall out of the arena instead of being
+/// spelled: `lead(Ema) = lead(src) + p − 1` gives `ema1` lead 8 and `ema2`
+/// lead 16, and a derived roll feeds at `feeds[k] = lead(src)`
+/// (`signature.rs:401`) — so the ring first feeds at bar 16, exactly the hand's
+/// `if i >= 16` push gate, and the publish lead is `period + 15`
+/// (`min_data − 1`, the row-0 value the fill loop writes at bar `period + 15`).
+/// The `9`s are the hand's hardcoded EMA periods (it never reads `options` for
+/// them); `options[0]` sizes only the ring.
+pub fn mass(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::new();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let range = r.add(Node::Sub { a: hi, b: lo });
+    r.tag(range, "hl_range");
+    let eps = r.constant(f64::EPSILON);
+    let hl = r.add(Node::Max { a: range, b: eps });
+    r.tag(hl, "hl_diff");
+    let ema = r.add(Node::Ema { src: hl, period: 9 });
+    r.tag(ema, "ema");
+    let ema_signal = r.add(Node::Ema {
+        src: ema,
+        period: 9,
+    });
+    r.tag(ema_signal, "ema_signal");
+    let ratio = r.add(Node::Div {
+        a: ema,
+        b: ema_signal,
+    });
+    r.tag(ratio, "mass");
+    let sum = r.add(Node::RollSum {
+        src: ratio,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sum, "mass_idx");
+
+    r.kind = "mass";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![sum];
+    r.outputs.push(Sink::iface_lead(sum, period + 15));
+    r
+}
+
 /// `TR` as a standalone request: the true-range graph over the three price
 /// streams, publish lead 1 (`output_length = len − 1`). Stateless —
 /// `prevClose` is the `Lag` anchor, not a chain. The same nodes the ATR
@@ -1227,6 +1383,359 @@ pub fn ichimoku(options: &[f64]) -> Recipe {
         Sink::iface_lead(base, medium - 1),
         Sink::iface_lead(span_a, long - 1),
         Sink::iface_lead(span_b, long - 1),
+    ];
+    r
+}
+
+/// The AD line as a sub-graph: the guarded CLV times volume, accumulated into
+/// ONE [`Node::Accum`] carry. Returns the accumulator's node id.
+///
+/// Streams are the hand's `TState::Inputs` order (`ad.rs`:
+/// `(high, low, close, volume)`), so the caller binds `0=hi, 1=lo, 2=cl, 3=vol`.
+///
+/// The guard polarity is load-bearing. Hand `ad.rs::calc` is an EARLY RETURN —
+/// `if range <= f64::EPSILON { return self.ad }` — so the compute branch is
+/// `!(range <= eps)`:
+/// * `WhereLt` (`a < b` → zero) puts the `range == eps` bar on the wrong arm.
+/// * `WhereGt` (`a > b` → value) pins `0.0` when `range` is NaN, silently
+///   UN-poisoning a carry the hand would poison.
+/// [`Node::WhereLe`] is the only one whose arms match the hand both at the
+/// boundary and under NaN.
+///
+/// `Ad` and `Adosc` share this helper so their AD sub-graphs intern onto the
+/// same arena nodes in a co-request.
+pub(crate) fn ad_nodes(r: &mut Recipe, hi: Id, lo: Id, cl: Id, vol: Id) -> Id {
+    let range = r.add(Node::Sub { a: hi, b: lo });
+    r.tag(range, "hl_range");
+    // `(close - low - high + close)` spelled left-to-right exactly as the hand
+    // writes it — association changes the last bits, so this is
+    // `((cl - lo) - hi) + cl` and NOT a re-association.
+    let cl_lo = r.add(Node::Sub { a: cl, b: lo });
+    let minus_hi = r.add(Node::Sub { a: cl_lo, b: hi });
+    let numer = r.add(Node::Add { a: minus_hi, b: cl });
+    r.tag(numer, "clv_numer");
+    let ratio = r.add(Node::Div { a: numer, b: range });
+    r.tag(ratio, "clv");
+    let eps = r.constant(f64::EPSILON);
+    let gated = r.add(Node::WhereLe {
+        a: range,
+        b: eps,
+        t: ratio,
+    });
+    r.tag(gated, "clv_gated");
+    // ONE fused rounding: hand `ratio.mul_add(volume, self.ad)`.
+    let line = r.add(Node::Accum { a: gated, b: vol });
+    r.tag(line, "ad");
+    line
+}
+
+/// `AD` — Accumulation/Distribution Line. The engine's first volume-consuming
+/// recipe: four streams and a single running total, zero options (hand
+/// `OPTIONS = 0`).
+///
+/// Sink lead is `0`: hand `min_data = 1`, `output_length(data_len) = data_len`,
+/// so bar 0 already prints (the accumulator's zero init IS the hand's
+/// `State::new(0.0)`).
+pub fn ad(_options: &[f64]) -> Recipe {
+    let mut r = Recipe::new();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+    let vol = r.add(Node::Input { stream: 3 });
+    r.tag(vol, "volume");
+
+    let line = ad_nodes(&mut r, hi, lo, cl, vol);
+
+    r.kind = "ad";
+    r.options = Vec::new();
+    // hand `IndicatorState { ad }` — the one carry.
+    r.tail_inputs = vec![line];
+    r.outputs.push(Sink::iface(line));
+    r
+}
+
+/// `ADOSC(s, l)` — the Chaikin oscillator: `ema_s(ad) − ema_l(ad)`, the two
+/// EMAs chained onto the SAME [`ad_nodes`] accumulator.
+///
+/// Publish lead `= long − 1` (hand `min_data = options[1]`,
+/// `output_length = len − long + 1`). The chain convention is already exact:
+/// the AD line's lead is `0`, so each EMA's `feeds` is `0` and `exec` seeds at
+/// `t == 0` with `ad[0]` and steps thereafter — statement-for-statement the
+/// hand's `init_state` loop (`i == 0` assigns the seed, `i > 0` calls `calc`).
+pub fn adosc(options: &[f64]) -> Recipe {
+    let short = options[0] as u32;
+    let long = options[1] as u32;
+    let mut r = Recipe::new();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+    let vol = r.add(Node::Input { stream: 3 });
+    r.tag(vol, "volume");
+
+    let ad = ad_nodes(&mut r, hi, lo, cl, vol);
+    let ema_short = r.add(Node::Ema {
+        src: ad,
+        period: short,
+    });
+    r.tag(ema_short, "ema_short");
+    let ema_long = r.add(Node::Ema {
+        src: ad,
+        period: long,
+    });
+    r.tag(ema_long, "ema_long");
+    let osc = r.add(Node::Sub {
+        a: ema_short,
+        b: ema_long,
+    });
+    r.tag(osc, "adosc");
+
+    r.kind = "adosc";
+    r.options = options.to_vec();
+    // hand `State { ema_state: EmaSimdState<2>, ad_state }` — SSA order (short
+    // before long, the AD line last as `TState::calc` computes it first).
+    r.tail_inputs = vec![ema_short, ema_long, ad];
+    r.outputs.push(Sink::iface_lead(osc, long - 1));
+    // Hand `optional_outputs = ["short_ema", "long_ema", "ad"]`, in that order,
+    // each at ITS OWN length: `short_ema_line` is allocated
+    // `Ema::output_length(len, short)` = len − short (lead `short`, the seed bar
+    // unpublished), `long_ema_line` reuses `adosc_capacity` = len − long + 1
+    // (lead `long − 1`), and the AD line is `Ad::output_length(len)` = len
+    // (lead 0).
+    r.optional_outputs = vec![
+        Sink::iface_lead(ema_short, short),
+        Sink::iface_lead(ema_long, long - 1),
+        Sink::iface(ad),
+    ];
+    r
+}
+
+/// The MIXED-INPUT arena, as ONE recipe that owns the arena: `Adosc + Apo + Ppo`
+/// in a single graph, where adosc's two EMAs read the volume-driven AD line and
+/// apo/ppo's four EMAs read the close COLUMN.
+///
+/// This is authored as one recipe rather than three co-requested recipes for a
+/// specific reason: stream slots are POSITIONAL and nothing in `merge` checks
+/// that two recipes mean the same thing by `Input{i}`. `Apo`/`Ppo` bind their
+/// price to `Input{0}`; `Adosc` binds `Input{0}=high` (the OHLC convention).
+/// Co-requested, apo/ppo's "close" would intern onto adosc's HIGH column and
+/// every `SIG_*` equality test would still pass — the drift lives in the
+/// recipe, not the erase. Inlining the chains here makes the binding explicit:
+/// the price EMAs read `cl`, which IS stream 2.
+///
+/// `options = [s, l, a1, b1, a2, b2]` — adosc (s,l), apo (a1,b1), ppo (a2,b2),
+/// all DISTINCT so nothing dedups by accident: the point is to measure the
+/// non-price input, not to claim a sharing win that isn't there.
+///
+/// Primary rows only, in this order: `rows[0]` adosc, `rows[1]` apo,
+/// `rows[2]` ppo — each pinned against its own hand call. `tail_inputs` is empty
+/// because a synthetic multi-indicator pattern has no single hand `TState` to
+/// restore (`get_states` is M1 and indicator-shaped).
+pub fn adosc_apo_ppo(options: &[f64]) -> Recipe {
+    let (s, l, a1, b1, a2, b2) = (
+        options[0] as u32,
+        options[1] as u32,
+        options[2] as u32,
+        options[3] as u32,
+        options[4] as u32,
+        options[5] as u32,
+    );
+    let mut r = Recipe::new();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+    let vol = r.add(Node::Input { stream: 3 });
+    r.tag(vol, "volume");
+
+    // adosc: the AD accumulator, then two EMAs over THAT NODE.
+    let ad = ad_nodes(&mut r, hi, lo, cl, vol);
+    let ema_s = r.add(Node::Ema { src: ad, period: s });
+    r.tag(ema_s, "ad_ema_short");
+    let ema_l = r.add(Node::Ema { src: ad, period: l });
+    r.tag(ema_l, "ad_ema_long");
+    let osc = r.add(Node::Sub { a: ema_s, b: ema_l });
+    r.tag(osc, "adosc");
+
+    // apo: two EMAs over the CLOSE column (`cl`, not stream 0) and the line.
+    let pa_s = r.add(Node::Ema {
+        src: cl,
+        period: a1,
+    });
+    r.tag(pa_s, "apo_ema_short");
+    let pa_l = r.add(Node::Ema {
+        src: cl,
+        period: b1,
+    });
+    r.tag(pa_l, "apo_ema_long");
+    let apo_line = r.add(Node::Sub { a: pa_s, b: pa_l });
+    r.tag(apo_line, "apo");
+
+    // ppo: same source, its own pair of periods, `((s − l) * 100) / l` in the
+    // hand's association.
+    let pp_s = r.add(Node::Ema {
+        src: cl,
+        period: a2,
+    });
+    r.tag(pp_s, "ppo_ema_short");
+    let pp_l = r.add(Node::Ema {
+        src: cl,
+        period: b2,
+    });
+    r.tag(pp_l, "ppo_ema_long");
+    let pp_line = r.add(Node::Sub { a: pp_s, b: pp_l });
+    let c100 = r.constant(100.0);
+    r.tag(c100, "hundred");
+    let scaled = r.add(Node::Mul {
+        a: pp_line,
+        b: c100,
+    });
+    let ppo = r.add(Node::Div { a: scaled, b: pp_l });
+    r.tag(ppo, "ppo");
+
+    r.kind = "adosc_apo_ppo";
+    r.options = options.to_vec();
+    // Each lead is its OWN hand's, copied from the single-indicator recipes
+    // above: adosc `l − 1`, apo `b1 − 1`, ppo `b2`.
+    r.outputs = vec![
+        Sink::iface_lead(osc, l - 1),
+        Sink::iface_lead(apo_line, b1 - 1),
+        Sink::iface_lead(ppo, b2),
+    ];
+    r
+}
+
+/// `MOM(p) = real[i] − real[i − p]` — the engine's multi-bar `Lag` read.
+///
+/// This is the recipe that makes `lag_n` observable in a PUBLISHED row. The
+/// hand's `cycle_mom` pairs bar `i` with bar `i − p`, and its lead is `p`
+/// (`min_data = p + 1`, `output_length = len − p`), so a steady-loop read of
+/// one bar back instead of `p` is a wrong VALUE, not a state-only artefact —
+/// which is what `cmo`'s `Lag{src: real, n: period}` could never show, because
+/// there the lag feeds only a `Mirror` (state, `get_states`, M1) and never a
+/// sink.
+///
+/// `n` is a VALUE (`Values::lag_n`), never structure: the signature erases it,
+/// and at macro expansion the parameter arrives as a sentinel. Same as `cmo`.
+///
+/// The hand's state is a raw window of the last `p` `real` values, not an
+/// engine chain, so `tail_inputs` is empty — `get_states` has no chain to
+/// restore here.
+pub fn mom(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::new();
+    let cl = r.add(Node::Input { stream: 0 });
+    r.tag(cl, "price");
+    let prev = r.add(Node::Lag { src: cl, n: period });
+    r.tag(prev, "prev_period");
+    let line = r.add(Node::Sub { a: cl, b: prev });
+    r.tag(line, "mom");
+
+    r.kind = "mom";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface_lead(line, period));
+    r
+}
+
+/// The FOUR-indicator dashboard arena: `mass` plus the APO/PPO/MACD hub in ONE
+/// graph. Streams: `0=high, 1=low, 2=close`.
+///
+/// Authored as one composing recipe rather than four co-requested recipes for
+/// the reason recorded in `stream-slots-are-positional-and-unchecked`: `mass`
+/// is an OHLC shape (`Input{0}=high`, `Input{1}=low`) while `apo`/`ppo`/`macd`
+/// are price shapes (`Input{0}=close`). Slots are positional and unchecked, so
+/// `Mass(p), Apo(s,l), …` as separate requests would intern the hub's "close"
+/// onto mass's HIGH column — a wrong-value arena that still passes every
+/// `SIG_*` equality check. Here the hub chains bind to `cl` explicitly.
+///
+/// The sharing is REAL and is the point of the row: `apo`, `ppo` and `macd` all
+/// consume the same `ema_s`/`ema_l` pair and the same `line` node, so four
+/// indicator requests cost THREE EMA chains plus one ring — the line APO
+/// publishes, PPO divides into, and MACD signals/histograms are all ONE node.
+/// `mass` shares nothing with them (its source is `high − low`), which is the
+/// honest half of the claim: this arena merges PASSES, not mass's math.
+///
+/// `options = [p, s, l, g]` — mass period, hub short, hub long, signal.
+pub fn mass_apo_ppo_macd(options: &[f64]) -> Recipe {
+    let (p, s, l, g) = (
+        options[0] as u32,
+        options[1] as u32,
+        options[2] as u32,
+        options[3] as u32,
+    );
+    let mut r = Recipe::new();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+
+    // ── the hub: ONE ema_s / ema_l / line triple behind apo, ppo and macd ──
+    let ema_s = r.add(Node::Ema { src: cl, period: s });
+    r.tag(ema_s, "ema_short");
+    let ema_l = r.add(Node::Ema { src: cl, period: l });
+    r.tag(ema_l, "ema_long");
+    let line = r.add(Node::Sub { a: ema_s, b: ema_l });
+    r.tag(line, "line"); // apo's primary == macd's line == ppo's numerator
+    let c100 = r.constant(100.0);
+    r.tag(c100, "hundred");
+    let scaled = r.add(Node::Mul { a: line, b: c100 });
+    r.tag(scaled, "scaled");
+    let ppo = r.add(Node::Div {
+        a: scaled,
+        b: ema_l,
+    });
+    r.tag(ppo, "ppo");
+    let signal = r.add(Node::Ema {
+        src: line,
+        period: g,
+    });
+    r.tag(signal, "signal");
+    let hist = r.add(Node::Sub { a: line, b: signal });
+    r.tag(hist, "histogram");
+
+    // ── mass: the hi−low chain, its own ring group ────────────────────────
+    let range = r.add(Node::Sub { a: hi, b: lo });
+    r.tag(range, "hl_range");
+    let eps = r.constant(f64::EPSILON);
+    let hl = r.add(Node::Max { a: range, b: eps });
+    r.tag(hl, "hl_diff");
+    let m_ema = r.add(Node::Ema { src: hl, period: 9 });
+    r.tag(m_ema, "ema");
+    let m_sig = r.add(Node::Ema {
+        src: m_ema,
+        period: 9,
+    });
+    r.tag(m_sig, "ema_signal");
+    let ratio = r.add(Node::Div { a: m_ema, b: m_sig });
+    r.tag(ratio, "ratio");
+    let sum = r.add(Node::RollSum {
+        src: ratio,
+        period: p,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sum, "mass_idx");
+
+    r.kind = "mass_apo_ppo_macd";
+    r.options = options.to_vec();
+    // Each lead is its OWN hand's, copied from the single-indicator recipes:
+    // mass `p + 15`, apo `l − 1`, ppo `l`, macd signal/hist `l + g − 2`.
+    r.outputs = vec![
+        Sink::iface_lead(line, l - 1),
+        Sink::iface_lead(ppo, l),
+        Sink::iface_lead(signal, l + g - 2),
+        Sink::iface_lead(hist, l + g - 2),
+        Sink::iface_lead(sum, p + 15),
     ];
     r
 }

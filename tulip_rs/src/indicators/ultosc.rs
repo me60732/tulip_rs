@@ -397,3 +397,16 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Ultosc {
         )
     }
 }
+
+/// The engine's recipe wiring for this indicator — the graph lives in
+/// `cse::recipes::ultosc`, so the module keeps its math and the engine keeps
+/// its blindness to indicator identity.
+///
+/// Publish rules the recipe must match: `ultosc_line` row 0 is the bar
+/// `long_period` value the fill loop publishes (`if i == long_period`), so the
+/// sink lead is `long_period`; `tr`/`bp` start at bar 1 (row = bar − 1), lead 1.
+impl crate::cse::Planable for Ultosc {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::ultosc(options)
+    }
+}
