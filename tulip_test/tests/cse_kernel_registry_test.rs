@@ -2241,6 +2241,54 @@ mod tests {
         assert_eq!(lead_of(2), 14, "ppo lead = 14");
     }
 
+    /// THE LOAD-BEARING GATE FOR THE PACKING EXPERIMENT. A per-lane source vector
+    /// is assembled from N different locals, so an off-by-one in lane order would
+    /// hand a chain the WRONG source and still run fast — and no text probe, nor any
+    /// speed number, would notice. So both packing arms are compared BYTE-FOR-BYTE
+    /// against the scalar kernel over three series; the scalar arm's own equality to
+    /// the three hands is gated above, so this transitively pins both arms to the
+    /// hand-computed values.
+    #[test]
+    fn adosc_apo_ppo_xpacked_matches_scalar_bit_exact() {
+        use tulip_rs::cse::kernel::registry::{
+            adosc_apo_ppo_p as arm_p, adosc_apo_ppo_xp as arm_xp,
+        };
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+            let vol = volume(base.len());
+            let ohlcv = [
+                hi.as_slice(),
+                lo.as_slice(),
+                base.as_slice(),
+                vol.as_slice(),
+            ];
+            let req = Request::new()
+                .add(Adosc::recipe(&[3.0, 10.0]), None)
+                .add(Apo::recipe(&[12.0, 26.0]), None)
+                .add(Ppo::recipe(&[6.0, 14.0]), None);
+            let (_a, _sig, vals, _) = erase_request(&req).unwrap();
+            let scalar = run_registered(&req, &ohlcv).expect("scalar arm registered");
+            for (label, rows) in [
+                ("packed", arm_p(&vals, &ohlcv)),
+                ("xpacked", arm_xp(&vals, &ohlcv)),
+            ] {
+                assert_eq!(rows.len(), scalar.rows.len(), "{label}: row count");
+                for (i, (got, want)) in rows.iter().zip(scalar.rows.iter()).enumerate() {
+                    assert_bits(
+                        got.as_slice(),
+                        want.as_slice(),
+                        &format!("{label} row {i} vs scalar"),
+                    );
+                }
+            }
+        }
+    }
+
     /// ADOSC + APO + PPO in one arena, bit-exact against the three HANDS — each
     /// called with its own arity (`Adosc` gets OHLCV, `Apo`/`Ppo` get close
     /// only). This is the test that would fail if the co-request had bound apo/ppo

@@ -565,6 +565,59 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
 
+    // ── THE CROSS-SOURCE EMA PACKING A/B — three arms, ONE arena, ONE binary ──
+    // The per-bar budget for this arena's four `Ema` chains (two over the
+    // volume-driven AD line, two over close), which is the entire question:
+    //   scalar  4 chains x (1 mul + 1 fma)                     = 8 vector ops, 128-bit
+    //   `_p`    2 groups x (1 mul + 1 fma), source BROADCAST   = 4 vector ops, 128-bit
+    //   `_xp`   1 group x (1 mul + 1 fma), source ASSEMBLED    = 2 ops at 256-bit + the
+    //           per-bar `from_array` of each lane's own source local
+    // §6.34's rule is that packing pays only where it REPLACES what the lane-group
+    // mechanism cannot express and costs where it DUPLICATES it. `_xp` replaces
+    // (two groups collapse to one), so this is the case where the rule permits a
+    // win — but "permits" is not "measures": 256-bit is real here because this
+    // emitter is rustc/LLVM on AVX2, NOT the old cranelift backend whose 128-bit
+    // SSA ceiling killed the equivalent experiment. Both arms' VALUES are pinned
+    // byte-equal to the scalar kernel by
+    // `adosc_apo_ppo_xpacked_matches_scalar_bit_exact`. Hand rival is the same
+    // three indicators on their own arities (Adosc OHLCV, Apo/Ppo close).
+    let ax8_req = Request::new()
+        .add(
+            tulip_rs::indicators::adosc::Adosc::recipe(&[3.0, 10.0]),
+            None,
+        )
+        .add(Apo::recipe(&[12.0, 26.0]), None)
+        .add(Ppo::recipe(&[6.0, 14.0]), None);
+    let (_aq, sig_aq, vals_aq, _oq) = erase_request(&ax8_req).unwrap();
+    let cl_one: [&[f64]; 1] = [c0.as_slice()];
+    g.bench_function("generated_runonly_adosc_apo_ppo", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_aq, &vals_aq, &hlc4).expect("scalar arm");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_adosc_apo_ppo_p", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::adosc_apo_ppo_p(&vals_aq, &hlc4);
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_adosc_apo_ppo_xp", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::adosc_apo_ppo_xp(&vals_aq, &hlc4);
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_adosc_apo_ppo", |b| {
+        b.iter(|| {
+            let a =
+                tulip_rs::indicators::adosc::Adosc::indicator(&hlc4, &[3.0, 10.0], None).unwrap();
+            let p = Apo::indicator(&cl_one, &[12.0, 26.0], None).unwrap();
+            let q = Ppo::indicator(&cl_one, &[6.0, 14.0], None).unwrap();
+            black_box(a.0[0].len() + p.0[0].len() + q.0[0].len())
+        })
+    });
+
     // ── stoch — the skip/steady_from pair + THE flagship triple ──────────
     use tulip_rs::indicators::donchianchannel::DonchianChannel;
     use tulip_rs::indicators::stoch::Stoch;
