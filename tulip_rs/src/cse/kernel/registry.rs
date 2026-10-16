@@ -224,4 +224,16 @@ tulip_rs_macros::kernel! {
     di_n: Di(p);
     dx_n: Dx(p);
     adx_n: Adx(p);
+    // THE ATR RUNG — added specifically to make `di_n`'s cost DECOMPOSABLE.
+    // Measured floor (one isolated run): dm 6.09, dx 9.65, adx 11.63, DI 17.20
+    // µs, where the hand runs DI in 8.48 — DI is the one shape 2x BEHIND, and it
+    // also costs MORE than `adx`, whose arena contains dm + dx + atr PLUS its own
+    // smoothing. That inversion cannot be explained from the four rows alone,
+    // because DI = (the whole `dm` chain) + (the mean `Wilders(tr)` ATR chain) +
+    // two `Mul`/`Max` glue nodes, and until now the mean ATR chain had never been
+    // timed by itself anywhere in the registry. With this rung, `di_n − dm_n −
+    // atr_n` is the glue's measured cost; without it any claim about WHY DI is
+    // slow is a guess. `atr_natr_shared_p` pairs ATR with NATR, so it is not this
+    // rung and does not answer the question.
+    atr_n: Atr(p);
 }

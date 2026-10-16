@@ -2643,11 +2643,11 @@ mod tests {
     // reports parity, so every row here asserts `sig == SIG_*` BEFORE any timing
     // claim is allowed to exist.
     #[test]
-    fn lone_dm_di_dx_adx_arenas_match_their_registered_signatures() {
+    fn lone_dm_di_dx_adx_atr_arenas_match_their_registered_signatures() {
         use tulip_rs::cse::kernel::registry::{
-            SIG_adx_n, SIG_di_n, SIG_dm_di_dx_adx_shared_p, SIG_dm_n, SIG_dx_n,
+            SIG_adx_n, SIG_atr_n, SIG_di_n, SIG_dm_di_dx_adx_shared_p, SIG_dm_n, SIG_dx_n,
         };
-        let cases: [(&str, Request, tulip_rs::cse::Signature); 4] = [
+        let cases: [(&str, Request, tulip_rs::cse::Signature); 5] = [
             (
                 "dm_n",
                 Request::new().add(Dm::recipe(&[HP]), None),
@@ -2667,6 +2667,11 @@ mod tests {
                 "adx_n",
                 Request::new().add(Adx::recipe(&[HP]), None),
                 SIG_adx_n,
+            ),
+            (
+                "atr_n",
+                Request::new().add(tulip_rs::indicators::atr::Atr::recipe(&[HP]), None),
+                SIG_atr_n,
             ),
         ];
         for (name, req, want) in cases {
@@ -2694,8 +2699,8 @@ mod tests {
     /// Against the HUB every four rows are bit-exact, including DI: same recipe,
     /// same arena node, same rounding.
     #[test]
-    fn lone_dm_di_dx_adx_match_the_hand_and_the_hub() {
-        use tulip_rs::cse::kernel::registry::{SIG_adx_n, SIG_di_n, SIG_dm_n, SIG_dx_n};
+    fn lone_dm_di_dx_adx_atr_match_the_hand_and_the_hub() {
+        use tulip_rs::cse::kernel::registry::{SIG_adx_n, SIG_atr_n, SIG_di_n, SIG_dm_n, SIG_dx_n};
         for base in [
             wiggle(),
             series(680, |i| 100.0 + i as f64 * 0.05),
@@ -2766,6 +2771,21 @@ mod tests {
                 "lone -DI == hub -DI",
             );
 
+            // atr: the DECOMPOSITION RUNG. DI's cost is (the whole dm chain) +
+            // (the mean ATR chain) + two Mul/Max glue nodes, so without a lone
+            // ATR row measured on the same bars, "why is DI 2x behind?" is
+            // unanswerable. Bit-exact vs the hand — the same claim
+            // `adx_atr_mirror_is_the_shared_mean_chain_within_1e12` makes through
+            // adx's optional, now made directly.
+            let (atr_hand, _) =
+                tulip_rs::indicators::atr::Atr::indicator(&three, &[HP], None).unwrap();
+            let atr = run_registered(
+                &Request::new().add(tulip_rs::indicators::atr::Atr::recipe(&[HP]), None),
+                &three,
+            )
+            .expect("atr_n registered");
+            assert_bits(row_for(&atr, 0, true, 0), &atr_hand[0], "lone atr: ATR");
+
             // Every floor row must be served by ITS OWN kernel, not a fallback:
             // an unmatched arena returns None from try_run and the caller would
             // silently re-run the hand, making the bench floor meaningless.
@@ -2773,6 +2793,7 @@ mod tests {
             assert_eq!(dx.fp, SIG_dx_n.hash(), "dx floor row ran the dx kernel");
             assert_eq!(adx.fp, SIG_adx_n.hash(), "adx floor row ran the adx kernel");
             assert_eq!(di.fp, SIG_di_n.hash(), "di floor row ran the di kernel");
+            assert_eq!(atr.fp, SIG_atr_n.hash(), "atr floor row ran the atr kernel");
         }
     }
 }

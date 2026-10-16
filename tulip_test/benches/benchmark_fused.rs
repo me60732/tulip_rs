@@ -389,6 +389,29 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
 
+    // THE ATR RUNG — the ladder step that makes `di_n` decomposable. DI's arena is
+    // (the whole dm chain) + (the mean `Wilders(tr)` ATR chain) + two Mul/Max glue
+    // nodes, so `di_n − dm_n − atr_n` is the glue's measured cost. Without this row
+    // the di-vs-adx inversion (DI has THREE Wilders chains, ADX has FOUR, yet DI is
+    // the slower shape) has no evidence behind it and only a story. Per
+    // `fusion-win-decays-with-live-xmm-register-pressure`: ladder the plan first,
+    // then compare engine-to-engine — never infer a slow plan from a ratio.
+    let (_r5, sig_atr_n, vals_atr_n, _o5) =
+        erase_request(&Request::new().add(tulip_rs::indicators::atr::Atr::recipe(&[14.0]), None))
+            .unwrap();
+    g.bench_function("generated_runonly_atr_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_atr_n, &vals_atr_n, &hlc3).expect("atr_n template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_atr_n", |b| {
+        b.iter(|| {
+            let a = tulip_rs::indicators::atr::Atr::indicator(&hlc3, &[14.0], None).unwrap();
+            black_box(a.0[0].len())
+        })
+    });
+
     let (_ru2, sig_run_mass, vals_run_mass, _ou2) =
         erase_request(&Request::new().add(Mass::recipe(&[40.0]), None)).unwrap();
     g.bench_function("generated_runonly_mass_n", |b| {
