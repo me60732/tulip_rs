@@ -27,14 +27,11 @@ impl TIndicatorState<4> for IndicatorState {
 }
 
 #[inline(always)]
-fn process(inputs: &[&[f64]]) -> Result<Vec<Vec<f64>>, IndicatorError> {
+fn process(inputs: &[&[f64]; INPUTS]) -> Result<Vec<Vec<f64>>, IndicatorError> {
     validate_inputs(inputs, 1)?;
 
-    let open = inputs[0];
-    let high = inputs[1];
-    let low = inputs[2];
-    let close = inputs[3];
-
+    
+    let [open, high, low, close] = *inputs;
     let mut avgprice_line = crate::uninit_vec!(f64, open.len());
 
     for (i, (((&o, &h), &l), &c)) in open
