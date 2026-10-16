@@ -337,29 +337,39 @@ mod tests {
     /// The test uses the shape where the question bites: adosc AND apo AND ppo on
     /// the SAME (12,26), so the arena holds four `Ema` chains — two over the
     /// volume-driven `Accum` line, two over the interned close (apo's and ppo's
-    /// pair interning to one). If cross-source packing existed, those four would
-    /// form ONE 4-wide group. They do not: two buckets of two, so the plan is
-    /// exactly two 2-wide groups and zero 4-wide.
+    /// pair interning to one). Two buckets of two → exactly two 2-wide groups and
+    /// zero 4-wide, which is what the assertions below pin.
     ///
-    /// THIS IS A CAPABILITY SNAPSHOT, NOT A DESIGN RULING. The design is the user's
-    /// own rule (`simd-packing-decided-at-merge-by-shared-depth`): a packing shape
-    /// EXCLUDES magnitudes and the `stream`, and chains from DIFFERENT sources are
-    /// offered once they share >= 2 instructions. The two `Ema` pairs here share the
-    /// whole `mul`+`fma` step, so under that rule they ARE a candidate — and this
-    /// source-keyed bucket is the NOT-YET-IMPLEMENTED half of the rule, not its
-    /// completion. Per that same rule the decision belongs in the planner
-    /// (`Merged::lane_regions`/`lane_formula` in `merge.rs`), never as a per-kind
-    /// rule in the emitter.
+    /// WHY SOURCE-KEYED IS KEPT — MEASURED, not assumed. An `xpacked` arm WAS built
+    /// (Ema buckets keyed on form alone; the group step reading a per-lane
+    /// `from_array` of each source local instead of one splat) as a third row over the
+    /// registry trio arena `Adosc(s,l), Apo(a1,b1), Ppo(a2,b2)` — SIX `Ema` chains
+    /// across two sources (four close, two AD line). `CSE_FUSED_DEBUG`'s own bucket
+    /// print showed the arms differ as predicted: `packed` gave (Ema,close) =
+    /// [15,16,18,19] and (Ema,AD) = [12,13]; `xpacked` merged them into one bucket and
+    /// emitted a 4-wide group [12,13,15,16] mixing the two sources. Gated byte-exact
+    /// against the scalar kernel, then timed in ONE binary:
+    ///   scalar 12.515 us | packed 12.031 us | xpacked 12.798 us | hand 17.712 us
+    /// so cross-source cost +6.4% over same-source packing AND +2.3% over NOT packing
+    /// at all. Both twin rows were reverted. This test pins the status quo on a
+    /// FOUR-chain variant (apo and ppo sharing the same 12/26 literals, so their pairs
+    /// intern to one close chain) — the mechanism is the same, the numbers are not.
     ///
-    /// Closing it means the group step builds a PER-LANE source vector
-    /// (`from_array` of each lane's own `ev(src)`) instead of splatting one. That
-    /// was built once on the cranelift side and LOST (§6.34: bit-exact, classic
-    /// -22%, dense -11%, rsi_two_periods -15%), because assembling per bar what a
-    /// group already had costs live-`f64` pressure. Whether it pays HERE is open:
-    /// AVX2 makes the merged group one `fma`+`mul` at 256-bit instead of two at
-    /// 128-bit, against the source-assembly cost — so it needs a same-binary A/B,
-    /// which is the only verdict that rule accepts. The assertions below flip on
-    /// purpose when that experiment lands.
+    /// Why it loses: `xpacked` halves the GROUP count (two vector steps to one) but
+    /// must first assemble `<4 x f64>` from two different locals every bar, and that
+    /// per-bar operand movement costs more than the halved step. Width is not the
+    /// limit — this emitter is rustc/LLVM on AVX2, so 256-bit is genuinely available,
+    /// unlike the cranelift path whose 128-bit SSA ceiling could have excused its own
+    /// loss (§6.34: classic -22%, dense -11%). Two backends, one conclusion: packing
+    /// pays only where it REPLACES what the lane-group mechanism cannot express, and a
+    /// broadcast source is precisely what it expresses for free.
+    ///
+    /// Standing rule from the user (2026-10-17), which this measurement confirms:
+    /// prioritize same-source grouping, because a splat is faster than reading from
+    /// different sources — even where cross-source packing is expressible. Per
+    /// `simd-packing-decided-at-merge-by-shared-depth` the decision belongs in the
+    /// planner, never as a per-kind rule in `codegen.rs`, which is why the preference
+    /// is stated here rather than enforced by a kind check in the emitter.
     #[test]
     fn ad_line_and_price_emas_do_not_share_a_lane_group() {
         let matched = || {
@@ -461,34 +471,6 @@ mod tests {
     /// rendered with `to_string()` separates EVERY token, `Simd :: from_array (…`.
     fn canon(src: String) -> String {
         src.chars().filter(|c| !c.is_whitespace()).collect()
-    }
-
-    /// The slot indices of every lane-group carry hoist in canonical generated
-    /// source. Covers both emitted widths: `Simd::from_array([st[a],st[b]])` and
-    /// `Simd::<f64,4>::from_array([st[a],st[b],st[c],st[d]])`.
-    fn groups_of(canon_src: &str) -> Vec<Vec<usize>> {
-        // Slot literals arrive SUFFIXED (`st[15usize]`), so take the leading
-        // digits. A plain `parse::<usize>()` fails on the suffix and yields an
-        // empty group list — which is how this probe first reported a bogus zero.
-        fn digits(s: &str) -> Option<usize> {
-            s.chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect::<String>()
-                .parse()
-                .ok()
-        }
-        const KEY: &str = "from_array([st[";
-        let mut out = Vec::new();
-        for (_, after) in canon_src.match_indices(KEY) {
-            // `after` is ALREADY the text past the needle — slicing KEY.len() off
-            // it again drops the first slot and silently empties the parse.
-            let rest = &after[..after.find("]]").unwrap_or(after.len())];
-            let slots: Vec<usize> = rest.split("],st[").filter_map(digits).collect();
-            if !slots.is_empty() {
-                out.push(slots);
-            }
-        }
-        out
     }
 
     /// STOCH on the real arena: %D rolls the SAME BAR's %K output, so no fused
