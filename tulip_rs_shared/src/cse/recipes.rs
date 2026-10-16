@@ -220,7 +220,7 @@ fn atr_nodes(r: &mut Recipe, hi: Id, lo: Id, cl: Id, period: u32) -> (Id, Id) {
 /// then the smoothing node whose mean seed makes `init_state` bit-exact.
 pub fn atr(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlc();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
@@ -243,7 +243,7 @@ pub fn atr(options: &[f64]) -> Recipe {
 /// `(atr / close) * 100.0` (hand `calc`).
 pub fn natr(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlc();
     let close = r.add(Node::Input { stream: 2 });
     r.tag(close, "close");
     let hi = r.add(Node::Input { stream: 0 });
@@ -282,7 +282,7 @@ pub fn natr(options: &[f64]) -> Recipe {
 pub fn supertrend(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
     let step = options[1];
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlc();
     let close = r.add(Node::Input { stream: 2 });
     r.tag(close, "close");
     let hi = r.add(Node::Input { stream: 0 });
