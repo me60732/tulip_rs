@@ -8,12 +8,16 @@ use tulip_rs::cse::*;
 use tulip_rs::indicator_types::Indicator;
 use tulip_rs::indicators::ad::Ad;
 use tulip_rs::indicators::adosc::Adosc;
+use tulip_rs::indicators::adx::Adx;
 use tulip_rs::indicators::apo::Apo;
 use tulip_rs::indicators::aroon::Aroon;
 use tulip_rs::indicators::aroonosc::AroonOsc;
 use tulip_rs::indicators::atr::Atr;
 use tulip_rs::indicators::bbands::BBands;
+use tulip_rs::indicators::di::Di;
+use tulip_rs::indicators::dm::Dm;
 use tulip_rs::indicators::donchianchannel::DonchianChannel;
+use tulip_rs::indicators::dx::Dx;
 use tulip_rs::indicators::ema::Ema;
 use tulip_rs::indicators::ichimoku::Ichimoku;
 use tulip_rs::indicators::macd::Macd;
@@ -178,6 +182,62 @@ fn lanes_natr_supertrend() {
     let a3 = [h2.as_slice(), l0.as_slice(), l3.as_slice()];
     let a: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
     lanes_match_scalar(&req, &a, "natr_st");
+}
+
+// ── THE DIRECTIONAL HUBS on the lane axis ────────────────────────────────
+// Nothing in this suite referenced `Dm`/`Di`/`Dx`/`Adx` before, so the lane
+// kernels `kernel!` generates for every non-packed pattern had NEVER RUN for
+// either hub. The registry comment claimed the mega-hub's assets kernel
+// "exists" — a kernel that has never executed is not a verified fact, so these
+// two gates are the claim's evidence. The scalar-vs-hand parity gates prove the
+// numbers; these prove the lane path reproduces them per asset, which is the
+// lane kernel's whole contract.
+
+#[test]
+fn lanes_dm_di_dx_adx() {
+    let req = Request::new()
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), None)
+        .add(Dx::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None);
+    // Four DISTINCT assets — a lane kernel that reads the wrong asset's carry is
+    // invisible if every asset is the same series. Slot 3 is the flat torture
+    // case (high == low == close), which zeroes `tr` and drives DI's denominator
+    // through the same path on both axes.
+    let (h0, h1, h2) = (hi(0), hi(1), hi(2));
+    let (l0, l1, l2) = (lo(0), lo(1), lo(2));
+    let (c0, c1, c2, c3) = (price(0), price(1), price(2), price(3));
+    let a0 = [h0.as_slice(), l0.as_slice(), c0.as_slice()];
+    let a1 = [h1.as_slice(), l1.as_slice(), c1.as_slice()];
+    let a2 = [h2.as_slice(), l2.as_slice(), c2.as_slice()];
+    let a3 = [c3.as_slice(), c3.as_slice(), c3.as_slice()];
+    let a: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
+    lanes_match_scalar(&req, &a, "dm_di_dx_adx");
+}
+
+/// THE FULL DASHBOARD, seven indicators off one plan and four assets. This is
+/// the lane path for the widest sharing shape in the registry — the one arena
+/// where ONE mean `Wilders(tr)` chain serves FIVE consumers (di, adx, atr, natr,
+/// supertrend) and ONE `+DM`/`−DM` graph serves four.
+#[test]
+fn lanes_dm_di_dx_adx_atr_natr_supertrend() {
+    let req = Request::new()
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), None)
+        .add(Dx::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None)
+        .add(Atr::recipe(&[14.0]), None)
+        .add(Natr::recipe(&[14.0]), None)
+        .add(SuperTrend::recipe(&[14.0, 3.0]), None);
+    let (h0, h1, h2) = (hi(0), hi(1), hi(2));
+    let (l0, l1, l2) = (lo(0), lo(1), lo(2));
+    let (c0, c1, c2, c3) = (price(0), price(1), price(2), price(3));
+    let a0 = [h0.as_slice(), l0.as_slice(), c0.as_slice()];
+    let a1 = [h1.as_slice(), l1.as_slice(), c1.as_slice()];
+    let a2 = [h2.as_slice(), l2.as_slice(), c2.as_slice()];
+    let a3 = [c3.as_slice(), c3.as_slice(), c3.as_slice()];
+    let a: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
+    lanes_match_scalar(&req, &a, "hub7");
 }
 
 #[test]
