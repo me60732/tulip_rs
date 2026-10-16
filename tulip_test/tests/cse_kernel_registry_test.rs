@@ -2290,22 +2290,25 @@ mod tests {
         }
     }
 
-    /// The four-indicator dashboard arena, structurally. The assertion that
-    /// matters is WHICH column the hub reads: `Apo`/`Ppo`/`Macd`'s own recipes
-    /// bind price to `Input{0}`, but this arena's slot 0 is HIGH (mass is an
-    /// OHLC shape), so the composing recipe must bind the hub to `Input{2}`.
-    /// Get that wrong and the arena still erases, still matches its `SIG_*`
-    /// constant, and still counts 5 EMAs — only the values are APO/MACD over the
-    /// high column. `mass_apo_ppo_macd_bit_exact` is therefore the real guard;
-    /// this test pins the structure that makes it meaningful.
+    /// The four-indicator dashboard arena, as FOUR REAL RECIPES. The assertion
+    /// that matters is WHICH column the hub reads: `Apo`/`Ppo`/`Macd` bind price
+    /// to `Input{0}` in their own slots, while `mass` binds `Input{0}=high` — so
+    /// under positional binding the hub would have interned its close onto
+    /// mass's HIGH column, and the arena would still erase, still match its
+    /// `SIG_*`, still count 5 EMAs, with only the VALUES wrong. `mass` now
+    /// declares `hl()` and the hub declares `price()`, so `merge` ranks the union
+    /// {High:0, Low:1, Close:2} and the hub's EMAs land on stream 2 by derivation
+    /// — which is what `on_close == 2` below now proves.
     #[test]
     fn mass_apo_ppo_macd_sig_derived() {
         use tulip_rs::cse::kernel::registry::SIG_mass_apo_ppo_macd;
         use tulip_rs::cse::signature::{K_DIV, K_EMA, K_INPUT, K_MAX, K_MUL, K_ROLLSUM, K_SUB};
-        // mass 40 (the classic), hub 12/26, signal 9.
-        const OPTS: [f64; 4] = [40.0, 12.0, 26.0, 9.0];
-        let req = Request::new().add(recipes::mass_apo_ppo_macd(&OPTS), None);
-        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        let req = Request::new()
+            .add(Mass::recipe(&[40.0]), None)
+            .add(Apo::recipe(&[12.0, 26.0]), None)
+            .add(Ppo::recipe(&[12.0, 26.0]), None)
+            .add(Macd::recipe(&[12.0, 26.0, 9.0]), None);
+        let (_a, sig, vals, owners) = erase_request(&req).unwrap();
         assert_eq!(sig, SIG_mass_apo_ppo_macd, "arena drifted from merge");
         let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
         // 2 hub close-EMAs + 1 signal + mass's two 9-EMAs.
@@ -2343,13 +2346,23 @@ mod tests {
             .collect();
         assert_eq!(ranges.len(), 1, "mass's high−low over streams 0 and 1");
 
-        // Leads, one per hand: apo/macd line `l−1`, ppo `l`, signal+hist
-        // `l+g−2`, mass `p+15`.
-        assert_eq!(vals.sink_lead[0], 25, "line lead = 26 − 1");
-        assert_eq!(vals.sink_lead[1], 26, "ppo lead = 26");
-        assert_eq!(vals.sink_lead[2], 33, "signal lead = 26 + 9 − 2");
-        assert_eq!(vals.sink_lead[3], 33, "hist lead = 26 + 9 − 2");
-        assert_eq!(vals.sink_lead[4], 55, "mass lead = 40 + 15");
+        // Leads, found by OWNER not by position: four real recipes also carry
+        // their optional mirrors in the arena (want=false), so sink indices are a
+        // property of the merge. Requests are [mass, apo, ppo, macd] and macd
+        // publishes THREE primaries (line, signal, hist).
+        let lead_of = |req_idx: usize, primary: bool, idx: usize| -> u32 {
+            let s = owners
+                .iter()
+                .position(|o| o.req == req_idx && o.primary == primary && o.idx == idx)
+                .unwrap_or_else(|| panic!("no sink for req {req_idx} primary {primary} idx {idx}"));
+            vals.sink_lead[s]
+        };
+        assert_eq!(lead_of(0, true, 0), 55, "mass lead = 40 + 15");
+        assert_eq!(lead_of(1, true, 0), 25, "apo line lead = 26 − 1");
+        assert_eq!(lead_of(2, true, 0), 26, "ppo lead = 26");
+        assert_eq!(lead_of(3, true, 0), 25, "macd line lead = 26 − 1");
+        assert_eq!(lead_of(3, true, 1), 33, "signal lead = 26 + 9 − 2");
+        assert_eq!(lead_of(3, true, 2), 33, "hist lead = 26 + 9 − 2");
 
         // The dedup claim: APO, PPO and MACD share the ema_s/ema_l/line triple,
         // so the arena is strictly smaller than the four solo arenas added up.
@@ -2371,14 +2384,21 @@ mod tests {
 
     /// Bit-exactness of the four-indicator arena against all FOUR hands, each
     /// called on its own input arity: `Mass` gets `[high, low]`, the hub gets
-    /// `[close]`. This is the test that would fail if the composing recipe had
-    /// bound the hub to stream 0 — APO/PPO/MACD would come out over the HIGH
-    /// column while every structural count in `mass_apo_ppo_macd_sig_derived`
-    /// still passed.
+    /// `[close]`. This is the test that would fail if the slots were still
+    /// positional — APO/PPO/MACD would come out over the HIGH column while every
+    /// structural count in `mass_apo_ppo_macd_sig_derived` still passed.
+    ///
+    /// Rows are addressed by OWNER. Four real recipes also carry their optional
+    /// mirrors as `want=false` sinks, so the arena has SIX primary rows (mass,
+    /// apo, ppo, and macd's line/signal/hist) inside twelve sinks total — the
+    /// composing recipe published five and declared no optionals.
     #[test]
     fn mass_apo_ppo_macd_bit_exact() {
-        const OPTS: [f64; 4] = [40.0, 12.0, 26.0, 9.0];
-        let req = Request::new().add(recipes::mass_apo_ppo_macd(&OPTS), None);
+        let req = Request::new()
+            .add(Mass::recipe(&[40.0]), None)
+            .add(Apo::recipe(&[12.0, 26.0]), None)
+            .add(Ppo::recipe(&[12.0, 26.0]), None)
+            .add(Macd::recipe(&[12.0, 26.0, 9.0]), None);
         for s in [
             wiggle(),
             series(680, |i| 100.0 + i as f64 * 0.05),
@@ -2388,7 +2408,8 @@ mod tests {
             let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
             let arena = [hi.as_slice(), lo.as_slice(), s.as_slice()];
             let out = run_registered(&req, &arena).expect("mass+hub arena registered");
-            assert_eq!(out.rows.len(), 5, "line, ppo, signal, hist, mass");
+            let primaries = out.owners.iter().filter(|o| o.primary).count();
+            assert_eq!(primaries, 6, "mass, apo, ppo, macd line/signal/hist");
 
             let hub = [s.as_slice()];
             let (ap, _) = Apo::indicator(&hub, &[12.0, 26.0], None).unwrap();
@@ -2397,12 +2418,27 @@ mod tests {
             let two = [hi.as_slice(), lo.as_slice()];
             let (mm, _) = Mass::indicator(&two, &[40.0], None).unwrap();
 
-            assert_bits(&out.rows[0], &ap[0], "mass+hub: apo line");
-            assert_bits(&out.rows[0], &mac[0], "mass+hub: macd line IS apo's line");
-            assert_bits(&out.rows[1], &pp[0], "mass+hub: ppo");
-            assert_bits(&out.rows[2], &mac[1], "mass+hub: signal");
-            assert_bits(&out.rows[3], &mac[2], "mass+hub: histogram");
-            assert_bits(&out.rows[4], &mm[0], "mass+hub: mass index");
+            assert_bits(row_for(&out, 1, true, 0), &ap[0], "mass+hub: apo line");
+            assert_bits(row_for(&out, 3, true, 0), &mac[0], "mass+hub: macd line");
+            // THE DEDUP CLAIM, read off the rows: apo's line and macd's line are
+            // the SAME interned Sub node, so the two primary rows must be
+            // byte-identical to each other and to both hands.
+            assert_bits(
+                row_for(&out, 1, true, 0),
+                row_for(&out, 3, true, 0),
+                "mass+hub: macd line IS apo's line",
+            );
+            assert_bits(row_for(&out, 2, true, 0), &pp[0], "mass+hub: ppo");
+            assert_bits(row_for(&out, 3, true, 1), &mac[1], "mass+hub: signal");
+            assert_bits(row_for(&out, 3, true, 2), &mac[2], "mass+hub: histogram");
+            assert_bits(row_for(&out, 0, true, 0), &mm[0], "mass+hub: mass index");
+
+            // Every mirror the request did not ask for comes back empty.
+            for (o, r) in out.owners.iter().zip(out.rows.iter()) {
+                if !o.primary {
+                    assert!(r.is_empty(), "disabled optional {o:?} must be empty");
+                }
+            }
         }
     }
 

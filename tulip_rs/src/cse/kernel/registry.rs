@@ -178,13 +178,17 @@ tulip_rs_macros::kernel! {
     // `Lag{…, period}` but feeds it only to a `Mirror`, which is why the depth
     // bug stayed masked.
     mom_n: Mom(p);
-    // MASS + THE HUB, one arena: mass is an OHLC shape and apo/ppo/macd are
-    // price shapes, so this is a COMPOSING recipe, never a co-request (slots are
-    // positional — see the `Adosc + Apo + Ppo` note above). The hub's three
-    // requests share ONE `ema_s`/`ema_l`/`line` triple, so four indicators cost
-    // three EMA chains + one ring group; mass's own chain is independent and is
-    // merged for the PASS, not for the math.
-    mass_apo_ppo_macd: MassApoPpoMacd(p, s, l, g);
+    // MASS + THE HUB, four REAL co-requested recipes on one arena. This used to
+    // be a hand-composed recipe (`MassApoPpoMacd`, now deleted) because mass is
+    // HL-shaped while apo/ppo/macd are price-shaped, and positional slots made
+    // that combination unsafe: the hub's `Input{0}=close` would have interned
+    // onto mass's HIGH column. `mass` now declares `hl()` and apo/ppo/macd
+    // declare `price()`, so `merge` ranks the union {High:0, Low:1, Close:2} and
+    // remaps each recipe into it — the hub reads stream 2 by DERIVATION.
+    // The hub's three requests still share ONE `ema_s`/`ema_l`/`line` triple, so
+    // four indicators cost three EMA chains + one ring group; mass's own chain is
+    // independent and is merged for the PASS, not for the math.
+    mass_apo_ppo_macd: Mass(p), Apo(s, l), Ppo(s, l), Macd(s, l, g);
     // THE DIRECTIONAL HUB: `dm`, `di`, `dx` and `adx` all build (or graft) the
     // SAME `+DM`/`−DM` mutual-exclusion graph and its two COMPOSITE (raw-sum)
     // `Wilders` accumulators, so one request computes directional movement ONCE

@@ -884,7 +884,7 @@ pub fn ultosc(options: &[f64]) -> Recipe {
 /// them); `options[0]` sizes only the ring.
 pub fn mass(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hl();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
@@ -1880,101 +1880,5 @@ pub fn mom(options: &[f64]) -> Recipe {
     r.kind = "mom";
     r.options = options.to_vec();
     r.outputs.push(Sink::iface_lead(line, period));
-    r
-}
-
-/// The FOUR-indicator dashboard arena: `mass` plus the APO/PPO/MACD hub in ONE
-/// graph. Streams: `0=high, 1=low, 2=close`.
-///
-/// Authored as one composing recipe rather than four co-requested recipes for
-/// the reason recorded in `stream-slots-are-positional-and-unchecked`: `mass`
-/// is an OHLC shape (`Input{0}=high`, `Input{1}=low`) while `apo`/`ppo`/`macd`
-/// are price shapes (`Input{0}=close`). Slots are positional and unchecked, so
-/// `Mass(p), Apo(s,l), …` as separate requests would intern the hub's "close"
-/// onto mass's HIGH column — a wrong-value arena that still passes every
-/// `SIG_*` equality check. Here the hub chains bind to `cl` explicitly.
-///
-/// The sharing is REAL and is the point of the row: `apo`, `ppo` and `macd` all
-/// consume the same `ema_s`/`ema_l` pair and the same `line` node, so four
-/// indicator requests cost THREE EMA chains plus one ring — the line APO
-/// publishes, PPO divides into, and MACD signals/histograms are all ONE node.
-/// `mass` shares nothing with them (its source is `high − low`), which is the
-/// honest half of the claim: this arena merges PASSES, not mass's math.
-///
-/// `options = [p, s, l, g]` — mass period, hub short, hub long, signal.
-pub fn mass_apo_ppo_macd(options: &[f64]) -> Recipe {
-    let (p, s, l, g) = (
-        options[0] as u32,
-        options[1] as u32,
-        options[2] as u32,
-        options[3] as u32,
-    );
-    let mut r = Recipe::new();
-    let hi = r.add(Node::Input { stream: 0 });
-    r.tag(hi, "high");
-    let lo = r.add(Node::Input { stream: 1 });
-    r.tag(lo, "low");
-    let cl = r.add(Node::Input { stream: 2 });
-    r.tag(cl, "close");
-
-    // ── the hub: ONE ema_s / ema_l / line triple behind apo, ppo and macd ──
-    let ema_s = r.add(Node::Ema { src: cl, period: s });
-    r.tag(ema_s, "ema_short");
-    let ema_l = r.add(Node::Ema { src: cl, period: l });
-    r.tag(ema_l, "ema_long");
-    let line = r.add(Node::Sub { a: ema_s, b: ema_l });
-    r.tag(line, "line"); // apo's primary == macd's line == ppo's numerator
-    let c100 = r.constant(100.0);
-    r.tag(c100, "hundred");
-    let scaled = r.add(Node::Mul { a: line, b: c100 });
-    r.tag(scaled, "scaled");
-    let ppo = r.add(Node::Div {
-        a: scaled,
-        b: ema_l,
-    });
-    r.tag(ppo, "ppo");
-    let signal = r.add(Node::Ema {
-        src: line,
-        period: g,
-    });
-    r.tag(signal, "signal");
-    let hist = r.add(Node::Sub { a: line, b: signal });
-    r.tag(hist, "histogram");
-
-    // ── mass: the hi−low chain, its own ring group ────────────────────────
-    let range = r.add(Node::Sub { a: hi, b: lo });
-    r.tag(range, "hl_range");
-    let eps = r.constant(f64::EPSILON);
-    let hl = r.add(Node::Max { a: range, b: eps });
-    r.tag(hl, "hl_diff");
-    let m_ema = r.add(Node::Ema { src: hl, period: 9 });
-    r.tag(m_ema, "ema");
-    let m_sig = r.add(Node::Ema {
-        src: m_ema,
-        period: 9,
-    });
-    r.tag(m_sig, "ema_signal");
-    let ratio = r.add(Node::Div { a: m_ema, b: m_sig });
-    r.tag(ratio, "ratio");
-    let sum = r.add(Node::RollSum {
-        src: ratio,
-        period: p,
-        mean: false,
-        skip: 0,
-        steady_from: 0,
-    });
-    r.tag(sum, "mass_idx");
-
-    r.kind = "mass_apo_ppo_macd";
-    r.options = options.to_vec();
-    // Each lead is its OWN hand's, copied from the single-indicator recipes:
-    // mass `p + 15`, apo `l − 1`, ppo `l`, macd signal/hist `l + g − 2`.
-    r.outputs = vec![
-        Sink::iface_lead(line, l - 1),
-        Sink::iface_lead(ppo, l),
-        Sink::iface_lead(signal, l + g - 2),
-        Sink::iface_lead(hist, l + g - 2),
-        Sink::iface_lead(sum, p + 15),
-    ];
     r
 }

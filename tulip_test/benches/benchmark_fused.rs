@@ -248,7 +248,6 @@ fn bench_fused(c: &mut Criterion) {
     // the hand's home turf, so parity or a small loss here is the floor, not a
     // regression to flag. The HEADLINE of this block is the last pair: mass
     // merged into the apo+ppo+macd hub, four indicators in ONE arena. ──────
-    use tulip_rs::cse::recipes;
     use tulip_rs::indicators::ad::Ad;
     use tulip_rs::indicators::adosc::Adosc;
     use tulip_rs::indicators::mass::Mass;
@@ -524,14 +523,25 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
 
-    // THE headline: mass merged into the apo+ppo+macd hub. Four indicator
-    // requests, ONE arena, five published rows — the hub's three share the
-    // `ema_s`/`ema_l`/`line` triple (apo's line IS macd's line), mass rides
-    // along for the single pass. The hand rival is four separate calls, which
-    // is what a dashboard actually does today.
-    const MASS_HUB: [f64; 4] = [40.0, 12.0, 26.0, 9.0];
-    let (_ru6, sig_run_hub, vals_run_hub, _ou6) =
-        erase_request(&Request::new().add(recipes::mass_apo_ppo_macd(&MASS_HUB), None)).unwrap();
+    // THE headline: mass merged into the apo+ppo+macd hub. FOUR REAL
+    // CO-REQUESTED RECIPES, one arena — the hub's three share the
+    // `ema_s`/`ema_l`/`line` triple (apo's line IS macd's line, pinned by
+    // `mass_apo_ppo_macd_bit_exact`), mass rides along for the single pass. The
+    // hand rival is four separate calls, which is what a dashboard actually does
+    // today. This used to be one hand-composed recipe (`recipes::mass_apo_ppo_macd`,
+    // now deleted) because `mass` is HL-shaped while the hub is price-shaped and
+    // positional slots made that mix silently wrong; `mass` now declares `hl()`,
+    // so `merge` ranks {High:0, Low:1, Close:2} and the hub reads CLOSE by
+    // derivation. Six primary rows (mass, apo, ppo, macd line/signal/hist) inside
+    // twelve sinks, the other six being the recipes' own mirrors with want=false.
+    let (_ru6, sig_run_hub, vals_run_hub, _ou6) = erase_request(
+        &Request::new()
+            .add(Mass::recipe(&[40.0]), None)
+            .add(Apo::recipe(&[12.0, 26.0]), None)
+            .add(Ppo::recipe(&[12.0, 26.0]), None)
+            .add(Macd::recipe(&[12.0, 26.0, 9.0]), None),
+    )
+    .unwrap();
     g.bench_function("generated_runonly_mass_apo_ppo_macd", |b| {
         b.iter(|| {
             let rows = try_run(&sig_run_hub, &vals_run_hub, &hlc3).expect("mass+hub template");
