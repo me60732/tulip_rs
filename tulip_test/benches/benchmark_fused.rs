@@ -315,6 +315,58 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
 
+    // ── THE FULL DASHBOARD: seven indicators on ONE arena ──────────────────
+    // The scaling question the four-indicator hub cannot answer: `dm`, `di`,
+    // `adx`, `atr`, `natr` and `supertrend` ALL read the ONE mean-`Wilders(tr)`
+    // ATR chain (gated: the seven-indicator arena holds the same four `Wilders`
+    // slots as the four-indicator hub — three extra indicators, zero extra
+    // accumulators). So `hub7 / hub` measures how the win grows with CONSUMERS OF
+    // ONE CHAIN, engine-to-engine, which is the reliable direction on this box.
+    // The hand rival is SEVEN separate passes, each recomputing the TR/Wilders
+    // work it needs. Primary-only on both sides; every line is a DISTINCT request,
+    // so this is not the own-optional-output artifact.
+    let hub7_req = Request::new()
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), None)
+        .add(Dx::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None)
+        .add(Atr::recipe(&[14.0]), None)
+        .add(Natr::recipe(&[14.0]), None)
+        .add(SuperTrend::recipe(&[14.0, 3.0]), None);
+    let (_r7, sig_hub7, vals_hub7, _o7) = erase_request(&hub7_req).unwrap();
+    g.bench_function(
+        "generated_runonly_dm_di_dx_adx_atr_natr_supertrend_shared_p",
+        |b| {
+            b.iter(|| {
+                let rows = try_run(&sig_hub7, &vals_hub7, &hlc3).expect("mega-hub template");
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "hand_runonly_dm_di_dx_adx_atr_natr_supertrend_shared_p",
+        |b| {
+            b.iter(|| {
+                let dm = Dm::indicator(&hl, &[14.0], None).unwrap();
+                let di = Di::indicator(&hlc3, &[14.0], None).unwrap();
+                let dx = Dx::indicator(&hlc3, &[14.0], None).unwrap();
+                let adx = Adx::indicator(&hlc3, &[14.0], None).unwrap();
+                let atr = Atr::indicator(&hlc3, &[14.0], None).unwrap();
+                let natr = Natr::indicator(&hlc3, &[14.0], None).unwrap();
+                let st = SuperTrend::indicator(&hlc3, &[14.0, 3.0], None).unwrap();
+                black_box(
+                    dm.0[0].len()
+                        + di.0[0].len()
+                        + dx.0[0].len()
+                        + adx.0[0].len()
+                        + atr.0[0].len()
+                        + natr.0[0].len()
+                        + st.0[0].len(),
+                )
+            })
+        },
+    );
+
     // ── THE LONE-SHAPE FLOOR — the denominator the hub's win is read against ──
     // Each hub member registered and timed ALONE against the same single hand
     // call. These are DIAGNOSTICS, not shipping options (user 2026-10-16: "we can

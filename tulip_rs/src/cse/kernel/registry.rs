@@ -209,6 +209,29 @@ tulip_rs_macros::kernel! {
     // because a group appeared, a same-source mean/composite pair is back and the
     // published row must be checked against the hand before the group is believed.
     dm_di_dx_adx_shared_p_p: packed Dm(p), Di(p), Dx(p), Adx(p);
+    // THE FULL DASHBOARD: the directional hub PLUS the volatility family, seven
+    // indicators on ONE arena. This is the shape the user predicted when he said
+    // "if so you should also be able to combine adx with natr and supertrend" —
+    // and it is only possible because `di` moved onto the SHARED mean ATR chain
+    // (d230b54) and `atr`/`natr`/`supertrend` declared their columns (2fd22d8), so
+    // the whole request interns by MEANING instead of falling back to positional
+    // binding.
+    //
+    // WHAT IS ACTUALLY SHARED, per node (not per indicator):
+    //   · ONE `+DM`/`−DM` mutual-exclusion graph + its two COMPOSITE `Wilders`
+    //     accumulators → `dm`, `di`, `dx`, `adx` (four consumers).
+    //   · ONE `tr` graph and ONE mean `Wilders(tr)` ATR chain → `di`'s
+    //     denominator, `adx`'s composed mirror, `atr`, `natr`, `supertrend`
+    //     (FIVE consumers). `atr`/`natr`/`supertrend` add NO new recurrence:
+    //     `adx` already grafts the identical chain.
+    //   · `supertrend`'s `medprice` and `natr`'s `Div`/`Mul` are its own glue.
+    // The hand rival is SEVEN separate passes, each recomputing TR and the Wilders
+    // mean it needs — which is why this fusion is genuine and not the
+    // own-optional-output artifact: every line here is a DISTINCT request, and the
+    // optional mirrors are disabled (primary-only), so nothing is being paid for
+    // twice on one side of the comparison.
+    dm_di_dx_adx_atr_natr_supertrend_shared_p: Dm(p), Di(p), Dx(p), Adx(p), Atr(p), Natr(p),
+        Supertrend(p, 3.0);
     // ── THE LONE-SHAPE FLOOR (diagnostics, not shipping options) ───────────
     // The four hub members registered INDIVIDUALLY, to answer a question the
     // merged rows cannot: how far behind the hand does an un-merged shape of this

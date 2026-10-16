@@ -2796,4 +2796,144 @@ mod tests {
             assert_eq!(atr.fp, SIG_atr_n.hash(), "atr floor row ran the atr kernel");
         }
     }
+
+    // ── THE FULL DASHBOARD: seven indicators, ONE arena ────────────────────
+    // dm + di + dx + adx + atr + natr + supertrend. This is the shape the user
+    // predicted ("you should also be able to combine adx with natr and
+    // supertrend"), and it only routes because DI moved onto the shared mean ATR
+    // chain (d230b54) AND atr/natr/supertrend declared their columns (2fd22d8) —
+    // otherwise `merge`'s all-or-nothing gate drops the whole arena to positional
+    // binding. Every recipe here is column-declared, so High=0, Low=1, Close=2 by
+    // MEANING whatever the request order.
+    fn hub7_req() -> Request {
+        Request::new()
+            .add(Dm::recipe(&[HP]), None)
+            .add(Di::recipe(&[HP]), None)
+            .add(Dx::recipe(&[HP]), None)
+            .add(Adx::recipe(&[HP]), None)
+            .add(tulip_rs::indicators::atr::Atr::recipe(&[HP]), None)
+            .add(Natr::recipe(&[HP]), None)
+            .add(
+                tulip_rs::indicators::supertrend::SuperTrend::recipe(&[HP, 3.0]),
+                None,
+            )
+    }
+
+    #[test]
+    fn dm_di_dx_adx_atr_natr_supertrend_shared_p_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_dm_di_dx_adx_atr_natr_supertrend_shared_p;
+        let (_a, sig, _, _) = erase_request(&hub7_req()).unwrap();
+        assert_eq!(
+            sig, SIG_dm_di_dx_adx_atr_natr_supertrend_shared_p,
+            "mega-hub arena drifted from the generated SIG"
+        );
+    }
+
+    /// THE SHARING CLAIM, MEASURED. The registry comment asserts that `atr`,
+    /// `natr` and `supertrend` add NO new recurrence because `adx` already grafts
+    /// the identical mean-`Wilders(tr)` chain. A claim like that must not live
+    /// only in prose: the seven-indicator arena has to hold the SAME `Wilders`
+    /// slots as the four-indicator hub — two COMPOSITE (`+DM`/`−DM`) plus two MEAN
+    /// (the ATR chain, and adx's smoothing over `dx`). Three extra indicators,
+    /// zero extra accumulators, and the same (source, form) multiset proves they
+    /// are the same interned nodes rather than merely the same count.
+    #[test]
+    fn dm_di_dx_adx_atr_natr_supertrend_interns_the_atr_chain_across_five_consumers() {
+        const K_WILDERS: u8 = 4;
+        let (_a, hub, _, _) = erase_request(&hub_req()).unwrap();
+        let (_b, big, _, _) = erase_request(&hub7_req()).unwrap();
+
+        let wilders = |sig: &tulip_rs::cse::Signature| -> Vec<(u32, u32)> {
+            (0..sig.len as usize)
+                .filter(|k| sig.kinds[*k] == K_WILDERS)
+                .map(|k| (sig.a[k], sig.b[k]))
+                .collect()
+        };
+        let (h, g) = (wilders(&hub), wilders(&big));
+        assert_eq!(
+            h.len(),
+            4,
+            "hub expected 2 composite + 2 mean accumulators, found {}",
+            h.len()
+        );
+        assert_eq!(
+            g.len(),
+            h.len(),
+            "the mega-hub added {} Wilders slot(s) where the registry comment promises \
+             ZERO — atr/natr/supertrend must intern onto adx's existing chain",
+            g.len() as i64 - h.len() as i64,
+        );
+        let (mut hs, mut gs) = (h, g);
+        hs.sort();
+        gs.sort();
+        assert_eq!(
+            gs, hs,
+            "mega-hub Wilders nodes differ from the hub's — same count, different nodes"
+        );
+
+        // And no two Wilders may share a SOURCE while differing in FORM: the shape
+        // the emitter still mishandles. Restated for the bigger arena, which is
+        // where such a pair would most plausibly reappear as the family grows.
+        let slots: Vec<usize> = (0..big.len as usize)
+            .filter(|k| big.kinds[*k] == K_WILDERS)
+            .collect();
+        for i in &slots {
+            for j in slots.iter() {
+                if j <= i {
+                    continue;
+                }
+                if big.a[*i] == big.a[*j] {
+                    assert_eq!(
+                        big.b[*i], big.b[*j],
+                        "mega-hub slots {i}/{j} share a source with different Wilders \
+                         forms — the open emitter defect would fire"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Primary rows against all SEVEN hands. `dm`/`dx`/`adx`/`atr`/`natr`/
+    /// `supertrend` bit-exact; `di` RELATIVE to 1e-12 (mean-chain scale — see the
+    /// `di` doc). The ATR row is the load-bearing one: byte-identical to the
+    /// standalone hand ATR inside an arena where five consumers read that node.
+    #[test]
+    fn dm_di_dx_adx_atr_natr_supertrend_shared_p_bit_exact() {
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+            let two = [hi.as_slice(), lo.as_slice()];
+            let three = [hi.as_slice(), lo.as_slice(), base.as_slice()];
+            let out = run_registered(&hub7_req(), &three).expect("mega-hub registered");
+
+            let (dm, _) = Dm::indicator(&two, &[HP], None).unwrap();
+            let (di, _) = Di::indicator(&three, &[HP], None).unwrap();
+            let (dx, _) = Dx::indicator(&three, &[HP], None).unwrap();
+            let (adx, _) = Adx::indicator(&three, &[HP], None).unwrap();
+            let (atr, _) = tulip_rs::indicators::atr::Atr::indicator(&three, &[HP], None).unwrap();
+            let (natr, _) = Natr::indicator(&three, &[HP], None).unwrap();
+            let (st, _) =
+                tulip_rs::indicators::supertrend::SuperTrend::indicator(&three, &[HP, 3.0], None)
+                    .unwrap();
+
+            assert_bits(row_for(&out, 0, true, 0), &dm[0], "hub7: +DM");
+            assert_bits(row_for(&out, 0, true, 1), &dm[1], "hub7: -DM");
+            for idx in [0usize, 1] {
+                assert_rel_1e12(
+                    row_for(&out, 1, true, idx),
+                    &di[idx],
+                    &format!("hub7: DI {idx}"),
+                );
+            }
+            assert_bits(row_for(&out, 2, true, 0), &dx[0], "hub7: DX");
+            assert_bits(row_for(&out, 3, true, 0), &adx[0], "hub7: ADX");
+            assert_bits(row_for(&out, 4, true, 0), &atr[0], "hub7: ATR");
+            assert_bits(row_for(&out, 5, true, 0), &natr[0], "hub7: NATR");
+            assert_bits(row_for(&out, 6, true, 0), &st[0], "hub7: SUPERTREND");
+        }
+    }
 }
