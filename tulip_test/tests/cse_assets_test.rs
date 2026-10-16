@@ -975,3 +975,53 @@ fn lanes_adosc_match_scalar_and_hand() {
         );
     }
 }
+
+/// THE DIRECTIONAL HUB on the lane axis: `dm`+`di`+`dx`+`adx` over one DM chain.
+/// Two claims, checked separately.
+///
+/// (1) `lanes_match_scalar` pins every lane byte-identical to the scalar kernel
+/// on the same asset. Hand parity then follows BY TRANSITIVITY from
+/// `dm_di_dx_adx_shared_p_bit_exact` (scalar rows vs all four hands) — so this
+/// gate deliberately does NOT re-derive sink indices: the hub has nine sinks
+/// whose order is a property of the merge, and hard-coding positions here would
+/// fail for wiring reasons while the numbers stayed right.
+///
+/// (2) The lane path is where the composite/mean pair is actually stressed:
+/// `di`'s raw-sum ATR and `adx`'s mean ATR are Wilders over ONE interned `tr`
+/// node, and the lane group reads `vals.invms[k]` PER LANE (unity vs 1/period).
+/// A lane result equal to the scalar result is therefore evidence that the
+/// mean/composite choice travels as a magnitude, not as a spelling.
+#[test]
+fn lanes_dm_di_dx_adx_hub() {
+    use tulip_rs::indicators::adx::Adx;
+    use tulip_rs::indicators::di::Di;
+    use tulip_rs::indicators::dm::Dm;
+    use tulip_rs::indicators::dx::Dx;
+
+    let req = Request::new()
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), None)
+        .add(Dx::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None);
+
+    let (h, l, c) = (hi(1), lo(1), price(1));
+    let (h2, l2, c2) = (hi(3), lo(3), price(3));
+    let assets: [[&[f64]; 3]; 2] = [
+        [h.as_slice(), l.as_slice(), c.as_slice()],
+        [h2.as_slice(), l2.as_slice(), c2.as_slice()],
+    ];
+    let la: [&[&[f64]]; 2] = [&assets[0], &assets[1]];
+    lanes_match_scalar(&req, &la, "dm+di+dx+adx hub L2");
+
+    // Degenerate prices: high == low == close makes every DM delta zero, so the
+    // two COMPOSITE accumulators fold to 0 and `dx` becomes 0/0. The hub's `Max`
+    // is IEEE maxNum (`f64::max`), which is what turns that NaN into the hand's
+    // 0.0 — and a lane/scalar divergence here would mean the two paths pick the
+    // NaN rule differently, which no finite-price-only comparison can reveal.
+    let flat: [[&[f64]; 3]; 2] = [
+        [c.as_slice(), c.as_slice(), c.as_slice()],
+        [c2.as_slice(), c2.as_slice(), c2.as_slice()],
+    ];
+    let fa: [&[&[f64]]; 2] = [&flat[0], &flat[1]];
+    lanes_match_scalar(&req, &fa, "dm+di+dx+adx hub L2 flat");
+}

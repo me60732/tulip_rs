@@ -273,6 +273,48 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
 
+    // ── THE DIRECTIONAL HUB (dm+di+dx+adx), one DM chain, four indicators ──
+    // The first registered pattern that is a realistic dashboard combo AND the
+    // first arena carrying both Wilders forms (di's raw-sum ATR + adx's mean ATR
+    // over one interned `tr`). The hand rival is FOUR separate passes over the
+    // same bars — `dm` on (h,l), the rest on (h,l,c) — so this is the pairing
+    // the engine exists for, not a lone-indicator floor. The packed twin shares
+    // the Signature, so `try_run` reaches the scalar and the twin is called
+    // DIRECTLY (same-binary A/B, per the twin convention).
+    use tulip_rs::cse::kernel::registry::dm_di_dx_adx_shared_p_p;
+    use tulip_rs::indicators::adx::Adx;
+    use tulip_rs::indicators::di::Di;
+    use tulip_rs::indicators::dm::Dm;
+    use tulip_rs::indicators::dx::Dx;
+
+    let hub_req = Request::new()
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), None)
+        .add(Dx::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None);
+    let (_rh, sig_hub, vals_hub, _oh) = erase_request(&hub_req).unwrap();
+    g.bench_function("generated_runonly_dm_di_dx_adx_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_hub, &vals_hub, &hlc3).expect("hub scalar template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_dm_di_dx_adx_shared_p_p", |b| {
+        b.iter(|| {
+            let rows = dm_di_dx_adx_shared_p_p(&vals_hub, &hlc3);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_dm_di_dx_adx_shared_p", |b| {
+        b.iter(|| {
+            let dm = Dm::indicator(&hl, &[14.0], None).unwrap();
+            let di = Di::indicator(&hlc3, &[14.0], None).unwrap();
+            let dx = Dx::indicator(&hlc3, &[14.0], None).unwrap();
+            let adx = Adx::indicator(&hlc3, &[14.0], None).unwrap();
+            black_box(dm.0[0].len() + di.0[0].len() + dx.0[0].len() + adx.0[0].len())
+        })
+    });
+
     let (_ru2, sig_run_mass, vals_run_mass, _ou2) =
         erase_request(&Request::new().add(Mass::recipe(&[40.0]), None)).unwrap();
     g.bench_function("generated_runonly_mass_n", |b| {
