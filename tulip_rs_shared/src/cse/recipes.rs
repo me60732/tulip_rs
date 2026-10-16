@@ -1120,6 +1120,81 @@ pub fn adx(options: &[f64]) -> Recipe {
     r
 }
 
+/// `VHF(p)` = `(max − min) / max(Σ|Δclose|, ε)` over a `p`-bar window — the ratio
+/// of the range the price covered to the distance it travelled, so a straight
+/// trend scores high and a choppy one low. Hand facts, read off
+/// `State::init_state`/`calc`:
+/// · the numerator is the SAME `(p, p−1)` `RollMax`/`RollMin` pair `willr`
+///   declares over one stream, so `vhf` + `willr` in one query walks each window
+///   once;
+/// · the denominator is a plain SUM, not a mean (`RollSum{mean: false}`, like
+///   `cmo` — the hand maintains `sum += new − old`);
+/// · its source is `|real − prev_real|`, a DERIVED node: the leaving term cannot
+///   come from the host price anchor, so the ring holds the absolute bar's `Abs`
+///   value and drops it `p` bars later;
+/// · **no `skip`/`steady_from`, unlike `stoch`.** The hand's init sums `|Δ|` for
+///   bars `1..=period` with a buffer exactly `period` wide, so the window is
+///   complete at the bar it first publishes and the loop never subtracts during
+///   seeding — both recurrences coincide and the defaults hold;
+/// · the divisor floor is `(sum).max(f64::EPSILON)`, a `Max` against a positive
+///   constant, NOT `willr`'s `WhereLt`: an unchanging series divides by ε instead
+///   of printing `0.0`;
+/// · `init_state` writes `indicator_line[0]` at bar `period` and `cycle` runs from
+///   `period + 1`, so the first printed bar is `period` — already the `Div`'s
+///   computed lead — so the sink needs no override.
+///
+/// `get_states` is DEFERRED (same shape as `stoch`'s): the hand state's `buffer`
+/// is this `RollSum`'s own ring, so the export is the `ChainState::Hma{ring,
+/// cursor}` precedent, and `prev_real` is a `Mirror` once that lands. Running and
+/// resuming are bit-exact without it.
+pub fn vhf(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let look_back = period.saturating_sub(1);
+
+    // `real` IS the close column (`INPUTS = 1`), declared so a co-request with an
+    // OHLC recipe interns onto Close instead of onto that recipe's `Input{0}`.
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    let mx = r.add(Node::RollMax {
+        src: real,
+        period,
+        look_back,
+    });
+    r.tag(mx, "highest");
+    let mn = r.add(Node::RollMin {
+        src: real,
+        period,
+        look_back,
+    });
+    r.tag(mn, "lowest");
+    let prev = r.add(Node::Lag { src: real, n: 1 });
+    r.tag(prev, "prev_real");
+    let diff = r.add(Node::Sub { a: real, b: prev });
+    let travel = r.add(Node::Abs { src: diff });
+    r.tag(travel, "abs_move");
+    let sum = r.add(Node::RollSum {
+        src: travel,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sum, "travel_sum");
+    let range = r.add(Node::Sub { a: mx, b: mn });
+    r.tag(range, "range");
+    let eps = r.constant(f64::EPSILON);
+    let den = r.add(Node::Max { a: sum, b: eps });
+    r.tag(den, "travel_floor");
+    let line = r.add(Node::Div { a: range, b: den });
+    r.tag(line, "vhf");
+
+    r.kind = "vhf";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface(line));
+    r
+}
+
 /// `SMA(p)` — one price-sourced rolling-sum node. Publish lead = `period`:
 /// the hand reports `len − period` rows (init folds bars `0..p` but the
 /// seed bar is not published), matching the `Ema` mirror convention. Hand

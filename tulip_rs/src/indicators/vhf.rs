@@ -272,40 +272,6 @@ impl crate::cse::Planable for Vhf {
     /// `prev_real` is a `Mirror` once that lands. Running and resuming are
     /// bit-exact without it.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        use crate::cse::{Node, Recipe, Sink};
-        let period = options[0] as u32;
-        let look_back = period.saturating_sub(1);
-
-        let mut r = Recipe::new();
-        let real = r.add(Node::Input { stream: 0 });
-        let mx = r.add(Node::RollMax {
-            src: real,
-            period,
-            look_back,
-        });
-        let mn = r.add(Node::RollMin {
-            src: real,
-            period,
-            look_back,
-        });
-        let prev = r.add(Node::Lag { src: real, n: 1 });
-        let diff = r.add(Node::Sub { a: real, b: prev });
-        let travel = r.add(Node::Abs { src: diff });
-        let sum = r.add(Node::RollSum {
-            src: travel,
-            period,
-            mean: false,
-            skip: 0,
-            steady_from: 0,
-        });
-        let range = r.add(Node::Sub { a: mx, b: mn });
-        let eps = r.constant(f64::EPSILON);
-        let den = r.add(Node::Max { a: sum, b: eps });
-        let line = r.add(Node::Div { a: range, b: den });
-
-        r.kind = "vhf";
-        r.options = options.to_vec();
-        r.outputs.push(Sink::iface(line));
-        r
+        crate::cse::recipes::vhf(options)
     }
 }

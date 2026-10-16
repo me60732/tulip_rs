@@ -575,4 +575,66 @@ mod tests {
         assert_eq!(streams(&m_rev), vec![0, 1, 2, 3]);
         assert_eq!(m_rev.nodes.len(), m.nodes.len(), "order-independent arena");
     }
+
+    /// The graft path's DERIVE branch — the one that translates a child's slots
+    /// from its declared COLUMNS when the caller names no index at all. It had
+    /// never executed: every graft site in the tree passes explicit indices, so
+    /// only the CHECK branch was covered and the translation the user asked for
+    /// ("the planner need to translate the idx's") was untested code.
+    ///
+    /// The discriminating case is a price child (`[Close]`) grafted into a
+    /// three-column parent (`[High, Low, Close]`). Correct derivation binds the
+    /// child's slot 0 to parent slot **2**; an identity binding — or a
+    /// positional one, which is the bug this whole mechanism replaces — puts it
+    /// on parent slot 0, i.e. HIGH. So the test asserts equality with the right
+    /// answer AND inequality with the positional answer: it cannot pass by both
+    /// branches agreeing on a wrong index.
+    #[test]
+    fn graft_without_indices_derives_the_columns_not_the_positions() {
+        // Derived: the caller names nothing, the planner translates.
+        let mut derived = Recipe::hlc();
+        let _g1 = derived.sub_graph(recipes::ema(&[9.0]), &[]);
+
+        // The same graph spelled with the CORRECT explicit index (Close = 2).
+        let mut hand_written = Recipe::hlc();
+        let _g2 = hand_written.sub_graph(recipes::ema(&[9.0]), &[2]);
+
+        assert_eq!(
+            derived.nodes, hand_written.nodes,
+            "derivation must reproduce the correct column binding exactly"
+        );
+
+        // The child's own EMA must read arena slot 2, not 0.
+        let src = match derived
+            .nodes
+            .iter()
+            .copied()
+            .find(|n| matches!(n, Node::Ema { .. }))
+            .expect("the grafted child contributes an Ema")
+        {
+            Node::Ema { src, .. } => src,
+            _ => unreachable!(),
+        };
+        match derived.nodes[src as usize] {
+            Node::Input { stream } => assert_eq!(stream, 2, "child reads Close"),
+            ref n => panic!("ema source is not an Input: {n:?}"),
+        }
+    }
+
+    /// When BOTH parent and child declare columns, binding a child's `Close` onto
+    /// a parent slot that is `High` is **unconstructible**: `Recipe::bind_columns`
+    /// asserts in its CHECK branch and panics, with the message quoted below.
+    /// So a wrong arena cannot be built, interned, or compared — the column
+    /// conflation is refused at authoring time, not discovered at parity time.
+    /// This is why the derive test asserts equality against the CORRECT index
+    /// only: there is no wrong-index graph to compare against.
+    #[test]
+    #[should_panic(
+        expected = "positional binding onto the wrong price column (parent columns [High, Low, Close])"
+    )]
+    fn graft_onto_the_wrong_column_is_refused_at_authoring_time() {
+        let mut p = Recipe::hlc();
+        // `ema` declares [Close]; parent slot 0 is High. Positional thinking.
+        let _g = p.sub_graph(recipes::ema(&[9.0]), &[0]);
+    }
 }
