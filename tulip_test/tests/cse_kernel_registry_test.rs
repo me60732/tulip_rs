@@ -2532,11 +2532,17 @@ mod tests {
     }
 
     /// Packed twin vs scalar, ONE plan bound into both generated kernels —
-    /// the same-binary A/B the twin convention exists for. Byte-equal is the
-    /// correctness claim; it is NOT sufficient on its own (see
-    /// `hub_packed_group_actually_builds` in the macro crate, which proves a
-    /// lane group was emitted at all — without that, this test would pass
-    /// vacuously on a packed pattern that silently stayed scalar).
+    /// the same-binary A/B the twin convention exists for.
+    ///
+    /// This is now a VACUOUS-CORRECTNESS gate, and that is the measured state:
+    /// the twin builds ZERO lane groups (`hub_packed_twin_builds_no_lane_group`
+    /// in the macro crate asserts the absence), so it is the same straight-line
+    /// code as the scalar kernel and byte-equality is expected, not evidence of a
+    /// capability. The pair is kept because if these two ever STOP being
+    /// byte-equal, a same-source mean/composite `Wilders` pair has come back and
+    /// the published row is wrong — the failure mode measured on 2026-10-16 (the
+    /// mean slot's row came out as the raw SUM, 15.2 → 40.4 where the hand prints
+    /// ~6.1). Do not read a PASS here as mixed-form packing working.
     #[test]
     fn dm_di_dx_adx_shared_p_packed_matches_scalar() {
         use tulip_rs::cse::kernel::registry::{dm_di_dx_adx_shared_p, dm_di_dx_adx_shared_p_p};
@@ -2582,10 +2588,14 @@ mod tests {
             let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
             let three = [hi.as_slice(), lo.as_slice(), base.as_slice()];
 
-            // adx's optionals ON, read THROUGH THE HUB (a lone `Adx` request is
-            // not a registered pattern — the engine's unit is the merge). Optional
-            // enable is a runtime want-bit, never an arena difference, so this is
-            // still SIG_dm_di_dx_adx_shared_p. adx is request 3 of [dm,di,dx,adx].
+            // adx's optionals ON, read THROUGH THE HUB. A lone `Adx` request is a
+            // legitimate pattern to register (user 2026-10-16 relaxed the old
+            // absolute: lone shapes are diagnostics, allowed, just not expected to
+            // win) — this test goes through the hub anyway because the hub is the
+            // shape that SHIPS, and the mirror only exists in a merged arena.
+            // Optional enable is a runtime want-bit, never an arena difference, so
+            // this is still SIG_dm_di_dx_adx_shared_p. adx is request 3 of
+            // [dm,di,dx,adx].
             let req = Request::new()
                 .add(Dm::recipe(&[HP]), None)
                 .add(Di::recipe(&[HP]), None)
@@ -2618,11 +2628,151 @@ mod tests {
                 &hand[2],
                 "adx atr mirror (engine mean chain vs hand sum*inv)",
             );
+        }
+    }
+
+    // ── THE LONE-SHAPE FLOOR (`dm_n`, `di_n`, `dx_n`, `adx_n`) ─────────────
+    // Registered ALONE as diagnostics, not shipping options — the question they
+    // answer is how far behind the hand an un-merged shape of this family sits,
+    // which is the denominator the hub's 4.6x needs (user 2026-10-16 relaxed the
+    // old absolute ban on lone patterns: allowed for testing, not expected to win).
+    //
+    // THE ROUTE CHECK IS LOAD-BEARING. A request whose arena matches no `SIG_*`
+    // does not fail — `try_run` returns `None` and the caller falls back to the
+    // hand. A lone-shape BENCH measured that way is the hand timed twice and still
+    // reports parity, so every row here asserts `sig == SIG_*` BEFORE any timing
+    // claim is allowed to exist.
+    #[test]
+    fn lone_dm_di_dx_adx_arenas_match_their_registered_signatures() {
+        use tulip_rs::cse::kernel::registry::{
+            SIG_adx_n, SIG_di_n, SIG_dm_di_dx_adx_shared_p, SIG_dm_n, SIG_dx_n,
+        };
+        let cases: [(&str, Request, tulip_rs::cse::Signature); 4] = [
+            (
+                "dm_n",
+                Request::new().add(Dm::recipe(&[HP]), None),
+                SIG_dm_n,
+            ),
+            (
+                "di_n",
+                Request::new().add(Di::recipe(&[HP]), None),
+                SIG_di_n,
+            ),
+            (
+                "dx_n",
+                Request::new().add(Dx::recipe(&[HP]), None),
+                SIG_dx_n,
+            ),
+            (
+                "adx_n",
+                Request::new().add(Adx::recipe(&[HP]), None),
+                SIG_adx_n,
+            ),
+        ];
+        for (name, req, want) in cases {
+            let (_a, sig, _, _) = erase_request(&req)
+                .unwrap_or_else(|| panic!("{name}: erase refused its own arena"));
+            assert_eq!(sig, want, "{name}: arena drifted from the generated SIG");
+            // A lone shape must also be DISTINCT from the hub, or the registry
+            // would have collided at expansion; asserted here so the floor rows
+            // cannot silently become the hub's twin.
+            assert_ne!(sig, SIG_dm_di_dx_adx_shared_p, "{name} is not the hub");
+        }
+    }
+
+    /// THE FLOOR vs THE HUB, per indicator: the same recipe run ALONE must
+    /// produce the SAME ROWS as inside the merged hub. That is the claim fusion
+    /// rests on — the merge changes SCHEDULING (one chain instead of four), never
+    /// VALUES. It is the check the hand comparison alone cannot make: hand-vs-
+    /// engine can be green on a shape whose merged form drifted, because BOTH sides
+    /// would then be wrong the same way, and it cannot show that DI's denominator
+    /// interned onto the shared ATR chain computes what DI's own chain computes.
+    ///
+    /// `dm`/`dx`/`adx` bit-exact vs the hand; `di` RELATIVE (<=1e-12) for the
+    /// reason the hub test documents — its denominator reads the shared mean ATR
+    /// chain, so `(100/p)/mean` rounds differently from the hand's `100/sum`.
+    /// Against the HUB every four rows are bit-exact, including DI: same recipe,
+    /// same arena node, same rounding.
+    #[test]
+    fn lone_dm_di_dx_adx_match_the_hand_and_the_hub() {
+        use tulip_rs::cse::kernel::registry::{SIG_adx_n, SIG_di_n, SIG_dm_n, SIG_dx_n};
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+            let two = [hi.as_slice(), lo.as_slice()];
+            let three = [hi.as_slice(), lo.as_slice(), base.as_slice()];
+            let hub = run_registered(&hub_req(), &three).expect("hub registered");
+
+            // dm: 2-arity (high, low) alone, against the hand AND the hub's dm rows.
+            let (dm_hand, _) = Dm::indicator(&two, &[HP], None).unwrap();
+            let dm = run_registered(&Request::new().add(Dm::recipe(&[HP]), None), &two)
+                .expect("dm_n registered");
+            assert_bits(row_for(&dm, 0, true, 0), &dm_hand[0], "lone dm: +DM");
+            assert_bits(row_for(&dm, 0, true, 1), &dm_hand[1], "lone dm: -DM");
             assert_bits(
-                row_for(&out, 3, false, 1),
-                &atr_hand[0],
-                "adx's atr mirror is the SAME rows as Atr::indicator",
+                row_for(&dm, 0, true, 0),
+                row_for(&hub, 0, true, 0),
+                "lone +DM == hub +DM",
             );
+            assert_bits(
+                row_for(&dm, 0, true, 1),
+                row_for(&hub, 0, true, 1),
+                "lone -DM == hub -DM",
+            );
+
+            // dx: ratio of the two DM sums, bit-exact both ways.
+            let (dx_hand, _) = Dx::indicator(&three, &[HP], None).unwrap();
+            let dx = run_registered(&Request::new().add(Dx::recipe(&[HP]), None), &three)
+                .expect("dx_n registered");
+            assert_bits(row_for(&dx, 0, true, 0), &dx_hand[0], "lone dx: DX");
+            assert_bits(
+                row_for(&dx, 0, true, 0),
+                row_for(&hub, 2, true, 0),
+                "lone DX == hub DX",
+            );
+
+            // adx: primary bit-exact both ways (requested primary-only, so no
+            // mirror rows here — the mirror is the hub test's subject).
+            let (adx_hand, _) = Adx::indicator(&three, &[HP], None).unwrap();
+            let adx = run_registered(&Request::new().add(Adx::recipe(&[HP]), None), &three)
+                .expect("adx_n registered");
+            assert_bits(row_for(&adx, 0, true, 0), &adx_hand[0], "lone adx: ADX");
+            assert_bits(
+                row_for(&adx, 0, true, 0),
+                row_for(&hub, 3, true, 0),
+                "lone ADX == hub ADX",
+            );
+
+            // di: RELATIVE vs the hand (mean-chain scale), BIT-EXACT vs the hub —
+            // the row this test exists for: DI's denominator is the interned shared
+            // ATR node inside the hub and its own sub-graph copy alone.
+            let (di_hand, _) = Di::indicator(&three, &[HP], None).unwrap();
+            let di = run_registered(&Request::new().add(Di::recipe(&[HP]), None), &three)
+                .expect("di_n registered");
+            assert_rel_1e12(row_for(&di, 0, true, 0), &di_hand[0], "lone di: +DI");
+            assert_rel_1e12(row_for(&di, 0, true, 1), &di_hand[1], "lone di: -DI");
+            assert_bits(
+                row_for(&di, 0, true, 0),
+                row_for(&hub, 1, true, 0),
+                "lone +DI == hub +DI",
+            );
+            assert_bits(
+                row_for(&di, 0, true, 1),
+                row_for(&hub, 1, true, 1),
+                "lone -DI == hub -DI",
+            );
+
+            // Every floor row must be served by ITS OWN kernel, not a fallback:
+            // an unmatched arena returns None from try_run and the caller would
+            // silently re-run the hand, making the bench floor meaningless.
+            assert_eq!(dm.fp, SIG_dm_n.hash(), "dm floor row ran the dm kernel");
+            assert_eq!(dx.fp, SIG_dx_n.hash(), "dx floor row ran the dx kernel");
+            assert_eq!(adx.fp, SIG_adx_n.hash(), "adx floor row ran the adx kernel");
+            assert_eq!(di.fp, SIG_di_n.hash(), "di floor row ran the di kernel");
         }
     }
 }

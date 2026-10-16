@@ -315,6 +315,80 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
 
+    // ── THE LONE-SHAPE FLOOR — the denominator the hub's win is read against ──
+    // Each hub member registered and timed ALONE against the same single hand
+    // call. These are DIAGNOSTICS, not shipping options (user 2026-10-16: "we can
+    // do this for testing, just don't expect it to win, but it shouldn't be too
+    // far behind"). Without them the hub's ratio has no context: a lone shape is
+    // the hand's home turf, so the only honest reading of a merged win is
+    // `sum(lone engine) vs hub`, and `lone engine vs lone hand` tells us how much
+    // scalar-axis tax the engine pays before any dedup is counted.
+    // NOT to be confused with the `bench_floor` GROUP (`floor_max_only`), which is
+    // the MACHINE floor — the cost of the scan itself with no indicator. This is
+    // the LONE-SHAPE floor: the same indicator, unmerged.
+    // Every row here is gated to actually ROUTE a generated kernel by
+    // `lone_dm_di_dx_adx_arenas_match_their_registered_signatures` — an unmatched
+    // arena would fall back to the hand and time the hand against itself.
+    let (_r1, sig_dm_n, vals_dm_n, _o1) =
+        erase_request(&Request::new().add(Dm::recipe(&[14.0]), None)).unwrap();
+    g.bench_function("generated_runonly_dm_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_dm_n, &vals_dm_n, &hl).expect("dm_n template");
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
+    g.bench_function("hand_runonly_dm_n", |b| {
+        b.iter(|| {
+            let d = Dm::indicator(&hl, &[14.0], None).unwrap();
+            black_box(d.0[0].len() + d.0[1].len())
+        })
+    });
+
+    let (_r2, sig_di_n, vals_di_n, _o2) =
+        erase_request(&Request::new().add(Di::recipe(&[14.0]), None)).unwrap();
+    g.bench_function("generated_runonly_di_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_di_n, &vals_di_n, &hlc3).expect("di_n template");
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
+    g.bench_function("hand_runonly_di_n", |b| {
+        b.iter(|| {
+            let d = Di::indicator(&hlc3, &[14.0], None).unwrap();
+            black_box(d.0[0].len() + d.0[1].len())
+        })
+    });
+
+    let (_r3, sig_dx_n, vals_dx_n, _o3) =
+        erase_request(&Request::new().add(Dx::recipe(&[14.0]), None)).unwrap();
+    g.bench_function("generated_runonly_dx_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_dx_n, &vals_dx_n, &hlc3).expect("dx_n template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_dx_n", |b| {
+        b.iter(|| {
+            let d = Dx::indicator(&hlc3, &[14.0], None).unwrap();
+            black_box(d.0[0].len())
+        })
+    });
+
+    let (_r4, sig_adx_n, vals_adx_n, _o4) =
+        erase_request(&Request::new().add(Adx::recipe(&[14.0]), None)).unwrap();
+    g.bench_function("generated_runonly_adx_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_adx_n, &vals_adx_n, &hlc3).expect("adx_n template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_adx_n", |b| {
+        b.iter(|| {
+            let a = Adx::indicator(&hlc3, &[14.0], None).unwrap();
+            black_box(a.0[0].len())
+        })
+    });
+
     let (_ru2, sig_run_mass, vals_run_mass, _ou2) =
         erase_request(&Request::new().add(Mass::recipe(&[40.0]), None)).unwrap();
     g.bench_function("generated_runonly_mass_n", |b| {

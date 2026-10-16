@@ -1038,16 +1038,34 @@ pub fn dx(options: &[f64]) -> Recipe {
     r
 }
 
-/// `DI(p)` = `(±DM_smoothed · (100 / ATR_sum)).max(0)`, inputs (high, low,
-/// close). The `+DM`/`−DM` graph and its two COMPOSITE accumulators are the
-/// SAME nodes `dm` builds; the denominator here is a COMPOSITE (raw-sum)
-/// `Wilders(tr)` — `composite: true`, matching hand
-/// `AtrState::init_state(…, true)` — so it is a DIFFERENT node from `atr`'s mean
-/// chain, correctly, because it carries different numbers. Exact op order:
-/// `atr_inv = 100/atr` shared by both, `pdi = max(dmup·atr_inv, 0)`,
-/// `mdi = max(dmdown·atr_inv, 0)`. `Max` lowers to `f64::max` (IEEE maxNum),
-/// reproducing the hand's NaN→0 when `atr = 0` makes `0·inf`; CLIF `fmax` would
-/// return NaN here, so it is deliberately not used. Publish lead = `period`.
+/// `DI(p)` = `(±DM_smoothed · ((100 / period) / ATR_mean)).max(0)`, inputs
+/// (high, low, close). The `+DM`/`−DM` graph and its two COMPOSITE accumulators
+/// are the SAME nodes `dm` builds. The denominator is the shared **MEAN**
+/// `Wilders(tr)` chain — the very node `atr`/`natr`/`supertrend`/`adx` build —
+/// not a second raw-sum `Wilders(tr)`. That is legal because the hand's
+/// denominator is that same chain scaled: `AtrState::init_state(…, true)` keeps
+/// the raw sum and `atr.rs:60-62` divides by `period` only when `!composite`,
+/// while the mean step is the sum step scaled by `1/p` (`st*mult + s*(1/p) ==
+/// (st*mult + s)/p`), so `mean == sum/p` holds EVERY bar and
+/// `100/sum == (100/p)/mean` — the period cancels into the CONSTANT.
+///
+/// The second chain it replaces was not merely redundant, it was BROKEN: a mean
+/// slot and a composite slot over the SAME interned `tr` made the emitter publish
+/// the raw SUM into the mean slot's row (measured 2026-10-16: adx's `atr` mirror
+/// grew 15.2 → 40.4 where the hand prints ~6.1, while `erase` was proven correct
+/// with `invms` 1.0 and 1/14 on the two slots). One form per source, so that shape
+/// cannot arise.
+///
+/// Exact op order: `atr_inv = (100/p)/atr` shared by both, `pdi =
+/// max(dmup·atr_inv, 0)`, `mdi = max(dmdown·atr_inv, 0)`. `Max` lowers to
+/// `f64::max` (IEEE maxNum), reproducing the hand's NaN→0 when `atr = 0` makes
+/// `0·inf`; CLIF `fmax` would return NaN here, so it is deliberately not used.
+/// Publish lead = `period`.
+///
+/// PARITY COST, stated because it is real: `dm`/`dx`/`adx` rows stay bit-exact,
+/// but DI's two rows are RELATIVE (<=1e-12 measured) against the hand —
+/// `(100/p)/mean` rounds differently from `100/sum`. Gate:
+/// `dm_di_dx_adx_shared_p_bit_exact` compares them with `assert_rel_1e12`.
 pub fn di(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
     let mut r = Recipe::hlc();

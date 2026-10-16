@@ -183,22 +183,45 @@ tulip_rs_macros::kernel! {
     // SAME `+DM`/`−DM` mutual-exclusion graph and its two COMPOSITE (raw-sum)
     // `Wilders` accumulators, so one request computes directional movement ONCE
     // and feeds four indicators — plus `adx`'s composed mean-`Wilders(tr)` ATR,
-    // interned with the ATR family's own chain whenever that is co-requested.
-    // This is the widest sharing shape in the registry and the first to carry
-    // BOTH Wilders forms in one arena: `di`'s denominator is the raw SUM
-    // (`composite: true`, the hand's `partial_calc`) while `adx`'s smoothing is
-    // the MEAN, distinguished by `Signature::b` and published by `erase` as the
-    // source scale (`invms` = 1.0 vs 1/period) — no second emitter form.
+    // interned with the ATR family's own chain and with `di`'s denominator
+    // whenever either is co-requested.
+    // This is the widest sharing shape in the registry. It carries both Wilders
+    // FORMS in one arena — `dm`'s two `+DM`/`−DM` accumulators are COMPOSITE
+    // (`composite: true`, the hand's `partial_calc`) while `di`'s denominator and
+    // `adx`'s smoothing are MEAN — distinguished by `Signature::b` and published
+    // by `erase` as the source scale (`invms` = 1.0 vs 1/period), not as a second
+    // emitter form. The two forms never share a SOURCE here: `di` moved onto the
+    // shared mean ATR chain (2026-10-16) precisely because a mean slot and a
+    // composite slot over one interned `tr` makes the emitter publish the raw SUM
+    // into the mean slot's row — see `di`'s doc and
+    // `hub_packed_twin_builds_no_lane_group`.
     // All four declare columns (`hl`/`hlc`), so the arena is interned by
     // MEANING: High=0, Low=1, Close=2 whatever the request order.
     dm_di_dx_adx_shared_p: Dm(p), Di(p), Dx(p), Adx(p);
-    // THE PACKED TWIN — and the sharpest available test of the composite design.
-    // `di`'s COMPOSITE (raw-sum) ATR and `adx`'s composed MEAN ATR are Wilders over
-    // the SAME interned `tr` node, so `classify_packed`'s (kind, source) bucketing
-    // puts BOTH FORMS in ONE lane group. That is only legal because the group's
-    // step reads `vals.invms[k]` PER LANE (unity vs 1/period), i.e. the form is a
-    // magnitude, not a spelling. If this twin is byte-equal to the scalar kernel,
-    // mixed-form packing is proven; if not, the magnitude design is wrong and the
-    // engine needs a second emitted form.
+    // THE PACKED TWIN — kept as the guard that says whether the mixed-form shape
+    // has come back, NOT as a capability. `classify_packed` buckets by
+    // `(kind, source)`, and since `di` moved onto the mean chain every `Wilders`
+    // in this arena has its own source (`+DM`/`−DM` over their own mutual-
+    // exclusion nodes, the mean ATR over `tr`, the ADX smoothing over `dx`), so
+    // this twin builds ZERO lane groups: it is an exact duplicate of the scalar
+    // kernel and the hub's measured win is pure CSE dedup, not packing.
+    // `hub_packed_twin_builds_no_lane_group` asserts that. If it ever fails
+    // because a group appeared, a same-source mean/composite pair is back and the
+    // published row must be checked against the hand before the group is believed.
     dm_di_dx_adx_shared_p_p: packed Dm(p), Di(p), Dx(p), Adx(p);
+    // ── THE LONE-SHAPE FLOOR (diagnostics, not shipping options) ───────────
+    // The four hub members registered INDIVIDUALLY, to answer a question the
+    // merged rows cannot: how far behind the hand does an un-merged shape of this
+    // family sit? User 2026-10-16 relaxed the old absolute prohibition on lone
+    // patterns ("we can do this for testing, just don't expect it to win, but it
+    // shouldn't be too far behind"), so these rows are the SCALAR-AXIS
+    // DENOMINATOR — the hub's 4.6x is only meaningful next to them. Each pays
+    // what the merge removes: `dm` alone still needs its two composite chains,
+    // `di` and `adx` each rebuild the whole `+DM`/`−DM` → `dx` subgraph, and
+    // `adx` additionally composes the mean ATR chain. Hand rival: the same single
+    // `indicator()` call, so this is the hand's home turf by construction.
+    dm_n: Dm(p);
+    di_n: Di(p);
+    dx_n: Dx(p);
+    adx_n: Adx(p);
 }
