@@ -4,7 +4,6 @@ pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
-use crate::indicators::atr::Atr;
 use crate::indicators::dx::{Dx, State as DxState};
 use crate::indicators::tr::Tr;
 pub use crate::indicators::wilders::multiplier;
@@ -270,45 +269,13 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Adx {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Adx {
-    /// `ADX(p)` = a MEAN `Wilders` over the `dx` node, but **feed-gated**:
-    /// hand `init_state` folds the FIRST `period` *published* `dx` values
-    /// (`dx[period-1 .. 2·period-2]`), divides by `period`, then steady-decays
-    /// — so the fold window starts at `dx`'s publish lead, not bar 0 (the
-    /// `feed: true` axis), because `dx` is only meaningful after its own warmup.
-    /// The `dx` chain is **composed from `Dx`** (`sub::<Dx>`) rather than
-    /// re-derived, so the whole `+DM`/`−DM` → `dx` subgraph has one source of
-    /// truth and dedups with any co-requested `dx`/`di`. `adx` never reads the
-    /// ATR for its value, so the `atr`/`tr` optional mirrors are composed via
-    /// `sub_graph::<Atr>` (shared with natr/atr). Publish lead = `2·period − 1`.
+    /// The engine's recipe wiring for this indicator — the graph lives in
+    /// `cse::recipes::adx`, so the module keeps its math and the engine keeps
+    /// its blindness to indicator identity. A MEAN `Wilders` over the `dx`
+    /// node with `feed: true` (the fold starts at dx's publish lead, not bar
+    /// 0), composing `dx` (which composes `dm`) and `atr` for its mirrors —
+    /// the widest sharing shape in the library.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        // dx = the standalone Dx chain (it composes Dm internally) — one source
-        // of truth. Dx reads high/low (parent streams 0/1).
-        let dx = r.sub::<Dx>(&[period as f64], &[0, 1]);
-        // adx = mean Wilders over dx, folding from dx's publish lead.
-        let adx = r.add(crate::cse::Node::Wilders {
-            src: dx,
-            period,
-            composite: false,
-            feed: true,
-        });
-        // atr/tr mirrors: compose Atr (mean-atri primary + exposed tr) — the
-        // same nodes natr/atr use, so shared. (Hand's adx atr mirror is
-        // `sum·inv`, equal to this mean within the 1e-12 ti_atr tolerance.)
-        let atr = r.sub_graph::<Atr>(&[period as f64], &[0, 1, 2]);
-        let atr_id = atr.primary;
-        let tr = atr.optional_at(0);
-        r.kind = "adx";
-        r.options = options.to_vec();
-        r.outputs
-            .push(crate::cse::Sink::iface_lead(adx, 2 * period - 1));
-        // Hand optional_outputs order: [dx, atr, tr].
-        r.optional_outputs
-            .push(crate::cse::Sink::iface_lead(dx, period));
-        r.optional_outputs
-            .push(crate::cse::Sink::iface_lead(atr_id, period));
-        r.optional_outputs.push(crate::cse::Sink::iface_lead(tr, 1));
-        r
+        crate::cse::recipes::adx(options)
     }
 }

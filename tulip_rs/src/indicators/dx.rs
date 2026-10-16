@@ -5,7 +5,6 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 pub use crate::indicators::di::State as DiState;
-use crate::indicators::dm::Dm;
 use crate::indicators::tr::Tr;
 pub use crate::indicators::wilders::multiplier;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
@@ -249,38 +248,12 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dx {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Dx {
-    /// `DX(p)` = `(|DM+ − DM−| · 100 / (DM+ + DM−)).max(0)` — a PURE function
-    /// of the two composite `Wilders` accumulators, so its recipe rebuilds the
-    /// SAME `+DM`/`−DM`/accumulator subgraph as `Dm`/`Di` (dedups to one chain)
-    /// and needs only high/low (`n_fields = 2`; the hand's 3rd input, `close`,
-    /// feeds only its optional ATR/TR mirrors). Exact op order
-    /// `(diff · 100) / sum` (left-assoc), then `Max(_,0)`; the divide emits the
-    /// raw sum (hand `calc_dx` skips the `÷atr`). Publish lead = `period`.
-    /// `Adx` chains a mean `Wilders` onto this node.
+    /// The engine's recipe wiring for this indicator — the graph lives in
+    /// `cse::recipes::dx`, so the module keeps its math and the engine keeps
+    /// its blindness to indicator identity. Pure function of `dm`'s two
+    /// COMPOSITE accumulators, so the whole `+DM`/`−DM` → `dx` subgraph dedups
+    /// with `Dm`/`Di`/`Adx`.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        // The whole +DM/−DM composite-accumulator chain, composed from Dm's
-        // own recipe (single source of truth): outputs [dmup, dmdown]. Dm's
-        // inputs (high, low) bind to parent streams 0, 1. dx then reads the
-        // two accumulators — structurally identical to di's/adx's, so all
-        // three CSE-share the entire DM subgraph.
-        let dm = r.sub_graph::<Dm>(&[period as f64], &[0, 1]);
-        let (dmup, dmdown) = (dm.outputs[0], dm.outputs[1]);
-        let zero = r.constant(0.0);
-        let dm_sub = r.add(crate::cse::Node::Sub { a: dmup, b: dmdown });
-        let dm_diff = r.add(crate::cse::Node::Abs { src: dm_sub });
-        let hundred = r.constant(100.0);
-        let numer = r.add(crate::cse::Node::Mul {
-            a: dm_diff,
-            b: hundred,
-        });
-        let denom = r.add(crate::cse::Node::Add { a: dmup, b: dmdown });
-        let quot = r.add(crate::cse::Node::Div { a: numer, b: denom });
-        let dx = r.add(crate::cse::Node::Max { a: quot, b: zero });
-        r.kind = "dx";
-        r.options = options.to_vec();
-        r.outputs.push(crate::cse::Sink::iface_lead(dx, period));
-        r
+        crate::cse::recipes::dx(options)
     }
 }

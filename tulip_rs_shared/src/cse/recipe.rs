@@ -307,6 +307,37 @@ impl Grafted {
     }
 }
 
+/// What a recipe's input slot CONSUMES, so `merge` can intern `Node::Input`
+/// by meaning instead of by position. Two recipes that both read close then
+/// share one arena node (and one per-bar load); a price recipe's `Input{0}`
+/// can never be interned with an OHLC recipe's `Input{0}`, which is exactly
+/// the silent wrong-column bug this replaces.
+///
+/// Declared in CANONICAL INTERN ORDER. A column's global stream index is its
+/// rank among the columns PRESENT in the request, so the layout does not depend
+/// on recipe order: `Apo + Atr` and `Atr + Apo` erase to the SAME `Signature`.
+/// Order-dependent (insertion-based) indices would split the registry cache on
+/// request order and silently double-compile plans.
+///
+/// This order also reproduces every existing pattern's layout exactly: a price
+/// recipe (`[Close]`) still gets stream 0, `Atr`'s `[High, Low, Close]` still
+/// gets 0/1/2, and `Ad`'s `[…, Volume]` still gets 3.
+///
+/// **The variants are declared in the hand's own `INPUTS` order** —
+/// `open, high, low, close, volume` — so a caller can bind the vectors it
+/// destructures straight from its input array (`let [open, high, low, close] =
+/// *inputs;`) and have them land on the slots the kernel reads. Canonical rank
+/// that disagrees with the hand's convention would force every OHLC caller to
+/// re-order its vectors to match the engine, which is backwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Column {
+    Open,
+    High,
+    Low,
+    Close,
+    Volume,
+}
+
 /// A canonical request: the indicator's node graph + sink wiring for one invocation.
 #[derive(Debug, Clone)]
 pub struct Recipe {
@@ -317,6 +348,12 @@ pub struct Recipe {
     /// emitter can name generated locals (`ema_short`, `signal`, `tr`) from
     /// the recipe data itself instead of a transcribed table.
     pub tags: Vec<Option<&'static str>>,
+    /// What each input slot consumes, indexed by the `stream` field of
+    /// [`Node::Input`] — so `columns[0]` is what `Input { stream: 0 }` reads.
+    /// Empty = this recipe is not yet declared, which keeps `merge` on the
+    /// legacy positional path (see [`crate::cse::merge::merge`]'s all-or-nothing
+    /// rule). A declared recipe MUST cover every slot it binds.
+    pub columns: Vec<Column>,
     pub kind: &'static str,
     pub options: Vec<f64>,
     pub tail_inputs: Vec<Id>,
@@ -328,6 +365,34 @@ pub struct Recipe {
 impl Recipe {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Price-sourced recipe: its only input slot is `Input{0}` = **close**.
+    pub fn price() -> Self {
+        Self::with_columns(vec![Column::Close])
+    }
+    /// High/low recipe (`medprice`, `ao`, `fisher`, `mass`, `aroon`, …).
+    pub fn hl() -> Self {
+        Self::with_columns(vec![Column::High, Column::Low])
+    }
+    /// OHLC recipe (`atr`, `stoch`, `willr`, `ultosc`, `tr`, …).
+    pub fn hlc() -> Self {
+        Self::with_columns(vec![Column::High, Column::Low, Column::Close])
+    }
+    /// OHLC + volume recipe (`ad`, `adosc`).
+    pub fn hlcvol() -> Self {
+        Self::with_columns(vec![
+            Column::High,
+            Column::Low,
+            Column::Close,
+            Column::Volume,
+        ])
+    }
+    fn with_columns(columns: Vec<Column>) -> Self {
+        Recipe {
+            columns,
+            ..Recipe::default()
+        }
     }
 
     pub fn add(&mut self, node: Node) -> Id {
@@ -393,6 +458,9 @@ impl Recipe {
         }
     }
 
+    /// Bind parent stream slots for a sub-recipe graft. Passing an EMPTY slice
+    /// in fully-declared mode DERIVES the binding from the columns (see
+    /// [`Recipe::bind_columns`]) — the caller then names no index at all.
     fn bind_streams(&mut self, in_streams: &[u32]) -> Vec<Id> {
         in_streams
             .iter()
@@ -400,22 +468,100 @@ impl Recipe {
             .collect()
     }
 
-    pub fn sub<R: crate::cse::Planable>(&mut self, options: &[f64], in_streams: &[u32]) -> Id {
-        let nodes = self.bind_streams(in_streams);
-        self.graft(R::recipe(options), &nodes).primary
+    /// The column contract between a parent and a grafted sub-recipe.
+    ///
+    /// A child's `Input{stream: l}` is indexed by the CHILD's own slot order and
+    /// a parent's stream index by the PARENT's, so `in_streams[l]` is a translation
+    /// between two independent index spaces — the same conflation `merge` now
+    /// refuses for co-requested recipes, reachable inside one recipe here.
+    ///
+    /// Active only when BOTH sides declare columns (all-or-nothing, mirroring
+    /// `merge`): an undeclared recipe keeps today's positional behavior exactly.
+    /// - `Some(derived)` — the caller passed no indices: bind each child slot to
+    ///   the parent slot whose column matches, so `Dm{High, Low}` grafted into
+    ///   `{Open, High, Low, Close, Volume}` lands on parent streams 1 and 2.
+    /// - `None` — the caller's indices are checked: a child slot bound to a
+    ///   parent slot of a DIFFERENT column panics instead of silently reading
+    ///   the wrong price vector.
+    fn bind_columns(&self, sub: &Recipe, in_streams: &[u32]) -> Option<Vec<u32>> {
+        if self.columns.is_empty() || sub.columns.is_empty() {
+            return None;
+        }
+        if in_streams.is_empty() {
+            return Some(
+                sub.columns
+                    .iter()
+                    .map(|c| {
+                        self.columns
+                            .iter()
+                            .position(|pc| pc == c)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "cse: graft {:?} needs column {:?} but the parent recipe {:?} \
+                                 declares only {:?}",
+                                    sub.kind, c, self.kind, self.columns
+                                )
+                            }) as u32
+                    })
+                    .collect(),
+            );
+        }
+        for (l, col) in sub.columns.iter().enumerate() {
+            let Some(&s) = in_streams.get(l) else {
+                panic!(
+                    "cse: graft {:?} declares column {col:?} for slot {l} but the parent \
+                     recipe {:?} passed only {} index(es)",
+                    sub.kind,
+                    self.kind,
+                    in_streams.len()
+                );
+            };
+            let Some(pc) = self.columns.get(s as usize) else {
+                panic!(
+                    "cse: graft {:?} slot {l} binds parent stream {s}, outside the parent \
+                     recipe {:?}'s declared columns {:?}",
+                    sub.kind, self.kind, self.columns
+                );
+            };
+            assert_eq!(
+                pc, col,
+                "cse: graft {:?} slot {l} reads {col:?} but parent stream {s} is {pc:?} — \
+                 positional binding onto the wrong price column (parent columns {:?})",
+                sub.kind, self.columns
+            );
+        }
+        None
     }
 
-    pub fn sub_graph<R: crate::cse::Planable>(
-        &mut self,
-        options: &[f64],
-        in_streams: &[u32],
-    ) -> Grafted {
-        let nodes = self.bind_streams(in_streams);
-        self.graft(R::recipe(options), &nodes)
+    /// Translate-and-bind: the shared front end of every grafting entry point.
+    fn bind_for_graft(&mut self, sub: &Recipe, in_streams: &[u32]) -> Vec<Id> {
+        let streams = self.bind_columns(sub, in_streams);
+        self.bind_streams(streams.as_deref().unwrap_or(in_streams))
     }
 
-    pub fn sub_at<R: crate::cse::Planable>(&mut self, options: &[f64], in_nodes: &[Id]) -> Id {
-        self.graft(R::recipe(options), in_nodes).primary
+    /// Graft a built sub-recipe, binding its input slots to parent STREAMS.
+    ///
+    /// This takes a `Recipe`, not an indicator type: `kernel!` expands inside
+    /// `tulip_rs_shared`, which cannot name the `Dm`/`Dx`/`Atr` types living in
+    /// `tulip_rs`. An `R: Planable` bound therefore made every composing recipe
+    /// un-registerable by construction and pinned its graph to the indicator
+    /// module. The composed graphs live in `cse::recipes` now and reach each
+    /// other as plain sibling calls.
+    pub fn sub(&mut self, sub: Recipe, in_streams: &[u32]) -> Id {
+        let nodes = self.bind_for_graft(&sub, in_streams);
+        self.graft(sub, &nodes).primary
+    }
+
+    pub fn sub_graph(&mut self, sub: Recipe, in_streams: &[u32]) -> Grafted {
+        let nodes = self.bind_for_graft(&sub, in_streams);
+        self.graft(sub, &nodes)
+    }
+
+    /// Graft a built sub-recipe whose inputs are already ARENA NODES (not
+    /// stream slots) — the composing-recipe form, where the sub-graph consumes
+    /// nodes the parent has already built.
+    pub fn sub_at(&mut self, sub: Recipe, in_nodes: &[Id]) -> Id {
+        self.graft(sub, in_nodes).primary
     }
 }
 
@@ -424,6 +570,7 @@ impl Default for Recipe {
         Recipe {
             nodes: Vec::new(),
             tags: Vec::new(),
+            columns: Vec::new(),
             kind: "",
             options: Vec::new(),
             tail_inputs: Vec::new(),

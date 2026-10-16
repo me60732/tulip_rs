@@ -372,7 +372,25 @@ pub fn erase(
             } => {
                 let (m, i) = super::multipliers::wilders_multiplier(period as usize);
                 vals.mults[k] = m;
-                vals.invms[k] = i;
+                // COMPOSITE (partial_calc) is the MEAN step with the source
+                // scale forced to unity: hand `wilders::partial_calc` is
+                // `st.mul_add(multiplier, value)` against mean's
+                // `st.mul_add(multiplier, value * inv_multiplier)`, so ONE
+                // magnitude carries the whole difference and every reader of
+                // `invms` — the embedded warm steady branch, the scalar steady
+                // arm, a packed Wilders group — lands on the hand's VALUES
+                // without a per-path branch (`x * 1.0` is bit-identical to `x`
+                // for every f64: NaN payload, signed zero, infinities).
+                // COST, stated not assumed: the emitted step stays `fmul`+`fma`
+                // where the hand pays one `fma` — `invms[k]` is a runtime load,
+                // so LLVM will not fold the multiply (no fast-math). The hub
+                // arena carries THREE composite slots (`+DM`, `−DM`, DI's
+                // ATR-sum), so the delta is 3 `fmul`/bar; the wall-clock cost is
+                // UNMEASURED. Removing it needs a second `chain_step` spelling in
+                // BOTH renderers, which is exactly the drift the shared `shape`
+                // helper exists to prevent — so it stays off the table until the
+                // hub's runonly row measures the difference.
+                vals.invms[k] = if composite { 1.0 } else { i };
                 vals.periods[k] = period;
                 vals.feeds[k] = if feed { leads[src as usize] } else { 0 };
                 // mean-vs-composite changes emitted values → structure (E12 rule)

@@ -179,4 +179,17 @@ tulip_rs_macros::kernel! {
     // three EMA chains + one ring group; mass's own chain is independent and is
     // merged for the PASS, not for the math.
     mass_apo_ppo_macd: MassApoPpoMacd(p, s, l, g);
+    // THE DIRECTIONAL HUB: `dm`, `di`, `dx` and `adx` all build (or graft) the
+    // SAME `+DM`/`−DM` mutual-exclusion graph and its two COMPOSITE (raw-sum)
+    // `Wilders` accumulators, so one request computes directional movement ONCE
+    // and feeds four indicators — plus `adx`'s composed mean-`Wilders(tr)` ATR,
+    // interned with the ATR family's own chain whenever that is co-requested.
+    // This is the widest sharing shape in the registry and the first to carry
+    // BOTH Wilders forms in one arena: `di`'s denominator is the raw SUM
+    // (`composite: true`, the hand's `partial_calc`) while `adx`'s smoothing is
+    // the MEAN, distinguished by `Signature::b` and published by `erase` as the
+    // source scale (`invms` = 1.0 vs 1/period) — no second emitter form.
+    // All four declare columns (`hl`/`hlc`), so the arena is interned by
+    // MEANING: High=0, Low=1, Close=2 whatever the request order.
+    dm_di_dx_adx_shared_p: Dm(p), Di(p), Dx(p), Adx(p);
 }

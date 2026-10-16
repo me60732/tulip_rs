@@ -327,6 +327,10 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Mass" => recipes::mass(&opts),
             "Ad" => recipes::ad(&opts),
             "Adosc" => recipes::adosc(&opts),
+            "Dm" => recipes::dm(&opts),
+            "Di" => recipes::di(&opts),
+            "Dx" => recipes::dx(&opts),
+            "Adx" => recipes::adx(&opts),
             "AdoscApoPpo" => recipes::adosc_apo_ppo(&opts),
             "Mom" => recipes::mom(&opts),
             "MassApoPpoMacd" => recipes::mass_apo_ppo_macd(&opts),
@@ -349,7 +353,15 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             Node::Input { stream } => ANode::new_simple(Kind::Input, stream as usize, 0),
             Node::Const { .. } => ANode::new_simple(Kind::Const, 0, 0),
             Node::Ema { src, .. } => ANode::new_simple(Kind::Ema, src as usize, 0),
-            Node::Wilders { src, .. } => ANode::new_simple(Kind::Wilders, src as usize, 0),
+            // COMPOSITE rides the SAME slot `Signature::b` uses for it at
+            // runtime (`erase` writes `(K_WILDERS, src, composite, 0)`), and
+            // `sig_const` copies `x.b` straight into the generated `SIG_*`.
+            // Hard-coding 0 here — the old spelling — made the macro-side
+            // arena disagree with runtime `erase` for every composite node, so
+            // the `*_sig_derived` gates could never pass a `dm`/`di` shape.
+            Node::Wilders { src, composite, .. } => {
+                ANode::new_simple(Kind::Wilders, src as usize, composite as usize)
+            }
             Node::Sub { a, b } => ANode::new_simple(Kind::Sub, a as usize, b as usize),
             Node::Add { a, b } => ANode::new_simple(Kind::Add, a as usize, b as usize),
             Node::Mul { a, b } => ANode::new_simple(Kind::Mul, a as usize, b as usize),

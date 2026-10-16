@@ -2374,4 +2374,112 @@ mod tests {
             assert_bits(&out.rows[4], &mm[0], "mass+hub: mass index");
         }
     }
+
+    // ── THE DIRECTIONAL HUB: dm + di + dx + adx on ONE DM chain ───────────
+    use tulip_rs::indicators::adx::Adx;
+    use tulip_rs::indicators::di::Di;
+    use tulip_rs::indicators::dm::Dm;
+    use tulip_rs::indicators::dx::Dx;
+
+    const HP: f64 = 14.0;
+
+    fn hub_req() -> Request {
+        Request::new()
+            .add(Dm::recipe(&[HP]), None)
+            .add(Di::recipe(&[HP]), None)
+            .add(Dx::recipe(&[HP]), None)
+            .add(Adx::recipe(&[HP]), None)
+    }
+
+    /// Locate a row by its OWNER (request, primary?, output index) instead of
+    /// by a hand-counted sink position — the arena dedups `adx`'s optional `dx`
+    /// onto `Dx`'s own primary node, so positional indices are a property of
+    /// the merge, not of the request, and a gate that hard-codes them fails for
+    /// wiring reasons when the numbers are right.
+    fn row_for<'a>(out: &'a Outcome, req: usize, primary: bool, idx: usize) -> &'a [f64] {
+        let i = out
+            .owners
+            .iter()
+            .position(|o| o.req == req && o.primary == primary && o.idx == idx)
+            .unwrap_or_else(|| {
+                panic!(
+                    "no sink for req {req} primary {primary} idx {idx}; owners = {:?}",
+                    out.owners
+                )
+            });
+        out.rows[i].as_slice()
+    }
+
+    /// Macro-time arena equals runtime merge+erase for the hub. This is the gate
+    /// that a `Signature::b` drift FAILS: before the planner carried `composite`
+    /// into `ANode.b`, a composite `Wilders` erased to `b=1` at runtime while the
+    /// generated `SIG_*` said `b=0`, so no request could ever match the registry.
+    #[test]
+    fn dm_di_dx_adx_shared_p_sig_derived() {
+        use tulip_rs::cse::kernel::registry::SIG_dm_di_dx_adx_shared_p;
+        let req = hub_req();
+        let (_a, sig, _, _) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_dm_di_dx_adx_shared_p, "hub arena drifted");
+    }
+
+    /// The claim the ADX port rests on: ONE arena carries BOTH Wilders forms.
+    /// `di`'s denominator is the raw sum (`composite: true`, hand `partial_calc`)
+    /// and `adx`'s smoothing is the mean — over the SAME interned `tr` node.
+    /// Proof without naming `K_WILDERS` (it is not re-exported): two slots that
+    /// agree on kind and source but differ on `b` can only be that pair.
+    #[test]
+    fn dm_di_dx_adx_shared_p_carries_both_wilders_forms() {
+        let req = hub_req();
+        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        let n = sig.len as usize;
+        let mut pair = None;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                if sig.kinds[i] == sig.kinds[j] && sig.a[i] == sig.a[j] && sig.b[i] != sig.b[j] {
+                    pair = Some((i, j));
+                }
+            }
+        }
+        let (m, c) = pair.expect("mean and composite Wilders over one shared source");
+        let (sum, mean) = if sig.b[m] == 1 { (m, c) } else { (c, m) };
+        // The composite slot's source scale is published as UNITY — that is the
+        // whole difference from the mean form, carried as a VALUES magnitude.
+        assert_eq!(vals.invms[sum], 1.0, "composite must fold the raw sum");
+        assert!(
+            vals.invms[mean] < 1.0 && vals.invms[mean] > 0.0,
+            "mean slot carries 1/period, got {}",
+            vals.invms[mean]
+        );
+        assert_eq!(vals.mults[sum], vals.mults[mean], "same decay multiplier");
+    }
+
+    /// Primary rows bit-exact against all FOUR hand indicators. `Dm` is called
+    /// on its own 2-arity, the rest on (high, low, close).
+    #[test]
+    fn dm_di_dx_adx_shared_p_bit_exact() {
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+            let out = run_registered(&hub_req(), &[hi.as_slice(), lo.as_slice(), &base])
+                .expect("hub registered");
+
+            let two = [hi.as_slice(), lo.as_slice()];
+            let three = [hi.as_slice(), lo.as_slice(), base.as_slice()];
+            let (dm, _) = Dm::indicator(&two, &[HP], None).unwrap();
+            let (di, _) = Di::indicator(&three, &[HP], None).unwrap();
+            let (dx, _) = Dx::indicator(&three, &[HP], None).unwrap();
+            let (adx, _) = Adx::indicator(&three, &[HP], None).unwrap();
+
+            assert_bits(row_for(&out, 0, true, 0), &dm[0], "hub: +DM");
+            assert_bits(row_for(&out, 0, true, 1), &dm[1], "hub: -DM");
+            assert_bits(row_for(&out, 1, true, 0), &di[0], "hub: +DI");
+            assert_bits(row_for(&out, 1, true, 1), &di[1], "hub: -DI");
+            assert_bits(row_for(&out, 2, true, 0), &dx[0], "hub: DX");
+            assert_bits(row_for(&out, 3, true, 0), &adx[0], "hub: ADX");
+        }
+    }
 }

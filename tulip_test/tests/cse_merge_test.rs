@@ -8,6 +8,7 @@ mod tests {
     use tulip_rs::cse::Planable;
     use tulip_rs::cse::{merge, *};
     use tulip_rs::cse::{Id, Merged, Node, Recipe};
+    use tulip_rs::indicators::adosc::Adosc;
     use tulip_rs::indicators::adx::Adx;
     use tulip_rs::indicators::apo::Apo;
     use tulip_rs::indicators::ema::Ema;
@@ -515,5 +516,63 @@ mod tests {
         assert_eq!(vals.sink_lead[0], 34, "ao keeps its LONG head");
         assert_eq!(vals.sink_lead[4], 8, "fish lead = period-1");
         assert_eq!(vals.sink_lead[5], 8, "signal shares it");
+    }
+
+    /// The stream-index law: columns keep the hand's `Open, High, Low, Close,
+    /// Volume` order and a subset just SHIFTS LEFT within it, so a caller binds
+    /// the vectors straight out of `let [open, high, low, close] = *inputs`.
+    ///
+    /// This is what separates column interning from the old positional behavior:
+    /// `Adosc + Apo` used to land apo's close on adosc's HIGH (both wrote
+    /// `Input{0}`) with every registry and asset gate green — the parity suites
+    /// cannot make this test pass for the wrong reason.
+    #[test]
+    fn streams_shift_left_in_the_hands_column_order() {
+        let adosc = || Adosc::recipe(&[3.0, 10.0]);
+        let apo = || Apo::recipe(&[12.0, 26.0]);
+        // The arena's stream slots, ascending — one per distinct column.
+        let streams = |m: &Merged| -> Vec<Id> {
+            let mut v: Vec<Id> = m
+                .nodes
+                .iter()
+                .filter_map(|n| match *n {
+                    Node::Input { stream } => Some(stream),
+                    _ => None,
+                })
+                .collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+
+        // A recipe alone already sits in the shifted-left order.
+        let (m, _) = merge(&[adosc()]);
+        assert_eq!(streams(&m), vec![0, 1, 2, 3], "high, low, close, volume");
+        let (m, _) = merge(&[apo()]);
+        assert_eq!(streams(&m), vec![0], "close alone shifts to stream 0");
+
+        // The cross-convention co-request: union is high/low/close/volume, so
+        // apo's close must resolve to stream 2 — NOT 0, which is adosc's high.
+        let (m, r) = merge(&[adosc(), apo()]);
+        assert_eq!(
+            streams(&m),
+            vec![0, 1, 2, 3],
+            "one slot per column, the shared close deduped"
+        );
+        let apo_close = match m.nodes[r[1].inputs[0] as usize] {
+            Node::Ema { src, .. } => src,
+            ref n => panic!("apo tail[0] is not an Ema: {n:?}"),
+        };
+        let bound = match m.nodes[apo_close as usize] {
+            Node::Input { stream } => stream,
+            ref n => panic!("apo's ema source is not an Input: {n:?}"),
+        };
+        assert_eq!(bound, 2, "apo reads CLOSE (2), not adosc's high (0)");
+
+        // Request order moves nothing — rank is canonical, not first-seen. If it
+        // were insertion order these arenas differ and the registry splits.
+        let (m_rev, _) = merge(&[apo(), adosc()]);
+        assert_eq!(streams(&m_rev), vec![0, 1, 2, 3]);
+        assert_eq!(m_rev.nodes.len(), m.nodes.len(), "order-independent arena");
     }
 }

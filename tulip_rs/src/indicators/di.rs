@@ -6,7 +6,6 @@ pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
 use crate::indicators::atr::State as AtrState;
-use crate::indicators::dm::Dm;
 use crate::indicators::dm::State as DMState;
 use crate::indicators::tr::Tr;
 pub use crate::indicators::wilders::multiplier;
@@ -266,55 +265,13 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Di {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Di {
-    /// `DI(p)` = `(±DM_smoothed · (100 / ATR_sum)).max(0)`, `INPUTS=3`. The
-    /// `+DM`/`−DM` mutual-exclusion subgraph and its two COMPOSITE (sum)
-    /// `Wilders` accumulators are the SAME nodes `Dm::recipe` builds, and the
-    /// ATR here is a COMPOSITE (sum) `Wilders(tr)` (`composite: true`, matching
-    /// hand `AtrState::init_state(…, true)` — the DI denominator is the running
-    /// SUM, not the mean ATR), so it is a DIFFERENT node from `Atr`'s mean
-    /// chain (correctly — different values). Exact op order: `atr_inv =
-    /// 100/atr` shared by both, `pdi = max(dmup·atr_inv, 0)`,
-    /// `mdi = max(dmdown·atr_inv, 0)`; `Max` lowers to Rust `f64::max`
-    /// (`codegen::max_num`, IEEE maxNum) reproducing the hand's `.max(0.0)`
-    /// NaN→0 semantics when `atr = 0` (`0·inf`→NaN→0). CLIF `fmax` would return
-    /// NaN here (WebAssembly rules), so it is deliberately not used.
-    /// Publish lead = `period`. A `dm`+`di`+`dx` query shares the whole DM
-    /// chain; `dx` shares the ATR-sum too.
+    /// The engine's recipe wiring for this indicator — the graph lives in
+    /// `cse::recipes::di`, so the module keeps its math and the engine keeps
+    /// its blindness to indicator identity. Its denominator is the COMPOSITE
+    /// (raw-sum) `Wilders(tr)` — a different node from `Atr`'s mean chain,
+    /// correctly — and its `+DM`/`−DM` accumulators are the very nodes `Dm`
+    /// builds, so a `dm`+`di`+`dx`+`adx` request shares one DM chain.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let zero = r.constant(0.0);
-        // +DM / −DM accumulators, composed from Dm's recipe (outputs
-        // [dmup, dmdown]) — identical to Dm's/Dx's, so the DM subgraph CSEs
-        // across every DI/DX/ADX consumer.
-        let dm = r.sub_graph::<Dm>(&[period as f64], &[0, 1]);
-        let (dmup, dmdown) = (dm.outputs[0], dm.outputs[1]);
-        // TR (composed) → composite (sum) ATR, the DI denominator. Tr's
-        // `Input{2}` binds to parent stream 2 (close) via the graft map.
-        let tr = r.sub::<Tr>(&[], &[0, 1, 2]);
-        let atr = r.add(crate::cse::Node::Wilders {
-            src: tr,
-            period,
-            composite: true,
-            feed: false,
-        });
-        // ±DI = max(±DM · (100/atr), 0)
-        let hundred = r.constant(100.0);
-        let atr_inv = r.add(crate::cse::Node::Div { a: hundred, b: atr });
-        let up_di = r.add(crate::cse::Node::Mul {
-            a: dmup,
-            b: atr_inv,
-        });
-        let pdi = r.add(crate::cse::Node::Max { a: up_di, b: zero });
-        let dn_di = r.add(crate::cse::Node::Mul {
-            a: dmdown,
-            b: atr_inv,
-        });
-        let mdi = r.add(crate::cse::Node::Max { a: dn_di, b: zero });
-        r.kind = "di";
-        r.options = options.to_vec();
-        r.outputs.push(crate::cse::Sink::iface_lead(pdi, period));
-        r.outputs.push(crate::cse::Sink::iface_lead(mdi, period));
-        r
+        crate::cse::recipes::di(options)
     }
 }

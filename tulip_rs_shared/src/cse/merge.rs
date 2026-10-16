@@ -16,7 +16,7 @@
 //! is what makes `Apo`'s `ema12/ema26` and `Macd`'s literally the same arena
 //! nodes, the §4 identity falling out of CSE for free.
 
-use crate::cse::{Id, Node, Recipe, Sink, SinkSrc};
+use crate::cse::{Column, Id, Node, Recipe, Sink, SinkSrc};
 use std::collections::HashMap;
 
 /// Merged, node-deduplicated interface graph. Child `Id`s in `nodes` are
@@ -860,17 +860,74 @@ fn remap_sink(sink: &Sink, l2g: &[Id]) -> Sink {
 
 /// Merge `recipes` into one interface arena with shared nodes deduplicated.
 /// Returns the arena and, per input recipe (same order), its resolved wiring.
+///
+/// # Input interning: by column, not by position
+/// A recipe that declares [`Recipe::columns`] has its `Node::Input` slots
+/// renumbered into the request's COLUMN UNION before interning, so two recipes
+/// that both read `Close` share one arena node and a price recipe's `Input{0}`
+/// can never be interned onto an OHLC recipe's `Input{0}` (which silently
+/// computed on the wrong column while every `SIG_*` equality test stayed green).
+///
+/// Interning is **all-or-nothing per request**: if ANY recipe leaves
+/// `columns` empty, every recipe keeps today's positional interning. Mixing the
+/// two modes would make `Input{0}` mean "close" to one recipe and "high" to
+/// another inside the same arena — the exact ambiguity this removes — so a
+/// half-migrated request must behave precisely as it did before this existed.
 pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
     let mut arena: Vec<Node> = Vec::new();
     let mut tags: Vec<Option<&'static str>> = Vec::new();
     let mut cache: HashMap<Node, Id> = HashMap::new();
     let mut resolved = Vec::with_capacity(recipes.len());
 
-    for recipe in recipes {
+    // The column union, ranked in `Column`'s DECLARED order (canonical): the
+    // stream index a column gets depends only on WHICH columns are present,
+    // never on the order recipes were requested — so `Apo + Atr` and `Atr + Apo`
+    // erase to the SAME `Signature` and hit one registry entry.
+    let declared = recipes.iter().all(|r| !r.columns.is_empty());
+    let mut col_of_slot: Vec<Column> = Vec::new();
+    if declared {
+        for r in recipes {
+            for &c in &r.columns {
+                if !col_of_slot.contains(&c) {
+                    col_of_slot.push(c);
+                }
+            }
+        }
+        col_of_slot.sort();
+    }
+    // recipe-local slot -> arena stream index, per recipe (only in declared mode).
+    let slot_maps: Vec<Vec<Id>> = if declared {
+        recipes
+            .iter()
+            .map(|r| {
+                r.columns
+                    .iter()
+                    .map(|c| col_of_slot.iter().position(|u| u == c).unwrap() as Id)
+                    .collect()
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    for (ri, recipe) in recipes.iter().enumerate() {
         // local → global id per recipe; filled in SSA order.
         let mut l2g = vec![0u32; recipe.nodes.len()];
         for (local, node) in recipe.nodes.iter().enumerate() {
-            let global = remap(node, &l2g);
+            let global = match *node {
+                Node::Input { stream } if declared => {
+                    let Some(&slot) = slot_maps[ri].get(stream as usize) else {
+                        panic!(
+                            "cse: recipe {:?} binds Input{{stream: {stream}}} but declares only {} column(s) {:?}",
+                            recipe.kind,
+                            recipe.columns.len(),
+                            recipe.columns
+                        );
+                    };
+                    Node::Input { stream: slot }
+                }
+                other => remap(&other, &l2g),
+            };
             let id = intern(&mut arena, &mut tags, &mut cache, global);
             if let Some(Some(t)) = recipe.tags.get(local) {
                 if tags[id as usize].is_none() {

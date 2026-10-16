@@ -997,11 +997,17 @@ fn run_fn(p: &Pattern) -> TokenStream {
         // c operands stay plain arena edges — which operand sits where is
         // wiring, not a layout decision.
         let a_is_input = p.plan.is_price_src(k);
-        let b_is_input = p
-            .nodes
-            .get(node.b)
-            .map(|n| matches!(n.kind, Kind::Input))
-            .unwrap_or(false);
+        // `Kind::Wilders` carries the COMPOSITE flag in `b` (mirroring
+        // `Signature::b`, which `erase` writes and `sig_const` copies), so for
+        // that kind `b` is NOT an arena edge: dereferencing it here would
+        // resolve slot 1 — an unrelated node — and hoist a stream this node
+        // never reads. Wilders reaches its source through `a`/`is_price_src`
+        // and the scalar/group collection above.
+        let b_is_input = node.kind != Kind::Wilders
+            && p.nodes
+                .get(node.b)
+                .map(|n| matches!(n.kind, Kind::Input))
+                .unwrap_or(false);
         if a_is_input {
             let stream = p.nodes[node.a].a;
             if !used_streams.contains(&stream) {

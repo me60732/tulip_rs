@@ -26,7 +26,7 @@ use crate::cse::{Id, Node, Recipe, Sink};
 /// `Ema(p)` over `Input{0}`: one chain node mirroring its own line.
 pub fn ema(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
     let e = r.add(Node::Ema { src: close, period });
@@ -46,7 +46,7 @@ pub fn ema(options: &[f64]) -> Recipe {
 pub fn apo(options: &[f64]) -> Recipe {
     let short = options[0] as u32;
     let long = options[1] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
     let s = r.add(Node::Ema {
@@ -80,7 +80,7 @@ pub fn apo(options: &[f64]) -> Recipe {
 pub fn ppo(options: &[f64]) -> Recipe {
     let short = options[0] as u32;
     let long = options[1] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
     let s = r.add(Node::Ema {
@@ -118,7 +118,7 @@ pub fn macd(options: &[f64]) -> Recipe {
     let short = options[0] as u32;
     let long = options[1] as u32;
     let signal_period = options[2] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let real = r.add(Node::Input { stream: 0 });
     r.tag(real, "price");
     let s = r.add(Node::Ema {
@@ -942,6 +942,184 @@ pub fn tr(_options: &[f64]) -> Recipe {
     r
 }
 
+/// `DM(p)` = Wilders **sum** smoothing (COMPOSITE `Wilders`) over the raw
+/// directional movement, inputs (high, low). The raw movement is the mutual
+/// exclusion `up = h − Lag(h,1)`, `down = Lag(l,1) − l`, then
+/// `+DM = where(up >= down, max(up,0), 0)` and the mirror for `−DM` — a
+/// `WhereGe` select plus `Max`, NOT a `×0.0` mask (a mask can yield `-0.0`/NaN
+/// where the hand writes a literal `0.0`). The accumulators fold from bar 0
+/// because the `Lag` clamp makes `up[0] = down[0] = 0`, which is exactly the
+/// hand's `skip(1)` warmup adding nothing at bar 0. Publish lead = `period`.
+///
+/// `Di`/`Dx`/`Adx` reuse these exact nodes, so a directional dashboard computes
+/// directional movement ONCE — the hub this family is registered for.
+pub fn dm(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::hl();
+    let high = r.add(Node::Input { stream: 0 });
+    r.tag(high, "high");
+    let low = r.add(Node::Input { stream: 1 });
+    r.tag(low, "low");
+    let ph = r.add(Node::Lag { src: high, n: 1 });
+    r.tag(ph, "prev_high");
+    let pl = r.add(Node::Lag { src: low, n: 1 });
+    r.tag(pl, "prev_low");
+    let up = r.add(Node::Sub { a: high, b: ph });
+    r.tag(up, "up_move");
+    let down = r.add(Node::Sub { a: pl, b: low });
+    r.tag(down, "down_move");
+    let zero = r.constant(0.0);
+    let up_pos = r.add(Node::Max { a: up, b: zero });
+    let down_pos = r.add(Node::Max { a: down, b: zero });
+    let dp = r.add(Node::WhereGe {
+        a: up,
+        b: down,
+        t: up_pos,
+    });
+    r.tag(dp, "dm_plus_raw");
+    let dm = r.add(Node::WhereGe {
+        a: down,
+        b: up,
+        t: down_pos,
+    });
+    r.tag(dm, "dm_minus_raw");
+    let dmup = r.add(Node::Wilders {
+        src: dp,
+        period,
+        composite: true,
+        feed: false,
+    });
+    r.tag(dmup, "dm_plus");
+    let dmdown = r.add(Node::Wilders {
+        src: dm,
+        period,
+        composite: true,
+        feed: false,
+    });
+    r.tag(dmdown, "dm_minus");
+    r.kind = "dm";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface_lead(dmup, period));
+    r.outputs.push(Sink::iface_lead(dmdown, period));
+    r
+}
+
+/// `DX(p)` = `(|DM+ − DM−| · 100 / (DM+ + DM−)).max(0)` — a PURE function of the
+/// two COMPOSITE accumulators, so it grafts `dm`'s own graph (one source of
+/// truth) and needs only high/low; the hand's third input, `close`, feeds only
+/// its optional ATR/TR mirrors, which this recipe does not build. Exact op order
+/// `(diff · 100) / sum` (left-assoc), then `Max(_,0)`; the divide emits the raw
+/// sum (hand `calc_dx` skips the `÷atr`). Publish lead = `period`. `Adx` chains
+/// a mean `Wilders` onto this node.
+pub fn dx(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::hl();
+    let dm = r.sub_graph(dm(&[period as f64]), &[0, 1]);
+    let (dmup, dmdown) = (dm.outputs[0], dm.outputs[1]);
+    let zero = r.constant(0.0);
+    let dm_sub = r.add(Node::Sub { a: dmup, b: dmdown });
+    r.tag(dm_sub, "dm_diff_raw");
+    let dm_diff = r.add(Node::Abs { src: dm_sub });
+    r.tag(dm_diff, "dm_diff");
+    let hundred = r.constant(100.0);
+    let numer = r.add(Node::Mul {
+        a: dm_diff,
+        b: hundred,
+    });
+    r.tag(numer, "dx_numer");
+    let denom = r.add(Node::Add { a: dmup, b: dmdown });
+    r.tag(denom, "dx_denom");
+    let quot = r.add(Node::Div { a: numer, b: denom });
+    let dx = r.add(Node::Max { a: quot, b: zero });
+    r.tag(dx, "dx");
+    r.kind = "dx";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface_lead(dx, period));
+    r
+}
+
+/// `DI(p)` = `(±DM_smoothed · (100 / ATR_sum)).max(0)`, inputs (high, low,
+/// close). The `+DM`/`−DM` graph and its two COMPOSITE accumulators are the
+/// SAME nodes `dm` builds; the denominator here is a COMPOSITE (raw-sum)
+/// `Wilders(tr)` — `composite: true`, matching hand
+/// `AtrState::init_state(…, true)` — so it is a DIFFERENT node from `atr`'s mean
+/// chain, correctly, because it carries different numbers. Exact op order:
+/// `atr_inv = 100/atr` shared by both, `pdi = max(dmup·atr_inv, 0)`,
+/// `mdi = max(dmdown·atr_inv, 0)`. `Max` lowers to `f64::max` (IEEE maxNum),
+/// reproducing the hand's NaN→0 when `atr = 0` makes `0·inf`; CLIF `fmax` would
+/// return NaN here, so it is deliberately not used. Publish lead = `period`.
+pub fn di(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::hlc();
+    let zero = r.constant(0.0);
+    let dm = r.sub_graph(dm(&[period as f64]), &[0, 1]);
+    let (dmup, dmdown) = (dm.outputs[0], dm.outputs[1]);
+    // TR (composed) → composite (sum) ATR, the DI denominator.
+    let tr = r.sub(tr(&[]), &[0, 1, 2]);
+    let atr = r.add(Node::Wilders {
+        src: tr,
+        period,
+        composite: true,
+        feed: false,
+    });
+    r.tag(atr, "atr_sum");
+    let hundred = r.constant(100.0);
+    let atr_inv = r.add(Node::Div { a: hundred, b: atr });
+    r.tag(atr_inv, "atr_inv");
+    let up_di = r.add(Node::Mul {
+        a: dmup,
+        b: atr_inv,
+    });
+    let pdi = r.add(Node::Max { a: up_di, b: zero });
+    r.tag(pdi, "plus_di");
+    let dn_di = r.add(Node::Mul {
+        a: dmdown,
+        b: atr_inv,
+    });
+    let mdi = r.add(Node::Max { a: dn_di, b: zero });
+    r.tag(mdi, "minus_di");
+    r.kind = "di";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface_lead(pdi, period));
+    r.outputs.push(Sink::iface_lead(mdi, period));
+    r
+}
+
+/// `ADX(p)` = a MEAN `Wilders` over the `dx` node, but **feed-gated**: hand
+/// `init_state` folds the FIRST `period` *published* `dx` values, divides by
+/// `period`, then steady-decays — so the fold window starts at `dx`'s publish
+/// lead, not bar 0 (the `feed: true` axis), because `dx` is only meaningful
+/// after its own warmup. The `dx` chain is composed from `dx` rather than
+/// re-derived, so the whole `+DM`/`−DM` → `dx` subgraph has one source of truth
+/// and dedups with any co-requested `dm`/`di`/`dx`. `adx` never reads the ATR
+/// for its value, so the `atr`/`tr` mirrors compose `atr` (mean chain + exposed
+/// tr), shared with natr/atr. Publish lead = `2·period − 1`.
+pub fn adx(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::hlc();
+    let dx = r.sub(dx(&[period as f64]), &[0, 1]);
+    let adx = r.add(Node::Wilders {
+        src: dx,
+        period,
+        composite: false,
+        feed: true,
+    });
+    r.tag(adx, "adx");
+    // atr/tr mirrors: compose the mean ATR chain (primary + exposed tr) — the
+    // same nodes natr/atr use, so shared.
+    let atr = r.sub_graph(atr(&[period as f64]), &[0, 1, 2]);
+    let atr_id = atr.primary;
+    let tr = atr.optional_at(0);
+    r.kind = "adx";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface_lead(adx, 2 * period - 1));
+    // Hand optional_outputs order: [dx, atr, tr].
+    r.optional_outputs.push(Sink::iface_lead(dx, period));
+    r.optional_outputs.push(Sink::iface_lead(atr_id, period));
+    r.optional_outputs.push(Sink::iface_lead(tr, 1));
+    r
+}
+
 /// `SMA(p)` — one price-sourced rolling-sum node. Publish lead = `period`:
 /// the hand reports `len − period` rows (init folds bars `0..p` but the
 /// seed bar is not published), matching the `Ema` mirror convention. Hand
@@ -1437,7 +1615,7 @@ pub(crate) fn ad_nodes(r: &mut Recipe, hi: Id, lo: Id, cl: Id, vol: Id) -> Id {
 /// so bar 0 already prints (the accumulator's zero init IS the hand's
 /// `State::new(0.0)`).
 pub fn ad(_options: &[f64]) -> Recipe {
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlcvol();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
@@ -1468,7 +1646,7 @@ pub fn ad(_options: &[f64]) -> Recipe {
 pub fn adosc(options: &[f64]) -> Recipe {
     let short = options[0] as u32;
     let long = options[1] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlcvol();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
