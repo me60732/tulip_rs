@@ -192,4 +192,13 @@ tulip_rs_macros::kernel! {
     // All four declare columns (`hl`/`hlc`), so the arena is interned by
     // MEANING: High=0, Low=1, Close=2 whatever the request order.
     dm_di_dx_adx_shared_p: Dm(p), Di(p), Dx(p), Adx(p);
+    // THE PACKED TWIN — and the sharpest available test of the composite design.
+    // `di`'s COMPOSITE (raw-sum) ATR and `adx`'s composed MEAN ATR are Wilders over
+    // the SAME interned `tr` node, so `classify_packed`'s (kind, source) bucketing
+    // puts BOTH FORMS in ONE lane group. That is only legal because the group's
+    // step reads `vals.invms[k]` PER LANE (unity vs 1/period), i.e. the form is a
+    // magnitude, not a spelling. If this twin is byte-equal to the scalar kernel,
+    // mixed-form packing is proven; if not, the magnitude design is wrong and the
+    // engine needs a second emitted form.
+    dm_di_dx_adx_shared_p_p: packed Dm(p), Di(p), Dx(p), Adx(p);
 }

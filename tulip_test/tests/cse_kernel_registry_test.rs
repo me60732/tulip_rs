@@ -2482,4 +2482,31 @@ mod tests {
             assert_bits(row_for(&out, 3, true, 0), &adx[0], "hub: ADX");
         }
     }
+
+    /// Packed twin vs scalar, ONE plan bound into both generated kernels —
+    /// the same-binary A/B the twin convention exists for. Byte-equal is the
+    /// correctness claim; it is NOT sufficient on its own (see
+    /// `hub_packed_group_actually_builds` in the macro crate, which proves a
+    /// lane group was emitted at all — without that, this test would pass
+    /// vacuously on a packed pattern that silently stayed scalar).
+    #[test]
+    fn dm_di_dx_adx_shared_p_packed_matches_scalar() {
+        use tulip_rs::cse::kernel::registry::{dm_di_dx_adx_shared_p, dm_di_dx_adx_shared_p_p};
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+            let (_a, _sig, vals, _) = erase_request(&hub_req()).unwrap();
+            let streams = [hi.as_slice(), lo.as_slice(), base.as_slice()];
+            let scalar = dm_di_dx_adx_shared_p(&vals, &streams);
+            let packed = dm_di_dx_adx_shared_p_p(&vals, &streams);
+            assert_eq!(scalar.len(), packed.len(), "same row count");
+            for (i, (rs, rp)) in scalar.iter().zip(packed.iter()).enumerate() {
+                assert_bits(rs.as_slice(), rp.as_slice(), &format!("hub packed row {i}"));
+            }
+        }
+    }
 }

@@ -289,6 +289,44 @@ mod tests {
         );
     }
 
+    /// The hub's packed twin must ACTUALLY BUILD a lane group. `di`'s COMPOSITE
+    /// (raw-sum) ATR-sum and `adx`'s composed MEAN ATR are `Wilders` over the same
+    /// interned `tr` node, so the `(kind, source)` bucketing puts both FORMS in one
+    /// group — legal only because the group step reads `vals.invms[k]` per lane.
+    /// This assertion is on the EXPANSION, not on runtime equality: without it the
+    /// packed-vs-scalar A/B in `cse_kernel_registry_test` would pass vacuously on a
+    /// pattern that silently stayed scalar.
+    #[test]
+    fn hub_packed_group_actually_builds() {
+        let hub = || {
+            vec![
+                ("Dm", vec![l(14.0)]),
+                ("Di", vec![l(14.0)]),
+                ("Dx", vec![l(14.0)]),
+                ("Adx", vec![l(14.0)]),
+            ]
+        };
+        let packed = codegen::expand(&[build(&hub(), true)]).to_string();
+        let groups: Vec<String> = (0..8)
+            .map(|i| format!("g{i}_m"))
+            .filter(|g| packed.contains(g.as_str()))
+            .collect();
+        assert!(
+            !groups.is_empty(),
+            "packed hub emitted no lane-group multiplier hoist — it stayed scalar, \
+             so the packed-vs-scalar A/B gate would prove nothing about mixed-form packing"
+        );
+
+        let scalar = codegen::expand(&[build(&hub(), false)]).to_string();
+        for g in &groups {
+            assert!(
+                !scalar.contains(g.as_str()),
+                "the scalar twin unexpectedly built group {g}: the discriminator is not \
+                 packing-specific"
+            );
+        }
+    }
+
     /// STOCH on the real arena: %D rolls the SAME BAR's %K output, so no fused
     /// push can carry both — the plan must refuse, and no fused container may
     /// appear in the kernel. This is the shape the user pointed at in
