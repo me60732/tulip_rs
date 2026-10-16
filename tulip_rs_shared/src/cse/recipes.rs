@@ -159,7 +159,7 @@ pub fn macd(options: &[f64]) -> Recipe {
 /// = `period` (hand reports `len − p` rows, `min_data = p+1`).
 pub fn wilders(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
     let w = r.add(Node::Wilders {
@@ -320,7 +320,7 @@ pub fn supertrend(options: &[f64]) -> Recipe {
 /// `MEDPRICE = 0.5 · (high + low)` — stateless, every bar publishes
 /// (`Sink::iface`, lead 0). Streams: 0 = high, 1 = low.
 pub fn medprice(_options: &[f64]) -> Recipe {
-    let mut r = Recipe::new();
+    let mut r = Recipe::hl();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
@@ -350,7 +350,7 @@ pub fn medprice(_options: &[f64]) -> Recipe {
 pub fn ao(options: &[f64]) -> Recipe {
     let short = options.first().copied().unwrap_or(5.0) as u32;
     let long = options.get(1).copied().unwrap_or(34.0) as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hl();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
@@ -404,7 +404,7 @@ pub fn ao(options: &[f64]) -> Recipe {
 pub fn hma(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
     let psqrt = (period as f64).sqrt() as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     let h = r.add(Node::Hma { src: close, period });
     r.kind = "hma";
@@ -427,7 +427,7 @@ pub fn hma(options: &[f64]) -> Recipe {
 /// the hand (`Node::Ln` is a host libm call — Handover §6.41).
 pub fn fisher(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hl();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
@@ -504,7 +504,7 @@ pub fn stoch(options: &[f64]) -> Recipe {
     let d_period = options[2] as u32;
     let look_back = k_period.saturating_sub(1);
 
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlc();
     let high = r.add(Node::Input { stream: 0 });
     r.tag(high, "high");
     let low = r.add(Node::Input { stream: 1 });
@@ -572,7 +572,7 @@ pub fn stoch(options: &[f64]) -> Recipe {
 /// `tail_inputs`, outside the sink graph.
 pub fn rsi(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let real = r.add(Node::Input { stream: 0 });
     r.tag(real, "price");
     let prev = r.add(Node::Lag { src: real, n: 1 });
@@ -638,7 +638,7 @@ pub fn rsi(options: &[f64]) -> Recipe {
 /// ring machinery (proven on fisher's medprice rings).
 pub fn stochrsi(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let real = r.add(Node::Input { stream: 0 });
     r.tag(real, "price");
     // Exactly what the runtime recipe's `sub_at::<Rsi>(&[period], &[real])`
@@ -711,7 +711,7 @@ pub fn stochrsi(options: &[f64]) -> Recipe {
 ///   arithmetic.
 pub fn cmo(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let real = r.add(Node::Input { stream: 0 });
     r.tag(real, "price");
     let l1 = r.add(Node::Lag { src: real, n: 1 });
@@ -792,7 +792,7 @@ pub fn cmo(options: &[f64]) -> Recipe {
 /// one push and one cursor advance per bar serve all six folds.
 pub fn ultosc(options: &[f64]) -> Recipe {
     let (short, medium, long) = (options[0] as u32, options[1] as u32, options[2] as u32);
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlc();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
@@ -928,7 +928,7 @@ pub fn mass(options: &[f64]) -> Recipe {
 /// family's chain feeds on, so a dashboard sharing TR with atr/natr/supertrend
 /// rolls it once.
 pub fn tr(_options: &[f64]) -> Recipe {
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlc();
     let hi = r.add(Node::Input { stream: 0 });
     r.tag(hi, "high");
     let lo = r.add(Node::Input { stream: 1 });
@@ -1285,7 +1285,7 @@ pub fn vhf(options: &[f64]) -> Recipe {
 /// node's state word (see `sma::restore_state`).
 pub fn sma(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
     let m = r.add(Node::Sma { src: close, period });
@@ -1305,7 +1305,7 @@ pub fn sma(options: &[f64]) -> Recipe {
 /// chain (the hand's own structure). Lead = `period` on both rows.
 pub fn wma(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
     let w = r.add(Node::Wma { src: close, period });
@@ -1326,7 +1326,7 @@ pub fn wma(options: &[f64]) -> Recipe {
 /// recurrence with two mirrors. Lead = `period` for both rows.
 pub fn stddev(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
     let sd = r.add(Node::Stddev { src: close, period });
@@ -1350,7 +1350,7 @@ pub fn stddev(options: &[f64]) -> Recipe {
 pub fn bbands(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
     let range = options[1];
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
     let m = r.add(Node::Sma { src: close, period });
@@ -1397,7 +1397,7 @@ pub fn bbands(options: &[f64]) -> Recipe {
 /// the sink needs no explicit lead.
 pub fn max(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let real = r.add(Node::Input { stream: 0 });
     r.tag(real, "price");
     let m = r.add(Node::RollMax {
@@ -1417,7 +1417,7 @@ pub fn max(options: &[f64]) -> Recipe {
 /// value-invisible; the engine uses the uniform rule, pinned by parity).
 pub fn min(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let real = r.add(Node::Input { stream: 0 });
     r.tag(real, "price");
     let m = r.add(Node::RollMin {
@@ -1497,7 +1497,7 @@ pub fn aroon_graph(r: &mut Recipe, period: u32) -> AroonLines {
 /// bar earlier), hence the explicit sink leads.
 pub fn aroon(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hl();
     let g = aroon_graph(&mut r, period);
     r.kind = "aroon";
     r.options = options.to_vec();
@@ -1513,7 +1513,7 @@ pub fn aroon(options: &[f64]) -> Recipe {
 /// `AROONOSC` = `aroon_up − aroon_down` over the SAME interned aroon graph.
 pub fn aroonosc(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hl();
     let g = aroon_graph(&mut r, period);
     let osc = r.add(Node::Sub { a: g.up, b: g.down });
     r.tag(osc, "aroonosc");
@@ -1538,7 +1538,7 @@ pub fn aroonosc(options: &[f64]) -> Recipe {
 pub fn willr(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
     let look_back = period - 1;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hlc();
     let high = r.add(Node::Input { stream: 0 });
     r.tag(high, "high");
     let low = r.add(Node::Input { stream: 1 });
@@ -1595,7 +1595,7 @@ pub fn willr(options: &[f64]) -> Recipe {
 pub fn donchianchannel(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
     let look_back = period - 1;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hl();
     let high = r.add(Node::Input { stream: 0 });
     r.tag(high, "high");
     let low = r.add(Node::Input { stream: 1 });
@@ -1638,7 +1638,7 @@ pub fn ichimoku(options: &[f64]) -> Recipe {
     let short = options[0] as u32;
     let medium = options[1] as u32;
     let long = medium * 2;
-    let mut r = Recipe::new();
+    let mut r = Recipe::hl();
     let high = r.add(Node::Input { stream: 0 });
     r.tag(high, "high");
     let low = r.add(Node::Input { stream: 1 });
@@ -1869,7 +1869,7 @@ pub fn adosc(options: &[f64]) -> Recipe {
 /// restore here.
 pub fn mom(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = Recipe::new();
+    let mut r = Recipe::price();
     let cl = r.add(Node::Input { stream: 0 });
     r.tag(cl, "price");
     let prev = r.add(Node::Lag { src: cl, n: period });
