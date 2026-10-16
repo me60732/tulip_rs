@@ -2869,9 +2869,10 @@ mod tests {
     // predicted ("you should also be able to combine adx with natr and
     // supertrend"), and it only routes because DI moved onto the shared mean ATR
     // chain (d230b54) AND atr/natr/supertrend declared their columns (2fd22d8) —
-    // otherwise `merge`'s all-or-nothing gate drops the whole arena to positional
-    // binding. Every recipe here is column-declared, so High=0, Low=1, Close=2 by
-    // MEANING whatever the request order.
+    // otherwise `merge` would reject the arena outright — the silent positional
+    // binding this replaced no longer exists as a fallback. Every recipe here is
+    // column-declared, so High=0, Low=1, Close=2 by MEANING whatever the request
+    // order.
     fn hub7_req() -> Request {
         Request::new()
             .add(Dm::recipe(&[HP]), None)

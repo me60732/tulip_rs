@@ -868,54 +868,64 @@ fn remap_sink(sink: &Sink, l2g: &[Id]) -> Sink {
 /// can never be interned onto an OHLC recipe's `Input{0}` (which silently
 /// computed on the wrong column while every `SIG_*` equality test stayed green).
 ///
-/// Interning is **all-or-nothing per request**: if ANY recipe leaves
-/// `columns` empty, every recipe keeps today's positional interning. Mixing the
-/// two modes would make `Input{0}` mean "close" to one recipe and "high" to
-/// another inside the same arena — the exact ambiguity this removes — so a
-/// half-migrated request must behave precisely as it did before this existed.
+/// Interning is **mandatory, not opportunistic**: a recipe that binds any
+/// [`Node::Input`] without declaring `columns` is rejected at the top of
+/// [`merge`], because the silent alternative was the whole hazard — positional
+/// interning makes `Input{0}` mean "close" to a price recipe and "high" to an
+/// OHLC one inside the same arena, and every `SIG_*` equality test stays green
+/// while the VALUES are wrong. There is deliberately no positional path left to
+/// fall back to: the migration is finished, so the fallback would only ever
+/// conceal a new recipe that forgot to declare.
 pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
     let mut arena: Vec<Node> = Vec::new();
     let mut tags: Vec<Option<&'static str>> = Vec::new();
     let mut cache: HashMap<Node, Id> = HashMap::new();
     let mut resolved = Vec::with_capacity(recipes.len());
 
+    // A recipe that binds inputs must say what each slot MEANS. Checked before
+    // anything is interned, so the failure names the offender instead of
+    // producing an arena that merely looks well-formed.
+    for r in recipes {
+        let binds_input = r.nodes.iter().any(|n| matches!(n, Node::Input { .. }));
+        if binds_input && r.columns.is_empty() {
+            panic!(
+                "cse: recipe {:?} binds inputs but declares no columns -- every recipe must \
+                 state its slots via Recipe::price()/hl()/hlc()/hlcvol()",
+                r.kind
+            );
+        }
+    }
+
     // The column union, ranked in `Column`'s DECLARED order (canonical): the
     // stream index a column gets depends only on WHICH columns are present,
     // never on the order recipes were requested — so `Apo + Atr` and `Atr + Apo`
     // erase to the SAME `Signature` and hit one registry entry.
-    let declared = recipes.iter().all(|r| !r.columns.is_empty());
     let mut col_of_slot: Vec<Column> = Vec::new();
-    if declared {
-        for r in recipes {
-            for &c in &r.columns {
-                if !col_of_slot.contains(&c) {
-                    col_of_slot.push(c);
-                }
+    for r in recipes {
+        for &c in &r.columns {
+            if !col_of_slot.contains(&c) {
+                col_of_slot.push(c);
             }
         }
-        col_of_slot.sort();
     }
-    // recipe-local slot -> arena stream index, per recipe (only in declared mode).
-    let slot_maps: Vec<Vec<Id>> = if declared {
-        recipes
-            .iter()
-            .map(|r| {
-                r.columns
-                    .iter()
-                    .map(|c| col_of_slot.iter().position(|u| u == c).unwrap() as Id)
-                    .collect()
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    col_of_slot.sort();
+    // recipe-local slot -> arena stream index, per recipe.
+    let slot_maps: Vec<Vec<Id>> = recipes
+        .iter()
+        .map(|r| {
+            r.columns
+                .iter()
+                .map(|c| col_of_slot.iter().position(|u| u == c).unwrap() as Id)
+                .collect()
+        })
+        .collect();
 
     for (ri, recipe) in recipes.iter().enumerate() {
         // local → global id per recipe; filled in SSA order.
         let mut l2g = vec![0u32; recipe.nodes.len()];
         for (local, node) in recipe.nodes.iter().enumerate() {
             let global = match *node {
-                Node::Input { stream } if declared => {
+                Node::Input { stream } => {
                     let Some(&slot) = slot_maps[ri].get(stream as usize) else {
                         panic!(
                             "cse: recipe {:?} binds Input{{stream: {stream}}} but declares only {} column(s) {:?}",

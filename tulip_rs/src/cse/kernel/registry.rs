@@ -224,8 +224,8 @@ tulip_rs_macros::kernel! {
     // "if so you should also be able to combine adx with natr and supertrend" —
     // and it is only possible because `di` moved onto the SHARED mean ATR chain
     // (d230b54) and `atr`/`natr`/`supertrend` declared their columns (2fd22d8), so
-    // the whole request interns by MEANING instead of falling back to positional
-    // binding.
+    // the whole request interns by MEANING; an undeclared recipe would now be
+    // rejected by `merge` outright rather than silently binding positionally.
     //
     // WHAT IS ACTUALLY SHARED, per node (not per indicator):
     //   · ONE `+DM`/`−DM` mutual-exclusion graph + its two COMPOSITE `Wilders`

@@ -350,9 +350,12 @@ pub struct Recipe {
     pub tags: Vec<Option<&'static str>>,
     /// What each input slot consumes, indexed by the `stream` field of
     /// [`Node::Input`] — so `columns[0]` is what `Input { stream: 0 }` reads.
-    /// Empty = this recipe is not yet declared, which keeps `merge` on the
-    /// legacy positional path (see [`crate::cse::merge::merge`]'s all-or-nothing
-    /// rule). A declared recipe MUST cover every slot it binds.
+    /// REQUIRED on any recipe that binds an input: [`crate::cse::merge`] rejects
+    /// one that does not, because positional interning would let a price
+    /// recipe's `Input{0}` (= close) intern onto an OHLC recipe's `Input{0}`
+    /// (= high) — wrong values behind a green `SIG_*` test. Build with
+    /// [`Recipe::price`]/[`Recipe::hl`]/[`Recipe::hlc`]/[`Recipe::hlcvol`] so the
+    /// compiler supplies it. It MUST cover every slot the recipe binds.
     pub columns: Vec<Column>,
     pub kind: &'static str,
     pub options: Vec<f64>,
@@ -363,10 +366,6 @@ pub struct Recipe {
 }
 
 impl Recipe {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Price-sourced recipe: its only input slot is `Input{0}` = **close**.
     pub fn price() -> Self {
         Self::with_columns(vec![Column::Close])
@@ -475,8 +474,9 @@ impl Recipe {
     /// between two independent index spaces — the same conflation `merge` now
     /// refuses for co-requested recipes, reachable inside one recipe here.
     ///
-    /// Active only when BOTH sides declare columns (all-or-nothing, mirroring
-    /// `merge`): an undeclared recipe keeps today's positional behavior exactly.
+    /// Both sides now ALWAYS declare columns — `merge` rejects an input-binding
+    /// recipe that does not — so the early return below is defence in depth, not
+    /// a supported mode: it can only be reached by a recipe with no inputs at all.
     /// - `Some(derived)` — the caller passed no indices: bind each child slot to
     ///   the parent slot whose column matches, so `Dm{High, Low}` grafted into
     ///   `{Open, High, Low, Close, Volume}` lands on parent streams 1 and 2.
