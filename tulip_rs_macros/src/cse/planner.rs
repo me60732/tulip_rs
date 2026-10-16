@@ -195,15 +195,6 @@ pub struct Pattern {
     /// If true, same-source Ema chains run as SIMD lane groups (4-wide
     /// then 2-wide, remainder scalar). Chained EMAs and Wilders stay scalar.
     pub packed: bool,
-    /// EXPERIMENT AXIS, `Ema` only: pack ACROSS sources too. `classify_packed`
-    /// then keys `Ema` buckets on `Kind` alone, and a group whose lanes read
-    /// different source slots emits a PER-LANE source vector instead of
-    /// splatting one broadcast. Legality: a lane group exists only in the steady
-    /// loop, where every `Ema` computes identically each bar; the carries,
-    /// multipliers and inverse multipliers are already per-slot arrays, and
-    /// warm-up seeding stays per-slot in `exec`, so differing `lead`s are
-    /// irrelevant here — only the sink store is lead-gated.
-    pub xpacked: bool,
     /// The planner's lowering plan: ring-group partition and class, plus the
     /// `Price`/`Chain` stream mode — the layout facts the renderers READ
     /// instead of re-deriving from arena kinds. Derived from this arena's own
@@ -277,7 +268,7 @@ pub fn partition_sinks(sinks: &[usize], sink_is_primary: &[bool]) -> SinkPlan {
 /// Build one pattern from `(recipe-id, args)` in request order: construct
 /// the real leaf recipes (named args → sentinels), run the runtime `merge`,
 /// and convert the arena for the emitter.
-pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool, xpacked: bool) -> Pattern {
+pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern {
     let mut names: HashMap<String, f64> = HashMap::new();
     let mut built: Vec<Recipe> = Vec::with_capacity(items.len());
     for (rid, args) in items {
@@ -509,7 +500,6 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool, xpacked: b
         names,
         sinks,
         packed,
-        xpacked,
         plan,
         bundles,
         sink_plan,
@@ -522,12 +512,7 @@ mod tests {
 
     #[test]
     fn atr_arena_has_the_three_price_streams() {
-        let pattern = expand(
-            "atr",
-            &[("Atr".to_string(), vec![Arg::Lit(14.0)])],
-            false,
-            false,
-        );
+        let pattern = expand("atr", &[("Atr".to_string(), vec![Arg::Lit(14.0)])], false);
 
         // Find all Input nodes and their stream indices
         let mut max_stream = 0;
@@ -624,9 +609,6 @@ mod tests {
                 ),
             ],
             true,
-            // same-source buckets: this shape's six chains already read ONE close
-            // Input, so cross-source grouping has nothing to add here.
-            false,
         );
         let groups = packed_groups(&p);
         assert_eq!(

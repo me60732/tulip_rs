@@ -172,20 +172,6 @@ tulip_rs_macros::kernel! {
     // close), with periods all DISTINCT (3/10, 12/26, 6/14) so nothing dedups by
     // accident.
     adosc_apo_ppo: Adosc(s, l), Apo(a1, b1), Ppo(a2, b2);
-    // THE CROSS-SOURCE PACKING EXPERIMENT — three arms over ONE arena, all in
-    // this binary, so the A/B has no layout confounding (an env var at
-    // macro-expansion time would give two binaries instead).
-    //   `_p`  same-source buckets: 2 `Ema`s over the AD line + 2 over close →
-    //         TWO 2-wide lane groups (the measured status quo).
-    //   `_xp` `Ema` buckets keyed on FORM alone → ONE 4-wide group whose lanes
-    //         read different sources, paying a per-bar `from_array` assembly.
-    // This is the rustc-compiled macro emitter, so `Simd<f64,4>` is real 256-bit
-    // AVX2 — the 128-bit ceiling that killed vector experiments was the OLD
-    // cranelift backend, and does not apply here. Which arm is faster is exactly
-    // what the `fused` benches price; values must be identical across all three,
-    // gated in `cse_kernel_registry_test`.
-    adosc_apo_ppo_p: packed Adosc(s, l), Apo(a1, b1), Ppo(a2, b2);
-    adosc_apo_ppo_xp: xpacked Adosc(s, l), Apo(a1, b1), Ppo(a2, b2);
     // MOM: the pattern that makes `Values::lag_n` observable IN A ROW — the
     // hand pairs bar i with bar i−p, so a steady-loop depth other than `p` is a
     // wrong value, not a state-only artefact. `cmo` carries the same

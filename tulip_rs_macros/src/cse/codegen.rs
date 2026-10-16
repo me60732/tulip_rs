@@ -92,14 +92,7 @@ fn classify_packed(p: &Pattern) -> Classified {
             _ => false,
         };
         if packable {
-            // The experiment: with `xpacked`, `Ema` buckets key on the FORM alone,
-            // so chains reading different sources share one lane group. `Wilders`
-            // and `Sma` keep source-keyed buckets — this axis is the Ema question
-            // only, and it is exactly where the mean/composite magnitudes already
-            // travel as per-lane `invms` values.
-            let cross = p.xpacked && node.kind == Kind::Ema;
-            let key = (node.kind, if cross { usize::MAX } else { node.a });
-            buckets.entry(key).or_default().push(k);
+            buckets.entry((node.kind, node.a)).or_default().push(k);
         }
     }
 
@@ -145,10 +138,7 @@ fn classify_packed(p: &Pattern) -> Classified {
                     group_idx, k0, k1, k2, k3
                 );
             }
-            // Lane 0's REAL source, never the bucket key: under `xpacked` the key's
-            // source component is a sentinel used only to merge buckets, and this
-            // third element is consumed downstream as an index into `p.nodes`.
-            c.groups.push((k0, k1, p.nodes[k0].a));
+            c.groups.push((k0, k1, src));
             // All 4 slots are part of this group; only k0 triggers the statement
             c.slot_group.insert(k0, (group_idx, false));
             c.slot_group.insert(k1, (group_idx, true));
@@ -166,10 +156,7 @@ fn classify_packed(p: &Pattern) -> Classified {
                     group_idx, k0, k1
                 );
             }
-            // Lane 0's REAL source, never the bucket key: under `xpacked` the key's
-            // source component is a sentinel used only to merge buckets, and this
-            // third element is consumed downstream as an index into `p.nodes`.
-            c.groups.push((k0, k1, p.nodes[k0].a));
+            c.groups.push((k0, k1, src));
             c.slot_group.insert(k0, (group_idx, false));
             c.slot_group.insert(k1, (group_idx, true));
             slots = slots[2..].to_vec();
@@ -292,13 +279,8 @@ pub fn expand(patterns: &[Pattern]) -> TokenStream {
     for a in 0..patterns.len() {
         for b in (a + 1)..patterns.len() {
             if patterns[a].nodes == patterns[b].nodes && patterns[a].sinks == patterns[b].sinks {
-                // Allow twin patterns over one arena: scalar/packed, and the
-                // `xpacked` cross-source arm, which differs from its `packed` twin
-                // ONLY in how lanes are grouped — so the arenas are identical by
-                // construction and must be permitted to coexist.
-                if patterns[a].packed == patterns[b].packed
-                    && patterns[a].xpacked == patterns[b].xpacked
-                {
+                // Allow twin scalar+packed patterns (same arena, different packed flag)
+                if patterns[a].packed == patterns[b].packed {
                     panic!(
                         "kernel!: patterns {:?} and {:?} have identical arenas — one template serves both",
                         patterns[a].name, patterns[b].name
@@ -1103,36 +1085,6 @@ fn run_fn(p: &Pattern) -> TokenStream {
                         .collect();
                     group_slots.sort();
                     let w = group_slots.len();
-                    // A group may only splat when every lane reads the SAME source
-                    // slot. Under `xpacked` the lanes can read DIFFERENT sources (the
-                    // AD line vs the close column), so the source becomes a per-lane
-                    // vector assembled each bar — one `from_array` of N scalar reads
-                    // instead of one broadcast. That assembly is exactly the cost the
-                    // cross-source experiment exists to price against the halved
-                    // vector-op count.
-                    let same_src = group_slots
-                        .windows(2)
-                        .all(|s| p.nodes[s[0]].a == p.nodes[s[1]].a);
-                    let src4 = if same_src {
-                        let e = ev(p.nodes[group_slots[0]].a, &idents);
-                        quote! { Simd::<f64, 4>::splat(#e) }
-                    } else {
-                        let e: Vec<_> = group_slots
-                            .iter()
-                            .map(|s| ev(p.nodes[*s].a, &idents))
-                            .collect();
-                        quote! { Simd::<f64, 4>::from_array([#(#e),*]) }
-                    };
-                    let src2 = if same_src {
-                        let e = ev(p.nodes[group_slots[0]].a, &idents);
-                        quote! { Simd::splat(#e) }
-                    } else {
-                        let e: Vec<_> = group_slots
-                            .iter()
-                            .map(|s| ev(p.nodes[*s].a, &idents))
-                            .collect();
-                        quote! { Simd::from_array([#(#e),*]) }
-                    };
                     match w {
                         4 => {
                             let k2 = group_slots[2];
@@ -1142,8 +1094,11 @@ fn run_fn(p: &Pattern) -> TokenStream {
                             let x1 = format_ident!("{}", idents[k1]);
                             let x2 = format_ident!("{}", idents[k2]);
                             let x3 = format_ident!("{}", idents[k3]);
+                            // Splat the bound input local (one load per stream per bar)
+                            // — same source-slot reference rule as the scalar arms.
+                            let srcp = ev(p.nodes[k0].a, &idents);
                             body.push(quote! {
-                                #g = #g.mul_add(#gi_v, #src4 * #gm);
+                                #g = #g.mul_add(#gi_v, Simd::<f64, 4>::splat(#srcp) * #gm);
                                 let #ga = #g.to_array();
                                 let #x0 = #ga[0];
                                 let #x1 = #ga[1];
@@ -1155,8 +1110,11 @@ fn run_fn(p: &Pattern) -> TokenStream {
                             // Lane value binds x{k0}/x{k1} must become the idents
                             let x0 = format_ident!("{}", idents[k0]);
                             let x1 = format_ident!("{}", idents[k1]);
+                            // Splat the bound input local (one load per stream per bar)
+                            // — same source-slot reference rule as the scalar arms.
+                            let srcp = ev(p.nodes[k0].a, &idents);
                             body.push(quote! {
-                                #g = #g.mul_add(#gi_v, #src2 * #gm);
+                                #g = #g.mul_add(#gi_v, Simd::splat(#srcp) * #gm);
                                 let #ga = #g.to_array();
                                 let #x0 = #ga[0];
                                 let #x1 = #ga[1];
