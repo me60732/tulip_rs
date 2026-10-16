@@ -327,6 +327,170 @@ mod tests {
         );
     }
 
+    /// CAN AN AD-LINE EMA SHARE A LANE GROUP WITH A PRICE EMA? Not today, and this
+    /// is the gate that says so. `classify_packed` buckets packables by
+    /// `(Kind, node.a)` — the SOURCE SLOT — and the group step multiplies the
+    /// carry by `Simd::splat(src)`, i.e. one broadcast source read serves every
+    /// lane. So lanes are N recurrences over ONE source, never N sources over one
+    /// recurrence.
+    ///
+    /// The test uses the shape where the question bites: adosc AND apo AND ppo on
+    /// the SAME (12,26), so the arena holds four `Ema` chains — two over the
+    /// volume-driven `Accum` line, two over the interned close (apo's and ppo's
+    /// pair interning to one). If cross-source packing existed, those four would
+    /// form ONE 4-wide group. They do not: two buckets of two, so the plan is
+    /// exactly two 2-wide groups and zero 4-wide.
+    ///
+    /// THIS IS A CAPABILITY SNAPSHOT, NOT A DESIGN RULING. The design is the user's
+    /// own rule (`simd-packing-decided-at-merge-by-shared-depth`): a packing shape
+    /// EXCLUDES magnitudes and the `stream`, and chains from DIFFERENT sources are
+    /// offered once they share >= 2 instructions. The two `Ema` pairs here share the
+    /// whole `mul`+`fma` step, so under that rule they ARE a candidate — and this
+    /// source-keyed bucket is the NOT-YET-IMPLEMENTED half of the rule, not its
+    /// completion. Per that same rule the decision belongs in the planner
+    /// (`Merged::lane_regions`/`lane_formula` in `merge.rs`), never as a per-kind
+    /// rule in the emitter.
+    ///
+    /// Closing it means the group step builds a PER-LANE source vector
+    /// (`from_array` of each lane's own `ev(src)`) instead of splatting one. That
+    /// was built once on the cranelift side and LOST (§6.34: bit-exact, classic
+    /// -22%, dense -11%, rsi_two_periods -15%), because assembling per bar what a
+    /// group already had costs live-`f64` pressure. Whether it pays HERE is open:
+    /// AVX2 makes the merged group one `fma`+`mul` at 256-bit instead of two at
+    /// 128-bit, against the source-assembly cost — so it needs a same-binary A/B,
+    /// which is the only verdict that rule accepts. The assertions below flip on
+    /// purpose when that experiment lands.
+    #[test]
+    fn ad_line_and_price_emas_do_not_share_a_lane_group() {
+        let matched = || {
+            vec![
+                ("Adosc", vec![l(12.0), l(26.0)]),
+                ("Apo", vec![l(12.0), l(26.0)]),
+                ("Ppo", vec![l(12.0), l(26.0)]),
+            ]
+        };
+        let scalar = build(&matched(), false);
+        // The node-level half: matched periods intern apo's pair and ppo's pair to
+        // ONE close chain, so four Ema slots total — two reading the Accum, two
+        // reading the close Input. Different sources, so two buckets.
+        let emas: Vec<usize> = scalar
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.kind == Kind::Ema)
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(
+            emas.len(),
+            4,
+            "2 over the AD line + 1 shared close pair (x2)"
+        );
+        let srcs: Vec<usize> = emas.iter().map(|k| scalar.nodes[*k].a).collect();
+        let mut uniq = srcs.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(
+            uniq.len(),
+            2,
+            "the four Ema slots must span exactly two sources (AD line, close) — \
+             got slots {emas:?} reading {srcs:?}"
+        );
+        for s in &uniq {
+            assert_eq!(
+                srcs.iter().filter(|x| *x == s).count(),
+                2,
+                "each source bucket holds two chains (the 12 and the 26)"
+            );
+        }
+
+        // The packing half. `TokenStream::to_string()` separates EVERY token with a
+        // space (`Simd :: from_array ([st [15usize] , ...])`), so raw source-text
+        // probes silently match nothing — two earlier versions of this test read
+        // meaningless zeros that way. Canonicalise by stripping whitespace FIRST,
+        // then assert, and keep the positive control so a zero is a finding.
+        let adosc = canon(codegen::expand(&[build(&matched(), true)]).to_string());
+        // Positive control, built from its OWN expansion so a 4-wide here can only
+        // come from it: Macd(12,24,9)+Apo(10,20)+Ppo(6,14) are six EMAs over the
+        // ONE interned close Input, so the bucket is six deep and chunking must
+        // emit a 4-wide group.
+        let control = canon(
+            codegen::expand(&[build(
+                &[
+                    ("Macd", vec![l(12.0), l(24.0), l(9.0)]),
+                    ("Apo", vec![l(10.0), l(20.0)]),
+                    ("Ppo", vec![l(6.0), l(14.0)]),
+                ],
+                true,
+            )])
+            .to_string(),
+        );
+        // SELF-TEST of the probe: the control's six same-source EMAs must show up
+        // as a 4-wide group in the SAME canonical text the claim below reads. If
+        // this fails, the probe is broken and the negative proves nothing. (An
+        // earlier version OR'ed this with a `contains` so it could never fail —
+        // a self-test that cannot fail is not a self-test.)
+        assert!(
+            control.contains("Simd::<f64,4>::from_array([st["),
+            "the control shape shows no 4-wide group in canonical text, so this probe \
+             cannot see groups at all"
+        );
+
+        // THE CLAIM: the adosc shape never merges the two buckets into one 4-wide
+        // group. Each source's pair gets its own 2-wide step, so the AD line and
+        // the price line are NOT lanes of one vector op.
+        assert!(
+            !adosc.contains("Simd::<f64,4>::from_array([st["),
+            "a 4-wide group appeared for the adosc+apo+ppo arena — cross-source packing \
+             exists now, so the claim this test pins is superseded"
+        );
+        let wide2 = adosc.matches("Simd::from_array([st[").count();
+        assert_eq!(
+            wide2, 2,
+            "expected exactly two 2-wide lane groups (one per source bucket), found {wide2}"
+        );
+        // WHY cross-source packing is impossible today: the group step broadcasts
+        // ONE source value to every lane, so a group is N recurrences over one
+        // source by construction.
+        assert!(
+            adosc.contains("Simd::splat("),
+            "expected the group step to splat a single source"
+        );
+    }
+
+    /// Strip whitespace so generated-source probes match at all: a `TokenStream`
+    /// rendered with `to_string()` separates EVERY token, `Simd :: from_array (…`.
+    fn canon(src: String) -> String {
+        src.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    /// The slot indices of every lane-group carry hoist in canonical generated
+    /// source. Covers both emitted widths: `Simd::from_array([st[a],st[b]])` and
+    /// `Simd::<f64,4>::from_array([st[a],st[b],st[c],st[d]])`.
+    fn groups_of(canon_src: &str) -> Vec<Vec<usize>> {
+        // Slot literals arrive SUFFIXED (`st[15usize]`), so take the leading
+        // digits. A plain `parse::<usize>()` fails on the suffix and yields an
+        // empty group list — which is how this probe first reported a bogus zero.
+        fn digits(s: &str) -> Option<usize> {
+            s.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse()
+                .ok()
+        }
+        const KEY: &str = "from_array([st[";
+        let mut out = Vec::new();
+        for (_, after) in canon_src.match_indices(KEY) {
+            // `after` is ALREADY the text past the needle — slicing KEY.len() off
+            // it again drops the first slot and silently empties the parse.
+            let rest = &after[..after.find("]]").unwrap_or(after.len())];
+            let slots: Vec<usize> = rest.split("],st[").filter_map(digits).collect();
+            if !slots.is_empty() {
+                out.push(slots);
+            }
+        }
+        out
+    }
+
     /// STOCH on the real arena: %D rolls the SAME BAR's %K output, so no fused
     /// push can carry both — the plan must refuse, and no fused container may
     /// appear in the kernel. This is the shape the user pointed at in
