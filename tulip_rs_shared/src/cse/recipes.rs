@@ -1054,17 +1054,33 @@ pub fn di(options: &[f64]) -> Recipe {
     let zero = r.constant(0.0);
     let dm = r.sub_graph(dm(&[period as f64]), &[0, 1]);
     let (dmup, dmdown) = (dm.outputs[0], dm.outputs[1]);
-    // TR (composed) → composite (sum) ATR, the DI denominator.
-    let tr = r.sub(tr(&[]), &[0, 1, 2]);
-    let atr = r.add(Node::Wilders {
-        src: tr,
-        period,
-        composite: true,
-        feed: false,
-    });
-    r.tag(atr, "atr_sum");
-    let hundred = r.constant(100.0);
-    let atr_inv = r.add(Node::Div { a: hundred, b: atr });
+    // THE SHARED MEAN-ATR CHAIN — the very node `atr`/`natr`/`supertrend` build,
+    // so one `Wilders(tr)` serves the whole directional AND volatility family.
+    //
+    // DI's hand denominator is the running SUM (`AtrState::init_state(…, true)` +
+    // `partial_calc`), and the mean chain is that sum divided by `period` at the
+    // seam (hand `atr.rs`: `if !composite { atr /= period }`), with the steady step
+    // scaled identically: with `inv = 1/p`, `st_mean*mult + s*inv` == `(st_sum*mult
+    // + s)/p`, so `mean == sum/p` holds EVERY bar, not just at the seam.
+    // Therefore `100/sum == (100/p)/mean` and the period cancels into the
+    // CONSTANT — which is what lets DI read the shared chain instead of building a
+    // second `Wilders(tr)` of its own.
+    //
+    // The second chain was not merely redundant, it was BROKEN: a mean slot and a
+    // composite slot over the SAME interned `tr` made the emitter publish the raw
+    // SUM into the mean slot's row (measured 2026-10-16: adx's `atr` mirror grew
+    // 15.2 → 40.4 where the hand prints ~6.1, while `erase` was proven correct with
+    // `invms` 1.0 and 1/14 on the two slots). One form per source, so that shape
+    // cannot arise.
+    //
+    // PARITY COST, stated because it is real: `dm`/`dx`/`adx` rows stay
+    // bit-exact, but these two rows are now RELATIVE (<=1e-12 measured) against the
+    // hand — `(100/p)/mean` rounds differently from `100/sum`. Gate:
+    // `dm_di_dx_adx_shared_p_bit_exact` compares them with `assert_rel_1e12`.
+    let atr = r.sub(atr(&[period as f64]), &[0, 1, 2]);
+    // `100.0 / period` — the factor the SUM-vs-MEAN scale cancels into.
+    let scale = r.constant(100.0 / period as f64);
+    let atr_inv = r.add(Node::Div { a: scale, b: atr });
     r.tag(atr_inv, "atr_inv");
     let up_di = r.add(Node::Mul {
         a: dmup,
@@ -1117,6 +1133,55 @@ pub fn adx(options: &[f64]) -> Recipe {
     r.optional_outputs.push(Sink::iface_lead(dx, period));
     r.optional_outputs.push(Sink::iface_lead(atr_id, period));
     r.optional_outputs.push(Sink::iface_lead(tr, 1));
+    r
+}
+
+/// `Hilbert(hp, ss)` = `ht(ss(hp(real)))` split into I and Q — the last
+/// indicator-side graph, moved here because the graph is ENGINE data: when the
+/// node vocabulary changes this file changes, not the indicator module.
+///
+/// SSA order mirrors the hand's `TState::calc`: the Roofing Filter advances first
+/// (`HighPass` then `SuperSmoother`), then the 7-tap Hilbert kernel reads the
+/// `roofing` stream and yields I (centre tap) and Q (FIR sum). The Roofing Filter
+/// is DECOMPOSED into two nodes rather than one opaque leaf, so the `highpass`
+/// optional has its own SSA id and can share with the standalone `highpass`
+/// indicator.
+///
+/// **NOT REGISTERABLE YET, and the reason is measured, not assumed**: `HighPass`,
+/// `SuperSmoother`, `HtInPhase` and `HtQuadrature` have zero references in
+/// `signature.rs` (the erase vocabulary), `planner.rs` and `codegen.rs`, so
+/// `erase` returns `None` for this arena and no `SIG_*` can ever be built from it.
+/// It registers the day those four kinds land; the graph itself is final.
+pub fn hilberttransform(options: &[f64]) -> Recipe {
+    let ss_period = options[0] as Id;
+    let hp_period = options[1] as Id;
+
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    let highpass = r.add(Node::HighPass {
+        input: real,
+        period: hp_period,
+    });
+    r.tag(highpass, "highpass");
+    let roofing = r.add(Node::SuperSmoother {
+        src: highpass,
+        period: ss_period,
+    });
+    r.tag(roofing, "roofing");
+    let in_phase = r.add(Node::HtInPhase { src: roofing });
+    r.tag(in_phase, "in_phase");
+    let quadrature = r.add(Node::HtQuadrature { src: roofing });
+    r.tag(quadrature, "quadrature");
+
+    r.kind = "hilberttransform";
+    r.options = options.to_vec();
+    // outputs in Info::outputs order: in_phase, quadrature.
+    // optional_outputs in Info::optional_outputs order: roofing, highpass.
+    r.outputs.push(Sink::iface(in_phase));
+    r.outputs.push(Sink::iface(quadrature));
+    r.optional_outputs.push(Sink::iface(roofing));
+    r.optional_outputs.push(Sink::iface(highpass));
     r
 }
 

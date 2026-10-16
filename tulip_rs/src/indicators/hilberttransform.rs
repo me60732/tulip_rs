@@ -30,7 +30,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
-use crate::cse::{Id, Node, Planable, Recipe, Sink};
+use crate::cse::{Planable, Recipe};
 use crate::indicators::{
     highpass::HighPass,
     roofingfilter::{RoofingFilter, State as RfSate},
@@ -310,32 +310,6 @@ impl Planable for HilbertTransform {
     /// (`C0..C3`) stay intrinsic to the *kind* (not in the node), so `Node` keeps
     /// `Eq + Hash` (the CSE key) and the seed rule stays canonical (Decision P).
     fn recipe(options: &[f64]) -> Recipe {
-        let ss_period = options[0] as Id;
-        let hp_period = options[1] as Id;
-
-        let mut r = Recipe::new();
-        let real = r.add(Node::Input { stream: 0 });
-        let highpass = r.add(Node::HighPass {
-            input: real,
-            period: hp_period,
-        });
-        let roofing = r.add(Node::SuperSmoother {
-            src: highpass,
-            period: ss_period,
-        });
-        let in_phase = r.add(Node::HtInPhase { src: roofing });
-        let quadrature = r.add(Node::HtQuadrature { src: roofing });
-
-        // outputs in Info::outputs order: in_phase, quadrature.
-        // optional_outputs in Info::optional_outputs order: roofing, highpass.
-        // No `kind` yet (the filter/HT tail is future work): every sink is an
-        // interface mirror, and the v1 engine executes Input/Ema only — the
-        // plan builds and prints NaN rows, exactly like the retired arena
-        // interpreters did for these kinds.
-        r.outputs.push(Sink::iface(in_phase));
-        r.outputs.push(Sink::iface(quadrature));
-        r.optional_outputs.push(Sink::iface(roofing));
-        r.optional_outputs.push(Sink::iface(highpass));
-        r
+        crate::cse::recipes::hilberttransform(options)
     }
 }

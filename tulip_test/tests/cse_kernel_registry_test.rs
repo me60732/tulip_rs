@@ -2422,35 +2422,65 @@ mod tests {
         assert_eq!(sig, SIG_dm_di_dx_adx_shared_p, "hub arena drifted");
     }
 
-    /// The claim the ADX port rests on: ONE arena carries BOTH Wilders forms.
-    /// `di`'s denominator is the raw sum (`composite: true`, hand `partial_calc`)
-    /// and `adx`'s smoothing is the mean — over the SAME interned `tr` node.
-    /// Proof without naming `K_WILDERS` (it is not re-exported): two slots that
-    /// agree on kind and source but differ on `b` can only be that pair.
+    /// The claim the ADX port rests on: ONE arena carrying BOTH Wilders forms,
+    /// each published by `erase` as a SOURCE SCALE (`invms`), not as a distinct
+    /// node kind. `K_WILDERS` is 4 — the value `planner::Kind::Wilders::tag()`
+    /// must equal and the `*_sig_derived` gates enforce, so scanning the tag here
+    /// is scanning the same fact the emitter uses.
+    ///
+    /// The forms do NOT share a source any more: `di`'s denominator moved onto the
+    /// shared MEAN ATR chain (the period cancels into its `100/p` constant), so the
+    /// composites left are `dm`'s `+DM`/`−DM` accumulators over their own
+    /// mutual-exclusion nodes. That removal is deliberate — a composite and a mean
+    /// over the SAME `tr` made the emitter publish the sum into the mean slot's row
+    /// (`adx_atr_mirror_is_the_shared_mean_chain_within_1e12` gates the fixed
+    /// shape). The defect behind that is STILL OPEN for any future arena that
+    /// re-pairs them; this test proves the magnitudes are published correctly, not
+    /// that the emitter reads them per slot.
     #[test]
     fn dm_di_dx_adx_shared_p_carries_both_wilders_forms() {
+        const K_WILDERS: u8 = 4;
         let req = hub_req();
         let (_a, sig, vals, _) = erase_request(&req).unwrap();
-        let n = sig.len as usize;
-        let mut pair = None;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if sig.kinds[i] == sig.kinds[j] && sig.a[i] == sig.a[j] && sig.b[i] != sig.b[j] {
-                    pair = Some((i, j));
+        let slots: Vec<usize> = (0..sig.len as usize)
+            .filter(|k| sig.kinds[*k] == K_WILDERS)
+            .collect();
+        let composite: Vec<usize> = slots.iter().copied().filter(|k| sig.b[*k] == 1).collect();
+        let mean: Vec<usize> = slots.iter().copied().filter(|k| sig.b[*k] == 0).collect();
+        assert!(!composite.is_empty(), "hub has no COMPOSITE Wilders slot");
+        assert!(!mean.is_empty(), "hub has no MEAN Wilders slot");
+
+        let period = HP as f64;
+        let want_mult = (period - 1.0) / period;
+        for k in &composite {
+            assert_eq!(vals.invms[*k], 1.0, "composite slot {k} folds the raw sum");
+            assert_eq!(vals.mults[*k], want_mult, "composite slot {k} decay");
+        }
+        for k in &mean {
+            assert!(
+                (vals.invms[*k] - 1.0 / period).abs() <= f64::EPSILON,
+                "mean slot {k} carries 1/period, got {}",
+                vals.invms[*k]
+            );
+            assert_eq!(vals.mults[*k], want_mult, "mean slot {k} decay");
+        }
+
+        // No two Wilders may share a source while differing in form — that is the
+        // shape the emitter still mishandles, so the hub must not contain it.
+        for i in &slots {
+            for j in slots.iter() {
+                if j <= i {
+                    continue;
+                }
+                if sig.a[*i] == sig.a[*j] {
+                    assert_eq!(
+                        sig.b[*i], sig.b[*j],
+                        "slots {i}/{j} share a source with different Wilders forms \
+                         — the emitter defect would fire"
+                    );
                 }
             }
         }
-        let (m, c) = pair.expect("mean and composite Wilders over one shared source");
-        let (sum, mean) = if sig.b[m] == 1 { (m, c) } else { (c, m) };
-        // The composite slot's source scale is published as UNITY — that is the
-        // whole difference from the mean form, carried as a VALUES magnitude.
-        assert_eq!(vals.invms[sum], 1.0, "composite must fold the raw sum");
-        assert!(
-            vals.invms[mean] < 1.0 && vals.invms[mean] > 0.0,
-            "mean slot carries 1/period, got {}",
-            vals.invms[mean]
-        );
-        assert_eq!(vals.mults[sum], vals.mults[mean], "same decay multiplier");
     }
 
     /// Primary rows bit-exact against all FOUR hand indicators. `Dm` is called
@@ -2476,8 +2506,26 @@ mod tests {
 
             assert_bits(row_for(&out, 0, true, 0), &dm[0], "hub: +DM");
             assert_bits(row_for(&out, 0, true, 1), &dm[1], "hub: -DM");
-            assert_bits(row_for(&out, 1, true, 0), &di[0], "hub: +DI");
-            assert_bits(row_for(&out, 1, true, 1), &di[1], "hub: -DI");
+            // DI's denominator is the SHARED MEAN ATR chain now (the period
+            // cancels into the `100/p` constant), so these two rows are RELATIVE,
+            // not bit-exact: `(100/p)/meanATR` and the hand's `100/ΣATR` are the
+            // same real value, rounded differently. DX/ADX do not read ATR at all
+            // (DX is a ratio of the two DM sums) so they stay bit-exact.
+            for (idx, (label, want)) in [("hub: +DI", &di[0]), ("hub: -DI", &di[1])]
+                .into_iter()
+                .enumerate()
+            {
+                let got = row_for(&out, 1, true, idx);
+                assert_eq!(got.len(), want.len(), "{label}: row length");
+                let mut max_rel = 0.0f64;
+                for (g, w) in got.iter().zip(want.iter()) {
+                    let scale = g.abs().max(w.abs()).max(1.0);
+                    max_rel = max_rel.max((g - w).abs() / scale);
+                }
+                eprintln!("{label}: max relative error {max_rel:e}");
+                assert!(max_rel <= 1e-12, "{label}: max rel {max_rel:e} > 1e-12");
+                assert_rel_1e12(got, want, label);
+            }
             assert_bits(row_for(&out, 2, true, 0), &dx[0], "hub: DX");
             assert_bits(row_for(&out, 3, true, 0), &adx[0], "hub: ADX");
         }
@@ -2507,6 +2555,74 @@ mod tests {
             for (i, (rs, rp)) in scalar.iter().zip(packed.iter()).enumerate() {
                 assert_bits(rs.as_slice(), rp.as_slice(), &format!("hub packed row {i}"));
             }
+        }
+    }
+
+    /// THE ATR-MIRROR PARITY MEASUREMENT. Hand `adx.rs` publishes its optional
+    /// `atr` as `corrected(atr, inv_multiplier)` — the COMPOSITE running SUM
+    /// scaled by 1/p — while this engine's `adx` recipe publishes the MEAN
+    /// `Wilders(tr)` chain (the very node `atr`/`natr`/`supertrend` build). Those
+    /// are equal in real arithmetic (mean seed = sum/p; and scaling the composite
+    /// step `c = c*mult + s` by inv gives `(c*inv)*mult + s*inv`, the mean step
+    /// exactly) but NOT bit-identical: the mean divides by `p` at the seam where
+    /// the hand multiplies by `1/p`, so the two drift by ULPs.
+    ///
+    /// This is the gate that decides whether adx may share one ATR chain with the
+    /// rest of the family, so it MEASURES the distance rather than trusting the
+    /// comment: the mirror must be within 1e-12 of the HAND ADX row, and — the
+    /// sharing claim itself — bit-identical to the standalone hand `Atr` row.
+    #[test]
+    fn adx_atr_mirror_is_the_shared_mean_chain_within_1e12() {
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+            let three = [hi.as_slice(), lo.as_slice(), base.as_slice()];
+
+            // adx's optionals ON, read THROUGH THE HUB (a lone `Adx` request is
+            // not a registered pattern — the engine's unit is the merge). Optional
+            // enable is a runtime want-bit, never an arena difference, so this is
+            // still SIG_dm_di_dx_adx_shared_p. adx is request 3 of [dm,di,dx,adx].
+            let req = Request::new()
+                .add(Dm::recipe(&[HP]), None)
+                .add(Di::recipe(&[HP]), None)
+                .add(Dx::recipe(&[HP]), None)
+                .add(Adx::recipe(&[HP]), Some(&[true, true, true]));
+            let out = run_registered(&req, &three).expect("hub template");
+            let (hand, _) = Adx::indicator(&three, &[HP], Some(&[true, true, true])).unwrap();
+            assert_bits(row_for(&out, 3, true, 0), &hand[0], "adx primary");
+            assert_bits(row_for(&out, 3, false, 0), &hand[1], "adx dx mirror");
+            // The mirror in question, and the hand's own tr row.
+            assert_bits(row_for(&out, 3, false, 2), &hand[3], "adx tr mirror");
+
+            let (atr_hand, _) =
+                tulip_rs::indicators::atr::Atr::indicator(&three, &[HP], None).unwrap();
+            // THE SHARING CLAIM, measured: adx's atr mirror IS the standalone ATR
+            // chain, byte-for-byte — which is what lets one arena serve the whole
+            // family. It is also the row that was the raw SUM before DI moved onto
+            // the shared chain, so this assertion is the regression gate for that
+            // defect.
+            assert_bits(
+                row_for(&out, 3, false, 1),
+                &atr_hand[0],
+                "adx's atr mirror is the SAME rows as Atr::indicator",
+            );
+            // And within 1e-12 of the HAND ADX row, which publishes `sum × inv`
+            // rather than the mean chain (`atr.rs:60-62` divides only when
+            // `!composite`) — same value, different rounding.
+            assert_rel_1e12(
+                row_for(&out, 3, false, 1),
+                &hand[2],
+                "adx atr mirror (engine mean chain vs hand sum*inv)",
+            );
+            assert_bits(
+                row_for(&out, 3, false, 1),
+                &atr_hand[0],
+                "adx's atr mirror is the SAME rows as Atr::indicator",
+            );
         }
     }
 }

@@ -289,15 +289,24 @@ mod tests {
         );
     }
 
-    /// The hub's packed twin must ACTUALLY BUILD a lane group. `di`'s COMPOSITE
-    /// (raw-sum) ATR-sum and `adx`'s composed MEAN ATR are `Wilders` over the same
-    /// interned `tr` node, so the `(kind, source)` bucketing puts both FORMS in one
-    /// group — legal only because the group step reads `vals.invms[k]` per lane.
-    /// This assertion is on the EXPANSION, not on runtime equality: without it the
-    /// packed-vs-scalar A/B in `cse_kernel_registry_test` would pass vacuously on a
-    /// pattern that silently stayed scalar.
+    /// The hub's packed twin builds NO lane group, and that is the measured state
+    /// of this shape, not an oversight: `classify_packed` buckets by
+    /// `(kind, source)` and every `Wilders` in the hub now has its own source —
+    /// `+DM`/`−DM` over their own mutual-exclusion nodes, the mean ATR over `tr`,
+    /// the ADX smoothing over `dx`. Nothing shares a source, so there is no
+    /// fan-out to pack. The hub's 4.6x is pure CSE DEDUP.
+    ///
+    /// RETRACTION this test now encodes: an earlier revision asserted the OPPOSITE
+    /// (`!groups.is_empty()`), because `di`'s COMPOSITE ATR-sum and `adx`'s MEAN
+    /// ATR were both `Wilders` over the same interned `tr`. That pair was not a
+    /// capability — it was the emitter defect (the mean slot's published row came
+    /// out as the raw SUM, measured at 15.2→40.4 where the hand prints ~6.1). With
+    /// `di` moved onto the shared mean chain the shape is gone. If this test ever
+    /// FAILS because a group appeared, that means a same-source mixed-form pair is
+    /// back and the defect is live again — check the published row against the hand
+    /// before believing the group is a win.
     #[test]
-    fn hub_packed_group_actually_builds() {
+    fn hub_packed_twin_builds_no_lane_group() {
         let hub = || {
             vec![
                 ("Dm", vec![l(14.0)]),
@@ -312,19 +321,10 @@ mod tests {
             .filter(|g| packed.contains(g.as_str()))
             .collect();
         assert!(
-            !groups.is_empty(),
-            "packed hub emitted no lane-group multiplier hoist — it stayed scalar, \
-             so the packed-vs-scalar A/B gate would prove nothing about mixed-form packing"
+            groups.is_empty(),
+            "packed hub built lane groups {groups:?} — a same-source Wilders pair is \
+             back, which is the shape the emitter mishandles (see this test's doc)",
         );
-
-        let scalar = codegen::expand(&[build(&hub(), false)]).to_string();
-        for g in &groups {
-            assert!(
-                !scalar.contains(g.as_str()),
-                "the scalar twin unexpectedly built group {g}: the discriminator is not \
-                 packing-specific"
-            );
-        }
     }
 
     /// STOCH on the real arena: %D rolls the SAME BAR's %K output, so no fused
