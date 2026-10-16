@@ -2176,20 +2176,24 @@ mod tests {
         }
     }
 
-    /// The MIXED-INPUT arena, structurally: six `Ema`s in one arena, TWO of them
-    /// chained onto the volume-driven `Accum` and FOUR onto the close `Input`.
-    /// The assertion that matters is the SOURCE each one names — this is the
-    /// guard against the stream-slot conflation class: `Apo`/`Ppo`'s own recipes
-    /// bind price to `Input{0}`, but here they must read `Input{2}`, because in
-    /// an OHLC arena slot 0 is HIGH.
+    /// THE CROSS-CONVENTION CO-REQUEST, as THREE REAL RECIPES. This is the arena
+    /// the registry used to refuse and hand-author as one composing recipe
+    /// (`recipes::adosc_apo_ppo`, now deleted). The assertion that matters is the
+    /// SOURCE each price chain names: `Apo`/`Ppo` bind price to `Input{0}` in
+    /// THEIR OWN slots, and this arena's slot 0 is HIGH (adosc is OHLCV-shaped),
+    /// so `merge`'s column-declared path must remap them onto arena stream 2 —
+    /// the Close node. If the remap ever regressed to positional, the four price
+    /// EMAs would read stream 0 and this gate would fail on `on_close`.
     #[test]
     fn adosc_apo_ppo_sig_derived() {
         use tulip_rs::cse::kernel::registry::SIG_adosc_apo_ppo;
         use tulip_rs::cse::signature::{K_ACCUM, K_EMA, K_INPUT, K_SUB, K_WHERELE};
         // adosc(3,10) · apo(12,26) · ppo(6,14) — all distinct, no accidental dedup.
-        const OPTS: [f64; 6] = [3.0, 10.0, 12.0, 26.0, 6.0, 14.0];
-        let req = Request::new().add(recipes::adosc_apo_ppo(&OPTS), None);
-        let (_a, sig, vals, _) = erase_request(&req).unwrap();
+        let req = Request::new()
+            .add(Adosc::recipe(&[3.0, 10.0]), None)
+            .add(Apo::recipe(&[12.0, 26.0]), None)
+            .add(Ppo::recipe(&[6.0, 14.0]), None);
+        let (_a, sig, vals, owners) = erase_request(&req).unwrap();
         assert_eq!(sig, SIG_adosc_apo_ppo, "mixed arena drifted from merge");
         let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
         assert_eq!(count(K_EMA), 6, "2 over the ad line + 4 over close");
@@ -2218,25 +2222,36 @@ mod tests {
         assert_eq!(
             on_close.len(),
             4,
-            "apo + ppo read the CLOSE column (stream 2)"
+            "apo + ppo read the CLOSE column (stream 2) — the column-declared remap"
         );
         assert_eq!(emas.len(), 6, "every EMA is accounted for");
 
-        // Primary leads, one per indicator, from each hand's own facts.
-        assert_eq!(vals.sink_lead[0], 9, "adosc lead = 10 − 1");
-        assert_eq!(vals.sink_lead[1], 25, "apo lead = 26 − 1");
-        assert_eq!(vals.sink_lead[2], 14, "ppo lead = 14");
+        // Primary leads, one per indicator, found by OWNER not by position: three
+        // real recipes also carry their optional mirrors in the arena (want=false
+        // rows), so sink positions are a property of the merge, not of the request.
+        let lead_of = |req_idx: usize| -> u32 {
+            let s = owners
+                .iter()
+                .position(|o| o.req == req_idx && o.primary)
+                .unwrap_or_else(|| panic!("no primary sink for request {req_idx}"));
+            vals.sink_lead[s]
+        };
+        assert_eq!(lead_of(0), 9, "adosc lead = 10 − 1");
+        assert_eq!(lead_of(1), 25, "apo lead = 26 − 1");
+        assert_eq!(lead_of(2), 14, "ppo lead = 14");
     }
 
     /// ADOSC + APO + PPO in one arena, bit-exact against the three HANDS — each
     /// called with its own arity (`Adosc` gets OHLCV, `Apo`/`Ppo` get close
-    /// only). This is the test that would fail if the composing recipe had
-    /// bound apo/ppo to `Input{0}`: their rows would come out computed over the
-    /// HIGH column while every `SIG_*` check still passed.
+    /// only). This is the test that would fail if the co-request had bound apo/ppo
+    /// to stream 0: their rows would come out computed over the HIGH column while
+    /// every `SIG_*` check still passed.
     #[test]
     fn adosc_apo_ppo_bit_exact() {
-        const OPTS: [f64; 6] = [3.0, 10.0, 12.0, 26.0, 6.0, 14.0];
-        let req = Request::new().add(recipes::adosc_apo_ppo(&OPTS), None);
+        let req = Request::new()
+            .add(Adosc::recipe(&[3.0, 10.0]), None)
+            .add(Apo::recipe(&[12.0, 26.0]), None)
+            .add(Ppo::recipe(&[6.0, 14.0]), None);
         for s in [
             wiggle(),
             series(680, |i| 100.0 + i as f64 * 0.05),
@@ -2247,15 +2262,31 @@ mod tests {
             let vol = volume(s.len());
             let ohlcv = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
             let out = run_registered(&req, &ohlcv).expect("mixed arena registered");
-            assert_eq!(out.rows.len(), 3, "three primary rows");
 
             // Each hand on ITS OWN input array.
             let (os, _) = Adosc::indicator(&ohlcv, &[3.0, 10.0], None).unwrap();
             let (ap, _) = Apo::indicator(&[s.as_slice()], &[12.0, 26.0], None).unwrap();
             let (pp, _) = Ppo::indicator(&[s.as_slice()], &[6.0, 14.0], None).unwrap();
-            assert_bits(&out.rows[0], &os[0], "mixed arena: adosc row");
-            assert_bits(&out.rows[1], &ap[0], "mixed arena: apo row");
-            assert_bits(&out.rows[2], &pp[0], "mixed arena: ppo row");
+            assert_bits(row_for(&out, 0, true, 0), &os[0], "mixed arena: adosc row");
+            assert_bits(row_for(&out, 1, true, 0), &ap[0], "mixed arena: apo row");
+            assert_bits(row_for(&out, 2, true, 0), &pp[0], "mixed arena: ppo row");
+
+            // The optional mirrors are in the arena but NOT wanted, so they must
+            // come back empty — the runtime want-bit model, asserted rather than
+            // assumed (this is what `rows.len()` grew to when three real recipes
+            // replaced the one hand-composed recipe that declared no optionals).
+            let disabled = out
+                .owners
+                .iter()
+                .zip(out.rows.iter())
+                .filter(|(o, _)| !o.primary)
+                .count();
+            assert!(disabled > 0, "three real recipes carry optional mirrors");
+            for (o, r) in out.owners.iter().zip(out.rows.iter()) {
+                if !o.primary {
+                    assert!(r.is_empty(), "disabled optional {o:?} must be empty");
+                }
+            }
         }
     }
 

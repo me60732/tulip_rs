@@ -2576,12 +2576,14 @@ fn bench_fused_assets8(c: &mut Criterion) {
     // `Ema` is literally the same arm a price-source one uses — no new
     // machinery, so any difference here is the engine, not a special case.
     //
-    // Authored as ONE recipe, not three co-requests, because stream slots are
-    // positional: `Apo`/`Ppo` bind price to `Input{0}` while this arena's slot 0
-    // is HIGH, so a naive co-request would silently compute APO/PPO over the
-    // high column. `recipes::adosc_apo_ppo` inlines the price chains onto
-    // `Input{2}` so the binding is explicit — and `adosc_apo_ppo_bit_exact`
-    // proves it by calling each hand on its OWN input array.
+    // THREE REAL CO-REQUESTS, not one composing recipe. This arena used to be
+    // hand-authored (`recipes::adosc_apo_ppo`, now deleted) because stream slots
+    // were positional: `Apo`/`Ppo` bind price to `Input{0}` while this arena's
+    // slot 0 is HIGH, so a naive co-request silently computed APO/PPO over the
+    // high column and every `SIG_*` check stayed green. That hazard is closed by
+    // `merge`'s column-declared path — all three recipes declare their columns,
+    // so apo's slot 0 is remapped onto the arena's CLOSE node — proven by
+    // `adosc_apo_ppo_bit_exact`, which calls each hand on its own input array.
     //
     // Periods are all DISTINCT (adosc 3/10, apo 12/26, ppo 6/14) so nothing
     // dedups by accident: `K_EMA` is 6 (pinned by `adosc_apo_ppo_sig_derived`),
@@ -2590,9 +2592,11 @@ fn bench_fused_assets8(c: &mut Criterion) {
     // separate hand passes.
     use tulip_rs::indicators::ad::Ad;
     use tulip_rs::indicators::adosc::Adosc;
-    const ADOSC_APO_PPO: [f64; 6] = [3.0, 10.0, 12.0, 26.0, 6.0, 14.0];
     let (_ax8, sig_ax8, vals_ax8, _an8) = erase_request(
-        &Request::new().add(tulip_rs::cse::recipes::adosc_apo_ppo(&ADOSC_APO_PPO), None),
+        &Request::new()
+            .add(Adosc::recipe(&[3.0, 10.0]), None)
+            .add(Apo::recipe(&[12.0, 26.0]), None)
+            .add(Ppo::recipe(&[6.0, 14.0]), None),
     )
     .unwrap();
     let (_d8, sig_d8, vals_d8, _dn8) =

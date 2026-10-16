@@ -153,19 +153,25 @@ tulip_rs_macros::kernel! {
     // failed measurably on; here it costs no new machinery, because a
     // derived-source Ema is the same arm a price-source one uses.
     adosc_s_l: Adosc(s, l);
-    // NOT registered: a cross-convention co-request. Stream slots are purely
-    // POSITIONAL and nothing in `merge`/`erase` checks that two recipes agree on
-    // what `Input{i}` means — price recipes (`apo`/`ppo`/`ema`/`sma`) bind
-    // `Input{0}=close`, OHLC recipes (`ultosc`/`mass`/`atr`/`ad`/`adosc`) bind
-    // `Input{0}=high`. Every pattern above pairs within ONE convention, so a
-    // mismatch has never had a chance to fire. `Adosc + Apo + Ppo` as three
-    // recipes would intern apo/ppo's "close" onto the adosc HIGH column: a
-    // silently wrong arena that still passes every `SIG_*` equality test,
-    // because the drift is in the recipe, not the erase.
-    // The mixed-input shape the old JIT lost on is therefore authored as ONE
-    // recipe that owns the arena (inline the apo/ppo chain over `Input{2}`),
-    // exactly as `stochrsi` inlines the rsi chain instead of co-requesting it.
-    adosc_apo_ppo: AdoscApoPpo(s, l, a1, b1, a2, b2);
+    // THE CROSS-CONVENTION CO-REQUEST — the shape this registry used to refuse.
+    // It used to be authored as ONE hand-owning recipe (`AdoscApoPpo`, which
+    // inlined the apo/ppo chains over `Input{2}`) because stream slots were
+    // purely POSITIONAL: price recipes bind `Input{0}=close` while OHLC recipes
+    // bind `Input{0}=high`, so three co-requested recipes would have interned
+    // apo/ppo's close onto adosc's HIGH column — a silently wrong arena that
+    // still passed every `SIG_*` equality test, because the drift was in the
+    // recipe, not the erase.
+    // That hazard is gone by CONSTRUCTION, not by care: all three recipes now
+    // declare columns (`adosc` = hlcvol, `apo`/`ppo` = price), so `merge` takes
+    // the `slot_maps` path and remaps each recipe's slots into the sorted column
+    // union {High:0, Low:1, Close:2, Volume:3}. apo's `Input{0}` therefore lands
+    // on arena stream 2 = Close — the exact binding the composing recipe spelled
+    // by hand, now derived. `adosc_apo_ppo_sig_derived` pins it: 6 `Ema`s, 4
+    // `Input`s, ONE `Accum`, and all four price EMAs reading the stream-2 node.
+    // The hand rival is three separate passes (adosc on OHLCV, apo and ppo on
+    // close), with periods all DISTINCT (3/10, 12/26, 6/14) so nothing dedups by
+    // accident.
+    adosc_apo_ppo: Adosc(s, l), Apo(a1, b1), Ppo(a2, b2);
     // MOM: the pattern that makes `Values::lag_n` observable IN A ROW — the
     // hand pairs bar i with bar i−p, so a steady-loop depth other than `p` is a
     // wrong value, not a state-only artefact. `cmo` carries the same
