@@ -2390,6 +2390,69 @@ pub fn smaenvelope(options: &[f64]) -> Recipe {
     r
 }
 
+/// `OBV` — On-Balance Volume, hand `obv.rs`: `if close > prev_close { obv += volume } else
+/// if close < prev_close { obv -= volume }` — and NOTE THERE IS NO `else`: on an equal
+/// close the carry is left EXACTLY as it was. Columns are `cvol()`, the hand's
+/// `Info.inputs = ["close", "volume"]`.
+///
+/// Spelled as the difference of two `WhereGt` selects, NOT as a guard:
+/// `delta = WhereGt{close, prev, vol} - WhereGt{prev, close, vol}` gives `+vol`, `-vol`,
+/// `0.0` for the three cases, and both compares are false under NaN so a NaN close yields
+/// `0.0` -- which is what the hand does, since `NaN > x` and `NaN < x` are both false.
+/// A single `Where*` cannot express three-way selection, and `WhereLt` would be wrong on
+/// its face: its value arm is `>=` (`if a < b { 0.0 } else { t }`, codegen.rs:1455-1464),
+/// so it takes the value on the `a == b` boundary the hand leaves alone.
+///
+/// THE ACCUMULATOR IS `Accum{a: delta, b: Const(1.0)}`, and the `1.0` is load-bearing for
+/// bit-exactness, not filler: `Accum` is `carry = a.mul_add(b, carry)`, so with `b = 1.0`
+/// the product is exact and the step reduces to `RN(delta + carry)` -- the hand's plain
+/// `+=`/`-=`. Multiplying by `+1.0`/`-1.0` is exact in IEEE, so `delta` is `+vol` or
+/// `-vol` with no rounding of its own, and `carry` is never poisoned by the multiply.
+///
+/// Publish lead = 1: `min_data = 2` (`obv.rs:89`), default `output_length`, and `indicator`
+/// seeds `prev_close = close[0]` then cycles `&inputs[0][1..]` -- bar 0 is consumed by the
+/// seed and never printed. The `Lag{close, 1}` node composes to lead 1 on its own, so the
+/// sink is `Sink::iface` with no explicit lead.
+///
+/// SHARED WITH THE `tr` FAMILY: `tr_nodes` builds `Lag{src: close, n: 1}` over `hlc()`,
+/// this builds the same node over `cvol()`. Because `intern` keys on the whole `Node` AFTER
+/// the column-declared remap (`merge.rs:864-874`), a co-requested `Tr + Obv` has ONE
+/// prev-close lag despite the two recipes disagreeing about which stream index `close` is
+/// (2 versus 0). That is the column law working, gated in the POSITIVE direction for the
+/// first time -- every prior test pinned only the rejection half.
+pub fn obv(_options: &[f64]) -> Recipe {
+    let mut r = Recipe::cvol();
+    let cl = r.add(Node::Input { stream: 0 });
+    r.tag(cl, "close");
+    let vol = r.add(Node::Input { stream: 1 });
+    r.tag(vol, "volume");
+    let prev = r.add(Node::Lag { src: cl, n: 1 });
+    r.tag(prev, "prev_close");
+    let up = r.add(Node::WhereGt {
+        a: cl,
+        b: prev,
+        t: vol,
+    });
+    r.tag(up, "up_vol");
+    let down = r.add(Node::WhereGt {
+        a: prev,
+        b: cl,
+        t: vol,
+    });
+    r.tag(down, "down_vol");
+    let delta = r.add(Node::Sub { a: up, b: down });
+    r.tag(delta, "obv_delta");
+    let one = r.constant(1.0);
+    let line = r.add(Node::Accum { a: delta, b: one });
+    r.tag(line, "obv");
+
+    r.kind = "obv";
+    r.options = Vec::new();
+    r.tail_inputs = vec![line];
+    r.outputs.push(Sink::iface(line));
+    r
+}
+
 /// `VOSC(s, l)` — the hand's `calc((current, short, long))` calls
 /// `short_state.calc((current, short))` and `long_state.calc((current, long))`, i.e.
 /// TWO `SmaState` windows over the SAME series (`volume`) with different sizes: `s`

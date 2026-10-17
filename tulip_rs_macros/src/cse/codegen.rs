@@ -1080,8 +1080,26 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 used_streams.push(stream);
             }
         }
-        // SuperTrend has a third input (close)
-        if node.kind == Kind::SuperTrend {
+        // A third child edge. SuperTrend's close was the only kind handled here,
+        // but `erase` also puts a CHILD in the 4th slot for the four selects (their
+        // selected value `t` — `signature.rs:452 (K_WHEREGE, a, b, t)`) and for `Fma`
+        // (its addend, `:522 (K_FMA, x, y, z)`), and the renderer's own arms demand it
+        // (`node.c.expect("WhereLt: t operand")`, `node.c.expect("Fma: c operand")`).
+        // A column that reaches the arena ONLY through that slot therefore got read by
+        // the steady loop without ever being hoisted: `recipes::obv` is the first shape
+        // to hit it (its volume is the `t` of both selects), and it failed to compile
+        // with `s1` undeclared — `s3` once `tr` widened the arena to four columns. The
+        // index differed because the slot is the column's RANK, which is exactly what
+        // the column-declared remap assigns.
+        if matches!(
+            node.kind,
+            Kind::SuperTrend
+                | Kind::WhereGe
+                | Kind::WhereGt
+                | Kind::WhereLe
+                | Kind::WhereLt
+                | Kind::Fma
+        ) {
             if let Some(c) = node.c {
                 let c_is_input = p
                     .nodes

@@ -3025,6 +3025,172 @@ mod tests {
         }
     }
 
+    /// TR + OBV: the column law proven in the ACCEPTANCE direction. `tr` binds close to
+    /// stream 2 (`hlc()`), `obv` binds close to stream 0 (`cvol()`) -- the same COLUMN under
+    /// two different indices. The merge renumbers by column before interning, so the arena
+    /// must hold ONE `Lag{close, 1}`.
+    ///
+    /// Derived before running: 4 merged `Input`s (H,L,C,V); tr contributes `range`, `h_pc`,
+    /// `l_pc` (3 Sub), 2 Abs, 2 Max; obv contributes 2 `WhereGt`, its own `delta` Sub, one
+    /// `Const(1.0)`, one `Accum`. Total 4+1+4+2+2+2+1+1 = 17 with K_LAG = 1. Had the two
+    /// closes NOT interned: K_LAG = 2 and 18 nodes. Every earlier test of the column law
+    /// pinned the REJECTION half (merge panics when a recipe declares no columns); this is
+    /// the acceptance half, and it is the half that makes cross-convention pairings legal.
+    #[test]
+    fn tr_obv_shared_interns_the_prev_close_lag_across_column_subsets() {
+        use tulip_rs::cse::kernel::registry::SIG_tr_obv_shared;
+        use tulip_rs::cse::signature::{
+            K_ABS, K_ACCUM, K_CONST, K_INPUT, K_LAG, K_MAX, K_SUB, K_WHEREGT,
+        };
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::tr(&[]), None)
+            .add(tulip_rs::cse::recipes::obv(&[]), None);
+        let (arena, sig, _v, _owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_tr_obv_shared, "hub arena drifted");
+
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        assert_eq!(
+            count(K_LAG),
+            1,
+            "prev-close lag must be SHARED across the two column subsets"
+        );
+        let got = (
+            count(K_INPUT),
+            count(K_LAG),
+            count(K_SUB),
+            count(K_ABS),
+            count(K_MAX),
+            count(K_WHEREGT),
+            count(K_CONST),
+            count(K_ACCUM),
+        );
+        assert_eq!(
+            got,
+            (4, 1, 4, 2, 2, 2, 1, 1),
+            "arena observed input/lag/sub/abs/max/wheregt/const/accum = {got:?}"
+        );
+        assert_eq!(
+            arena.nodes.len(),
+            17,
+            "17 nodes if the closes interned, 18 if not"
+        );
+    }
+
+    /// Bit-exact against both hands on the hub, plus the lone `obv_n` floor, on shapes that
+    /// each pin a DIFFERENT arm of the hand's three-way branch:
+    /// * monotone up / down -- the `+= volume` and `-= volume` arms;
+    /// * a PLATEAU (close repeats) -- the arm with NO `else`: the hand leaves the carry
+    ///   untouched, and `0 - 0 = 0` is the only thing that can match it. A recipe that
+    ///   treated equal closes as "down" would walk the line away from the hand here and
+    ///   nowhere else, so this shape is the gate for that mistake;
+    /// * FLAT -- the whole row must be 0.0, which is also the non-vacuity check for the
+    ///   plateau case (a frozen carry looks identical to a zero carry on flat data alone).
+    /// The NaN block is the float-class sweep the finite matrices cannot make. What it
+    /// pins CHANGED when the run contradicted me: I first wrote that a NaN close freezes
+    /// the line for the rest of the series, and the HAND REFUTED IT -- `prev_close = close`
+    /// is assigned unconditionally, so a NaN suppresses exactly two bars (the NaN bar, then
+    /// the bar whose `prev_close` is NaN) and then resumes. The engine matches it because
+    /// `Lag` re-reads the stream rather than carrying `prev`, so it suppresses the same two
+    /// rows by construction. `run_registered` on the lone floor only -- pairing it with
+    /// `tr` here would also be testing `Max`'s NaN select, a different claim.
+    #[test]
+    fn tr_obv_bit_exact_on_hub_and_floors() {
+        use tulip_rs::indicators::obv::Obv;
+        use tulip_rs::indicators::tr::Tr;
+
+        for (name, s) in [
+            ("up", series(400, |i| i as f64)),
+            ("down", series(400, |i| 400.0 - i as f64)),
+            ("plateau", series(400, |i| 100.0 + ((i / 3) % 2) as f64)),
+            ("flat", series(400, |_| 100.0)),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let four = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let hlc = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let cv = [s.as_slice(), vol.as_slice()];
+
+            let hub = Request::new()
+                .add(tulip_rs::cse::recipes::tr(&[]), None)
+                .add(tulip_rs::cse::recipes::obv(&[]), None);
+            let out = run_registered(&hub, &four).expect("tr + obv registered");
+            let (t, _) = Tr::indicator(&hlc, &[], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &t[0],
+                &format!("tr row [{name}]"),
+            );
+            let (o, _) = Obv::indicator(&cv, &[], None).unwrap();
+            let eng = row_for(&out, 1, true, 0);
+            assert_bits(eng, &o[0], &format!("obv row [{name}]"));
+
+            // Same values out of the lone floor kernel (a different code path).
+            let floor = Request::new().add(tulip_rs::cse::recipes::obv(&[]), None);
+            let out = run_registered(&floor, &cv).expect("obv floor registered");
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &o[0],
+                &format!("obv row [{name}] (floor)"),
+            );
+
+            if name == "plateau" {
+                // NON-VACUITY for the equal-close arm: the row must actually contain both
+                // a change and a no-change, or the shape never reached what it claims to
+                // test.
+                let frozen = o[0].windows(2).filter(|w| w[0] == w[1]).count();
+                let moved = o[0].windows(2).filter(|w| w[0] != w[1]).count();
+                assert!(
+                    frozen > 0 && moved > 0,
+                    "plateau shape reached neither the equal-close arm (frozen={frozen}) nor \
+                     the change arms (moved={moved})"
+                );
+            }
+        }
+
+        // THE NON-FINITE CASE. `prev_close = close` runs UNCONDITIONALLY, so a NaN close
+        // suppresses exactly TWO
+        // bars -- the NaN bar itself (both compares false) and the NEXT bar, whose
+        // `prev_close` is now NaN -- then the real prior close is back and the line moves
+        // again. It does NOT freeze forever, which is what this block first asserted and
+        // what the hand disproved on the run. The engine agrees because `Lag` re-reads the
+        // stream rather than carrying `prev`, so it suppresses the same two rows by
+        // construction. Finite-only parity matrices can never see this case.
+        {
+            let n = 64;
+            let mut cl = series(n, |i| 100.0 + (i % 5) as f64);
+            cl[20] = f64::NAN;
+            let vol = volume(n);
+            let cv = [cl.as_slice(), vol.as_slice()];
+            let req = Request::new().add(tulip_rs::cse::recipes::obv(&[]), None);
+            let out = run_registered(&req, &cv).expect("obv NaN registered");
+            let (o, _) = Obv::indicator(&cv, &[], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &o[0],
+                "obv row with a NaN close (two-bar suppression, then resume)",
+            );
+            // NON-VACUITY in three parts: the line must actually move before the NaN, the
+            // two suppressed rows must really be flat, and it must resume -- otherwise any
+            // one of them could hold by accident.
+            assert!(
+                o[0][..18].windows(2).any(|w| w[0] != w[1]),
+                "obv never moved before the NaN -- the shape proves nothing"
+            );
+            assert!(
+                o[0][18] == o[0][19] && o[0][19] == o[0][20],
+                "expected rows 18..=20 flat across the NaN close, got {:?}",
+                &o[0][17..22]
+            );
+            assert!(
+                o[0][21] != o[0][20],
+                "expected the line to RESUME at row 21 once prev_close is a real bar, got \
+                 {:?}",
+                &o[0][19..23]
+            );
+        }
+    }
+
     /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
     /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
     /// what the standalone `dema` request builds: the arena must hold THREE `Ema`

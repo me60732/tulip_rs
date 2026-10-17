@@ -386,6 +386,16 @@ tulip_rs_macros::kernel! {
     // consumers, and the gate asserts that count as well as the bit-exactness.
     smaenvelope_n: SmaEnvelope(p, m);
     sma_smaenvelope_shared_p: Sma(p), SmaEnvelope(p, m);
+    // OBV IS THE FIRST HUB THAT PROVES THE COLUMN LAW IN THE POSITIVE DIRECTION. `tr`
+    // reads close as stream 2 (`hlc()`), `obv` reads close as stream 0 (`cvol()`) -- two
+    // recipes that DISAGREE about the index and agree about the column. The merge remaps by
+    // column before interning, so `Tr() + Obv()` must carry ONE `Lag{close, 1}`: K_LAG 1
+    // (17 nodes) if the remap works, 2 (18) if it does not. Every previous test pinned only
+    // the rejection half (the merge panicking when a recipe declared no columns); this is
+    // the acceptance half, and it is the half that has to keep working for pairings like
+    // `adosc + apo` to be legal at all.
+    obv_n: Obv();
+    tr_obv_shared: Tr(), Obv();
     // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
     // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
     // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first
