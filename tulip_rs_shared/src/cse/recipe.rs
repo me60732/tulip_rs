@@ -387,6 +387,21 @@ impl Recipe {
             Column::Volume,
         ])
     }
+    /// Close + volume recipe (`vwma`, `vwap`) — the volume-weighted price averages
+    /// that read neither high nor low.
+    pub fn cvol() -> Self {
+        Self::with_columns(vec![Column::Close, Column::Volume])
+    }
+    /// Volume-only recipe (`vosc`, `obv`, `nvi`, `pvi`, `mfi`, `wad`, `cmf`) — the
+    /// indicators whose single input is volume, with NO price column at all.
+    pub fn vol() -> Self {
+        Self::with_columns(vec![Column::Volume])
+    }
+    /// Open + close recipe (`qstick`) — the two-column pair that reads neither high
+    /// nor low. Canonical rank gives open=0, close=1.
+    pub fn oc() -> Self {
+        Self::with_columns(vec![Column::Open, Column::Close])
+    }
     /// Full OHLC recipe (`bop` — the only indicator reading OPEN). Slot order is
     /// the canonical `Column` rank, so open=0, high=1, low=2, close=3.
     pub fn ohlc() -> Self {

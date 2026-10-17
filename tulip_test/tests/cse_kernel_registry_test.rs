@@ -2241,6 +2241,146 @@ mod tests {
         assert_eq!(lead_of(2), 14, "ppo lead = 14");
     }
 
+    /// THE `Mom + Roc + Rocr` HUB — the sharing claim measured, not reasoned.
+    /// All three bind `price()`, so the arena must hold ONE `Input`; roc and rocr each
+    /// build `Lag{close, p}` with the same key → ONE `Lag`; roc's `Sub{close, prev}` is
+    /// literally `mom`'s line → ONE `Sub`; and both denominators are
+    /// `Max{prev, EPSILON}` → ONE `Max`. Two `Div`s are the only new arithmetic the
+    /// third and second indicators add. Counts come from the arena; the assert message
+    /// prints what was actually found, so a wrong expectation here is information
+    /// rather than a silent pass.
+    #[test]
+    fn mom_roc_rocr_shared_interns_the_lag_the_mom_and_the_eps_floor() {
+        use tulip_rs::cse::kernel::registry::SIG_mom_roc_rocr_shared_p;
+        use tulip_rs::cse::signature::{K_ADD, K_DIV, K_INPUT, K_LAG, K_MAX, K_SUB};
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::mom(&[9.0]), None)
+            .add(tulip_rs::cse::recipes::roc(&[9.0]), None)
+            .add(tulip_rs::cse::recipes::rocr(&[9.0]), None);
+        let (_a, sig, _v, owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_mom_roc_rocr_shared_p, "hub arena drifted");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let (input, lag, sub, add, div, mx) = (
+            count(K_INPUT),
+            count(K_LAG),
+            count(K_SUB),
+            count(K_ADD),
+            count(K_DIV),
+            count(K_MAX),
+        );
+        assert_eq!(
+            (input, lag, sub, add, div, mx),
+            (1, 1, 1, 0, 2, 1),
+            "arena observed input={input} lag={lag} sub={sub} add={add} div={div} \
+             max={mx} — three price recipes should intern the close, the lag, the \
+             mom Sub and the shared eps floor, adding only the two Divs"
+        );
+        // roc carries `mom` as an optional row and mom's own request is a primary, so
+        // the arena must show BOTH for the same node.
+        let mom_nodes = owners.iter().filter(|o| o.primary).count();
+        assert_eq!(
+            mom_nodes, 3,
+            "three requested indicators publish three primaries"
+        );
+    }
+
+    /// Same arena, bit-exact against the three HANDS — the proof the interning is
+    /// identity and not a shared-but-wrong value.
+    #[test]
+    fn mom_roc_rocr_shared_bit_exact() {
+        use tulip_rs::indicators::mom::Mom;
+        use tulip_rs::indicators::roc::Roc;
+        use tulip_rs::indicators::rocr::Rocr;
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::mom(&[9.0]), None)
+            .add(tulip_rs::cse::recipes::roc(&[9.0]), None)
+            .add(tulip_rs::cse::recipes::rocr(&[9.0]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let streams = [s.as_slice()];
+            let out = run_registered(&req, &streams).expect("mom+roc+rocr registered");
+            let (m, _) = Mom::indicator(&streams, &[9.0], None).unwrap();
+            let (r, _) = Roc::indicator(&streams, &[9.0], None).unwrap();
+            let (q, _) = Rocr::indicator(&streams, &[9.0], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &m[0], "hub: mom row");
+            assert_bits(row_for(&out, 1, true, 0), &r[0], "hub: roc row");
+            assert_bits(row_for(&out, 2, true, 0), &q[0], "hub: rocr row");
+            // roc's `mom` optional mirror is in the arena but not wanted → empty.
+            for (o, row) in out.owners.iter().zip(out.rows.iter()) {
+                if !o.primary {
+                    assert!(row.is_empty(), "disabled optional {o:?} must be empty");
+                }
+            }
+        }
+    }
+
+    /// THE CALCULATED-INPUT HUB: `Medprice + Typprice + WcPrice` all build the same
+    /// `Add{high, low}`, so the arena must hold exactly ONE of them feeding three
+    /// sinks. This is the `E8` family where the same composite is otherwise computed
+    /// once per indicator.
+    #[test]
+    fn calculated_inputs_share_one_hl_sum_across_three_indicators() {
+        use tulip_rs::cse::kernel::registry::SIG_medprice_typprice_wcprice;
+        use tulip_rs::cse::signature::{K_ADD, K_DIV, K_FMA, K_INPUT, K_MUL};
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::medprice(&[]), None)
+            .add(tulip_rs::cse::recipes::typprice(&[]), None)
+            .add(tulip_rs::cse::recipes::wcprice(&[]), None);
+        let (_a, sig, _v, owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_medprice_typprice_wcprice, "arena drifted");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let (input, add, mul, div, fma) = (
+            count(K_INPUT),
+            count(K_ADD),
+            count(K_MUL),
+            count(K_DIV),
+            count(K_FMA),
+        );
+        assert_eq!(
+            (input, add, mul, div, fma),
+            (3, 2, 3, 0, 1),
+            "arena observed input={input} add={add} mul={mul} div={div} fma={fma} — the \
+             claim is that `high+low` is ONE shared Add feeding all three composites: \
+             adds are hl_sum + typprice's `(h+l)+c` = 2, muls are the three scales \
+             (0.5, 1/3, 0.25) = 3, and only wcprice contributes the Fma"
+        );
+        assert_eq!(
+            owners.iter().filter(|o| o.primary).count(),
+            3,
+            "three primaries"
+        );
+    }
+
+    #[test]
+    fn calculated_inputs_bit_exact() {
+        use tulip_rs::indicators::medprice::Medprice;
+        use tulip_rs::indicators::typprice::Typprice;
+        use tulip_rs::indicators::wcprice::WcPrice;
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::medprice(&[]), None)
+            .add(tulip_rs::cse::recipes::typprice(&[]), None)
+            .add(tulip_rs::cse::recipes::wcprice(&[]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("composites registered");
+            let (m, _) = Medprice::indicator(&[hi.as_slice(), lo.as_slice()], &[], None).unwrap();
+            let (t, _) = Typprice::indicator(&streams, &[], None).unwrap();
+            let (w, _) = WcPrice::indicator(&streams, &[], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &m[0], "composites: medprice row");
+            assert_bits(row_for(&out, 1, true, 0), &t[0], "composites: typprice row");
+            assert_bits(row_for(&out, 2, true, 0), &w[0], "composites: wcprice row");
+        }
+    }
+
     /// SAME-SOURCE PACKED TWIN vs SCALAR, byte-for-byte, over three series. The
     /// twin shares the arena's `Signature`, so `try_run` reaches the SCALAR kernel
     /// first — the twin must be called DIRECTLY, exactly as the bench rows do, or

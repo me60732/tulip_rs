@@ -293,4 +293,29 @@ tulip_rs_macros::kernel! {
     // slow is a guess. `atr_natr_shared_p` pairs ATR with NATR, so it is not this
     // rung and does not answer the question.
     atr_n: Atr(p);
+    // ── THE CALCULATED-INPUT AND RATE-OF-CHANGE HUBS ─────────────────────
+    // MOM + ROC + ROCR on ONE period. The hand runs three passes and recomputes
+    // `real[i-p]` in every one. Here the arena holds ONE `Input`, ONE `Lag{close,p}`,
+    // the ONE `Sub{close,prev}` that IS `mom`, and ONE `Max{prev,eps}` floor shared
+    // by roc's and rocr's denominators — so three published indicators cost two new
+    // `Div`s and nothing else. The identity that makes it intern: `roc`'s optional row
+    // (hand `Info.optional_outputs: ["mom"]`) IS the standalone `Mom` request's node.
+    mom_roc_rocr_shared_p: Mom(p), Roc(p), Rocr(p);
+    // MEDPRICE + TYPPRICE + WCPPRICE: the three calculated-input composites all build
+    // the SAME `Add{high, low}` — medprice scales it by 0.5, wcprice feeds it to the
+    // `Fma` as the `c` operand, typprice adds close and scales by `1.0/3.0`. One add,
+    // three outputs. This is the `E8` calculated-inputs family, where co-requesting is
+    // the cheapest way to stop paying for the same composite three times.
+    medprice_typprice_wcprice: Medprice(), Typprice(), WcPrice();
+    // THE LONE FLOORS for the same family — DIAGNOSTICS, not shipping options (the
+    // engine's unit is the merge, so these are what the two hubs above are measured
+    // AGAINST). `bop_n` doubles as something new: it is the registry's first pattern
+    // whose arena contains an OPEN column, so it is the live proof that `ohlc()`'s
+    // canonical ranking binds open=0/high=1/low=2/close=3 instead of silently reading
+    // a neighbouring column — the exact hazard the column-declared remap closed.
+    bop_n: Bop();
+    roc_n: Roc(p);
+    rocr_n: Rocr(p);
+    typprice_n: Typprice();
+    wcprice_n: WcPrice();
 }
