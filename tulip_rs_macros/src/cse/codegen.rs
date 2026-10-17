@@ -302,7 +302,25 @@ pub fn expand(patterns: &[Pattern]) -> TokenStream {
     // derived extrema ride the per-lane mask-dispatched mirror-window walk
     // (the hand's `min_chuncked` shape), and the IIR/clamp/prev chain is
     // plain vector ops with the hand `fisher_simd`'s exact forms.
-    let asset_pats: Vec<&Pattern> = patterns.iter().filter(|p| !p.packed).collect();
+    // CAPABILITY: EVERY arena gets an asset kernel. A packed pattern normally rides
+    // its non-packed twin's `_assets` — the asset renderer matches on NODE KINDS and
+    // never consults `packed` or the group classification, so the twin's kernel is
+    // the same code for the same `Signature`, and emitting twice would only collide.
+    // But "normally" was carrying the whole guarantee: a packed pattern registered
+    // WITHOUT a twin got no `_assets` and no dispatcher arm, so `try_run_assets`
+    // returned `None` and the caller fell back to tier-2/3 — a silently missing axis,
+    // green suite included. Emitting for exactly those arenas removes the failure
+    // mode, and it keeps `expand` usable with a LONE packed pattern, which the unit
+    // probes in `mod.rs` do on purpose.
+    let asset_pats: Vec<&Pattern> = patterns
+        .iter()
+        .filter(|p| {
+            !p.packed
+                || !patterns
+                    .iter()
+                    .any(|o| !o.packed && o.nodes == p.nodes && o.sinks == p.sinks)
+        })
+        .collect();
     let asset_fns: Vec<TokenStream> = asset_pats.iter().map(|p| run_assets_fn(p)).collect();
     let asset_calls: Vec<TokenStream> = asset_pats
         .iter()

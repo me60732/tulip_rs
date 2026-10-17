@@ -2241,6 +2241,48 @@ mod tests {
         assert_eq!(lead_of(2), 14, "ppo lead = 14");
     }
 
+    /// SAME-SOURCE PACKED TWIN vs SCALAR, byte-for-byte, over three series. The
+    /// twin shares the arena's `Signature`, so `try_run` reaches the SCALAR kernel
+    /// first — the twin must be called DIRECTLY, exactly as the bench rows do, or
+    /// the comparison silently measures the same kernel twice and passes vacuously.
+    /// Groups here are `(Ema,close)` = 4-wide and `(Ema,AD)` = 2-wide, both from one
+    /// broadcast source each; the cross-source arm that merged them into one group
+    /// was measured slower and is NOT registered.
+    #[test]
+    fn adosc_apo_ppo_packed_matches_scalar() {
+        use tulip_rs::cse::kernel::registry::adosc_apo_ppo_p;
+        let req = Request::new()
+            .add(Adosc::recipe(&[3.0, 10.0]), None)
+            .add(Apo::recipe(&[12.0, 26.0]), None)
+            .add(Ppo::recipe(&[6.0, 14.0]), None);
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+            let vol = volume(base.len());
+            let streams = [
+                hi.as_slice(),
+                lo.as_slice(),
+                base.as_slice(),
+                vol.as_slice(),
+            ];
+            let (_a, _sig, vals, _) = erase_request(&req).unwrap();
+            let scalar = run_registered(&req, &streams).expect("scalar arm registered");
+            let packed = adosc_apo_ppo_p(&vals, &streams);
+            assert_eq!(packed.len(), scalar.rows.len(), "same row count");
+            for (i, (rs, rp)) in packed.iter().zip(scalar.rows.iter()).enumerate() {
+                assert_bits(
+                    rp.as_slice(),
+                    rs.as_slice(),
+                    &format!("packed row {i} vs scalar"),
+                );
+            }
+        }
+    }
+
     /// ADOSC + APO + PPO in one arena, bit-exact against the three HANDS — each
     /// called with its own arity (`Adosc` gets OHLCV, `Apo`/`Ppo` get close
     /// only). This is the test that would fail if the co-request had bound apo/ppo

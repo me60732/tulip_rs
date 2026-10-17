@@ -351,7 +351,9 @@ mod tests {
     /// against the scalar kernel, then timed in ONE binary:
     ///   scalar 12.515 us | packed 12.031 us | xpacked 12.798 us | hand 17.712 us
     /// so cross-source cost +6.4% over same-source packing AND +2.3% over NOT packing
-    /// at all. Both twin rows were reverted. This test pins the status quo on a
+    /// at all. The `xpacked` arm was reverted; the SOURCE-KEYED twin was kept and
+    /// re-measured as a WIN (scalar 12.582 -> `packed` 11.873 us, +6.0%; hand 17.768),
+    /// and is registered as `adosc_apo_ppo_p`. This test pins the status quo on a
     /// FOUR-chain variant (apo and ppo sharing the same 12/26 literals, so their pairs
     /// intern to one close chain) — the mechanism is the same, the numbers are not.
     ///

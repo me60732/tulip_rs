@@ -172,6 +172,30 @@ tulip_rs_macros::kernel! {
     // close), with periods all DISTINCT (3/10, 12/26, 6/14) so nothing dedups by
     // accident.
     adosc_apo_ppo: Adosc(s, l), Apo(a1, b1), Ppo(a2, b2);
+    // THE PACKED TWIN OF THE CROSS-CONVENTION ARENA — same-source packing, and it
+    // WON. `classify_packed` buckets on `(Kind, source slot)`, so this arena's SIX
+    // `Ema` chains form exactly TWO groups: `(Ema, close)` = [15,16,18,19] → one
+    // 4-wide, and `(Ema, AD line)` = [12,13] → one 2-wide. Every lane of a group
+    // reads ONE broadcast source (`Simd::splat`), which is the only packing form
+    // this engine ships.
+    //
+    // MEASURED twice, one binary each, `runonly`, 6705 bars, medians:
+    //   run 1  scalar 12.515 µs → packed 12.031 µs (+4.0%), hand 17.712 µs
+    //   run 2  scalar 12.582 µs → packed **11.873 µs** (+6.0%), hand 17.768 µs
+    // The win reproduced, and the twin is 1.50× over the hand. Budget per bar:
+    // scalar is 6 chains × (mul + fma) = 12 ops; packed is 2 groups × (mul + fma) = 4
+    // vector ops, every lane reading ONE broadcast source.
+    //
+    // CROSS-SOURCE PACKING WAS BUILT AND REJECTED: a third arm that merged the two
+    // buckets into one 4-wide group reading a PER-LANE source vector was emitted,
+    // gated byte-exact, and measured 12.798 µs — +6.4% over this twin AND +2.3%
+    // over not packing at all. Cause: halving the group count still costs the
+    // per-bar assembly of `<4 x f64>` from two different locals, which exceeds the
+    // halved step; width was not the limit (rustc/LLVM on AVX2, real 256-bit). The
+    // standing rule from that measurement: prioritize same-source grouping, because
+    // a splat is faster than reading from different sources. See
+    // `ad_line_and_price_emas_do_not_share_a_lane_group` in the macro crate.
+    adosc_apo_ppo_p: packed Adosc(s, l), Apo(a1, b1), Ppo(a2, b2);
     // MOM: the pattern that makes `Values::lag_n` observable IN A ROW — the
     // hand pairs bar i with bar i−p, so a steady-loop depth other than `p` is a
     // wrong value, not a state-only artefact. `cmo` carries the same
