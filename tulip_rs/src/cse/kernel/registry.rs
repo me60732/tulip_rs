@@ -337,4 +337,25 @@ tulip_rs_macros::kernel! {
     dpo_n: Dpo(p);
     vwma_n: Vwma(p);
     vosc_s_l: Vosc(s, l);
+    // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
+    // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
+    // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first
+    // TRIPLY-chained arena (ema1 -> ema2 -> ema3, `Ema{src: ema2}`), which puts three
+    // dependent recurrences through the warm-up `[0, gate)` prologue back to back,
+    // each consuming the previous chain's OUTPUT as its input.
+    // dema = ema1*2 - ema2 (ONE `Fma`, matching the hand's single `mul_add`),
+    // tema = ema1*3 + (ema2*-3 + ema3) (TWO nested `Fma`s).
+    //
+    // ZLEMA IS NOT REGISTERED. Its recipe exists but its row length was wrong at
+    // gate time (engine 688 vs hand 684 for p=9 over a 688-bar series): the publish
+    // lead used here, `lag = (p-1)/2`, is the hand's `cycle` OFFSET, which does not
+    // match how the arena derives a row start for an `Ema` over a derived source.
+    // Un-registered rather than gated against a truncated slice that would hide it.
+    dema_n: Dema(p);
+    tema_n: Tema(p);
+    // tema OWNS a DemaState, so its ema1/ema2 AND its `dema` output node are the
+    // very nodes the standalone dema request builds -- co-requesting them should
+    // intern the whole two-chain subgraph and one dema Fma, with tema's `dema`
+    // optional row publishing the same stored stream as dema's primary.
+    dema_tema_shared_p: Dema(p), Tema(p);
 }

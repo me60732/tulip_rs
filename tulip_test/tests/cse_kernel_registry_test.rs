@@ -2463,6 +2463,75 @@ mod tests {
         }
     }
 
+    /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
+    /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
+    /// what the standalone `dema` request builds: the arena must hold THREE `Ema`
+    /// nodes (ema1, ema2, ema3) not five, and ONE `dema` Fma, and tema's optional
+    /// `dema` row must be bit-identical to dema's primary -- two requests, one
+    /// stored stream.
+    #[test]
+    fn chained_ema_floors_and_dema_tema_hub() {
+        use tulip_rs::cse::kernel::registry::SIG_dema_tema_shared_p;
+        use tulip_rs::cse::signature::{K_EMA, K_FMA, K_MUL};
+        use tulip_rs::indicators::dema::Dema;
+        use tulip_rs::indicators::tema::Tema;
+        use tulip_rs::indicators::zlema::Zlema;
+
+        let req_hub = Request::new()
+            .add(tulip_rs::cse::recipes::dema(&[9.0]), None)
+            .add(tulip_rs::cse::recipes::tema(&[9.0]), None);
+        let (_a, sig, _v, _o) = erase_request(&req_hub).unwrap();
+        assert_eq!(sig, SIG_dema_tema_shared_p, "hub arena drifted");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let (ema, fma, mul) = (count(K_EMA), count(K_FMA), count(K_MUL));
+        assert_eq!(
+            (ema, fma, mul),
+            (3, 3, 1),
+            "arena observed ema={ema} fma={fma} mul={mul} -- expected THREE chained \
+             EMAs (ema1/ema2/ema3 shared, not 2+3), and three Fmas: dema, tema's \
+             inner and outer. Separate arenas would be 5 EMAs and 4 Fmas."
+        );
+
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let streams = [s.as_slice()];
+
+            let out = run_registered(&req_hub, &streams).expect("dema+tema registered");
+            let (d, _) = Dema::indicator(&streams, &[9.0], None).unwrap();
+            let (t, _) = Tema::indicator(&streams, &[9.0], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &d[0], "hub: dema row");
+            assert_bits(row_for(&out, 1, true, 0), &t[0], "hub: tema row");
+            // tema's optional `dema` mirror is not wanted -> empty; the published
+            // dema row above is dema's OWN primary, so a non-empty mirror would
+            // mean the two requests did not dedup onto one stored stream.
+            for (o, row) in out.owners.iter().zip(out.rows.iter()) {
+                if !o.primary {
+                    assert!(row.is_empty(), "disabled optional {o:?} must be empty");
+                }
+            }
+
+            for (name, req, hand) in [
+                (
+                    "dema_n",
+                    Request::new().add(tulip_rs::cse::recipes::dema(&[9.0]), None),
+                    Dema::indicator(&streams, &[9.0], None).unwrap().0,
+                ),
+                (
+                    "tema_n",
+                    Request::new().add(tulip_rs::cse::recipes::tema(&[9.0]), None),
+                    Tema::indicator(&streams, &[9.0], None).unwrap().0,
+                ),
+            ] {
+                let out = run_registered(&req, &streams)
+                    .unwrap_or_else(|| panic!("{name} not registered"));
+                assert_bits(row_for(&out, 0, true, 0), &hand[0], name);
+            }
+        }
+    }
+
     /// THE GATE THE `dpo` REWRITE WAS DONE FOR. `dpo`'s rolling mean is over a raw
     /// price Input, so it is spelled `Node::Sma` -- the same kind `sma()` uses. Had it
     /// stayed a `RollSum{mean:true}` the two would be DIFFERENT signature kinds

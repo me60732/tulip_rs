@@ -2253,3 +2253,134 @@ pub fn vosc(options: &[f64]) -> Recipe {
         .push(Sink::iface_lead(slow_sma, long_period));
     r
 }
+
+/// `DEMA(p)` — hand `dema.rs::calc`: `ema1 = Ema(real)`, `ema2 = Ema(ema1)`, output
+/// `ema1.mul_add(2.0, -ema2)`. ONE fused op, so this spells `Node::Fma` — `Mul` then
+/// `Sub` would double-round. The negation is `Mul(ema2, -1.0)`, which is EXACT and
+/// preserves the sign of zero (a `Sub{0.0, ema2}` would turn `-0.0` into `+0.0`).
+///
+/// Publish lead `2p-2` is NOT a pattern copied from `ema()`: it is
+/// `min_data - 1` with `min_data = 2p-1` (`dema.rs:147`) under the trait's default
+/// `output_length = len - min_data + 1` (`indicator_types.rs:28`), which `dema` does
+/// not override. It is also exactly the defined-from of the SECOND chained EMA
+/// (`ema1` at `p-1`, `ema2` at `2(p-1)`), so the stacked lead is structural, not a
+/// magic number. The optional `ema` row keeps the hand's own `Ema::output_length`
+/// lead (`p`), matching `dema.rs`'s separate `ema_capacity`.
+pub fn dema(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    let ema1 = r.add(Node::Ema { src: real, period });
+    r.tag(ema1, "ema");
+    let ema2 = r.add(Node::Ema { src: ema1, period });
+    r.tag(ema2, "ema2");
+    let two = r.constant(2.0);
+    let neg_one = r.constant(-1.0);
+    let neg_ema2 = r.add(Node::Mul {
+        a: ema2,
+        b: neg_one,
+    });
+    let line = r.add(Node::Fma {
+        a: ema1,
+        b: two,
+        c: neg_ema2,
+    });
+    r.tag(line, "dema");
+
+    r.kind = "dema";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![ema1, ema2];
+    r.outputs.push(Sink::iface_lead(line, 2 * period - 2));
+    // Info optional order: ["ema"]
+    r.optional_outputs.push(Sink::iface_lead(ema1, period));
+    r
+}
+
+/// `TEMA(p)` — hand `tema.rs::calc`: it OWNS a `DemaState` (so `ema1`, `ema2` are the
+/// DEMA chains) plus `ema3 = Ema(ema2)`, and outputs
+/// `ema1.mul_add(3.0, ema2.mul_add(-3.0, ema3))` — TWO nested single-rounding fmas.
+/// Publish lead `3p-3` = `min_data - 1` (`min_data = 3p-2`, `tema.rs:174`) and the
+/// defined-from of the third chain. Optionals are `["dema", "ema"]` in Info order,
+/// the `dema` row at the DEMA lead and the `ema` row at the Ema lead.
+///
+/// THIS IS THE SHARING CASE: because tema's `ema1`/`ema2` are the very nodes `dema`
+/// builds, a co-requested `Dema(p) + Tema(p)` interns the whole two-chain subgraph --
+/// and tema's `dema` optional row is the same stored stream as dema's primary.
+pub fn tema(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    let ema1 = r.add(Node::Ema { src: real, period });
+    let ema2 = r.add(Node::Ema { src: ema1, period });
+    let ema3 = r.add(Node::Ema { src: ema2, period });
+    r.tag(ema3, "ema3");
+    let three = r.constant(3.0);
+    let neg_three = r.constant(-3.0);
+    let inner = r.add(Node::Fma {
+        a: ema2,
+        b: neg_three,
+        c: ema3,
+    });
+    let line = r.add(Node::Fma {
+        a: ema1,
+        b: three,
+        c: inner,
+    });
+    r.tag(line, "tema");
+    let dema_two = r.constant(2.0);
+    let neg_one = r.constant(-1.0);
+    let neg_ema2 = r.add(Node::Mul {
+        a: ema2,
+        b: neg_one,
+    });
+    let dema_line = r.add(Node::Fma {
+        a: ema1,
+        b: dema_two,
+        c: neg_ema2,
+    });
+    r.tag(dema_line, "dema");
+
+    r.kind = "tema";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![ema1, ema2, ema3];
+    r.outputs.push(Sink::iface_lead(line, 3 * period - 3));
+    r.optional_outputs
+        .push(Sink::iface_lead(dema_line, 2 * period - 2));
+    r.optional_outputs.push(Sink::iface_lead(ema1, period));
+    r
+}
+
+/// `ZLEMA(p)` — hand `zlema.rs::calc((current, lagged))`:
+/// `adjusted = current + (current - lagged)`, then `zlema.mul_add(per, adjusted *
+/// multiplier)` -- which IS the EMA recurrence, so this is one `Node::Ema` over a
+/// DERIVED source (`macd`'s signal EMA is the same shape). `lagged = real[i - lag]`
+/// with `lag = ((p-1)/2).max(1)` (`zlema.rs:132`), a Lag depth other than 1 or p,
+/// read by a published sink.
+///
+/// Publish lead = `lag`: `min_data = (p-1)/2 + 1` under the default `output_length`,
+/// and the hand's `cycle` runs `i` from `lag`.
+pub fn zlema(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let lag = (((period as usize).saturating_sub(1)) / 2).max(1) as u32;
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    let lagged = r.add(Node::Lag { src: real, n: lag });
+    r.tag(lagged, "lagged");
+    let diff = r.add(Node::Sub { a: real, b: lagged });
+    let adjusted = r.add(Node::Add { a: real, b: diff });
+    r.tag(adjusted, "adjusted");
+    let line = r.add(Node::Ema {
+        src: adjusted,
+        period,
+    });
+    r.tag(line, "zlema");
+
+    r.kind = "zlema";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![line];
+    r.outputs.push(Sink::iface_lead(line, lag));
+    r
+}

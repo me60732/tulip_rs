@@ -342,6 +342,9 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Dpo" => recipes::dpo(&opts),
             "Vwma" => recipes::vwma(&opts),
             "Vosc" => recipes::vosc(&opts),
+            "Dema" => recipes::dema(&opts),
+            "Tema" => recipes::tema(&opts),
+            "Zlema" => recipes::zlema(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
         built.push(r);
