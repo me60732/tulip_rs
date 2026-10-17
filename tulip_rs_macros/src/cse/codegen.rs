@@ -87,11 +87,18 @@ fn classify_packed(p: &Pattern) -> Classified {
         std::collections::HashMap::new();
     for (k, node) in p.nodes.iter().enumerate() {
         let packable = match node.kind {
-            Kind::Ema | Kind::Wilders => true,
+            k if chain_step_form(k) => true,
             Kind::Sma => p.plan.is_price_src(k),
             _ => false,
         };
         if packable {
+            // Buckets stay per-KIND even though the LAW above is per-form: the
+            // unmatched-candidate fallback that sends a lone chain to a scalar
+            // hoist is written for `Kind::Ema` only (see `classify`'s `scalars`
+            // arms), so mixing Ema/Iir/Wilders lanes here would leave an
+            // unmatched `Iir` neither grouped nor scalar-held. Cross-form
+            // buckets are the next step, and they need that fallback widened
+            // first -- not a bucket-key change alone.
             buckets.entry((node.kind, node.a)).or_default().push(k);
         }
     }
@@ -493,6 +500,28 @@ impl Shape {
 /// steady loop pays 1 fmul + 1 fma + 1 register carry.
 fn chain_step(carry: &Ident, first: &Ident, second: &Ident, src: &TokenStream) -> TokenStream {
     quote! { #carry = #carry.mul_add(#first, #src * #second); #carry }
+}
+
+/// THE ONE LANE-PACKABILITY LAW, stated next to the helper it describes: a node is
+/// a lane-group candidate iff its steady step lowers to `chain_step` — one broadcast
+/// source, two per-slot weights read from `Values::mults`/`invms`, one carry in
+/// `st[k]`. Whatever recipe built it. A group of these is N lanes of ONE formula, so
+/// an `Ema(9)` beside an `Ema(21)` beside an `Iir` over the same source is one
+/// mul + one fma for all of them, not per chain.
+///
+/// `Iir` is included because it lowers to the same helper with the same arrangement
+/// as `Ema` (`chain_step(&ck, &ik, &mk, &src)`, both sites), so it needs no new group
+/// statement — the earlier whitelist naming only Ema/Wilders was an omission, not a
+/// judgement. Excluded ON EVIDENCE, not taste:
+/// · `IirClamped` carries four clamp thresholds through `b/c/d/e`; a group statement
+///   hoists only two per-slot vectors, so the thresholds cannot vary per lane without
+///   a new statement.
+/// · `Accum`'s multiplier is a NODE (volume), not a value — it hoists no weights at
+///   all, so there is nothing to broadcast.
+/// · `Sma`/`RollSum`/`Stddev`/`Wma`/rings are a different formula (window fold with
+///   age), grouped by the ring machinery; `Sma` is bucketed separately below.
+fn chain_step_form(kind: Kind) -> bool {
+    matches!(kind, Kind::Ema | Kind::Wilders | Kind::Iir)
 }
 
 /// The output-row layout BOTH kernels share, derived from the planner's
