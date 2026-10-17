@@ -127,6 +127,7 @@ fn documented_names(md: &str) -> BTreeSet<String> {
 
 const DOC: &str = "tulip_rs_shared/src/cse/RECIPE_VOCABULARY.md";
 const RECIPE: &str = "tulip_rs_shared/src/cse/recipe.rs";
+const REGISTRY: &str = "tulip_rs/src/cse/kernel/registry.rs";
 
 /// Guard against a vacuous parse: if the enum reader silently returned an empty or wrong
 /// set, both tests above would pass for the wrong reason. These are the three facts the
@@ -177,4 +178,106 @@ fn vocabulary_doc_covers_every_node_variant() {
          node reads as a missing capability (the HT family was left out this way); add the row, \
          and if it cannot be erased yet, say so"
     );
+}
+
+/// What is registered must be gated. This is a MENTION floor, not a proof of parity:
+/// it asks only whether each pattern in a `kernel!` row appears anywhere in the engine
+/// gate files. It is deliberately weak because a precise check cannot be written — the
+/// row token and the Rust type name are allowed to differ (`Stddev(p)` in a row versus
+/// `struct StdDev`), so deriving `Stddev::indicator` from the row would fail on correct
+/// code. A weak check that cannot false-fail is worth having, because the hole it found
+/// was real: `bop_n: Bop();` was registered and reachable with `Bop` appearing nowhere
+/// in any engine gate — every hit was in `bop_test.rs`, which is hand-vs-tulip-C. Read
+/// §1 of the doc: a registered row without a gate is WORSE than an unregistered recipe,
+/// because it can ship wrong values to a caller. Only the hand-parity test itself proves
+/// a row correct; this test only proves it was not skipped entirely.
+#[test]
+fn every_registered_pattern_is_named_in_an_engine_gate() {
+    let patterns = registered_patterns(&read(REGISTRY));
+    assert!(
+        patterns.len() > 40,
+        "parsed only {} pattern names from registry.rs — the row scanner is broken, \
+         not the registry",
+        patterns.len()
+    );
+
+    let mut gated = String::new();
+    for f in [
+        "tulip_test/tests/cse_kernel_registry_test.rs",
+        "tulip_test/tests/cse_merge_test.rs",
+        "tulip_test/tests/cse_assets_test.rs",
+    ] {
+        gated.push_str(&read(f));
+    }
+    let gated = normalize(&gated);
+
+    let ungated: Vec<&String> = patterns
+        .iter()
+        .filter(|p| !gated.contains(&normalize(p)))
+        .collect();
+    assert!(
+        ungated.is_empty(),
+        "registered patterns {ungated:?} are never named in an engine gate file — add the \
+         bit-exact hand-parity test, or unregister the row"
+    );
+}
+
+/// `pub enum Node` names live in registry.rs as `kernel!` rows: `name: A(p), B();`
+/// possibly wrapped, with `packed` allowed and `///` comments interleaved. Returns the
+/// pattern identifiers (the `A` in `A(p)`), deduplicated.
+fn registered_patterns(src: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut in_row = false;
+    for raw in src.lines() {
+        let line = raw.trim_end();
+        let t = line.trim_start();
+        if t.is_empty() || t.starts_with("//") {
+            continue;
+        }
+        if !in_row {
+            // a row begins at column 4 with `lowercase_name: `
+            in_row = line.starts_with("    ")
+                && t.contains(": ")
+                && t[..t.find(':').unwrap()]
+                    .chars()
+                    .all(|c| c.is_lowercase() || c == '_' || c.is_ascii_digit())
+                && !t.starts_with("let ")
+                && !t.starts_with("pub ");
+            if !in_row {
+                continue;
+            }
+        }
+        let chars: Vec<char> = t.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i].is_ascii_uppercase() {
+                let mut j = i;
+                while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+                    j += 1;
+                }
+                let name: String = chars[i..j].iter().collect();
+                let mut k = j;
+                while k < chars.len() && chars[k] == ' ' {
+                    k += 1;
+                }
+                if k < chars.len() && chars[k] == '(' {
+                    out.insert(name);
+                }
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+        if t.ends_with(';') {
+            in_row = false;
+        }
+    }
+    out
+}
+
+fn normalize(s: &str) -> String {
+    s.chars()
+        .filter(|c| *c != '_')
+        .flat_map(|c| c.to_lowercase())
+        .collect()
 }

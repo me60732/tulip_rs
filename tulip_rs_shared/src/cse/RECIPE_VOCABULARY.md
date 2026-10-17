@@ -196,3 +196,10 @@ lane buckets. The dump is `TokenStream::to_string()` — it separates **every** 
 (`. max (`), so grep only after stripping whitespace.
 
 Formatting: `rustfmt --edition 2021 <files you edited>`, never `cargo fmt --all`.
+
+Two parts of this guide are machine-checked by `cse_recipe_vocabulary_doc_test.rs`, in
+both directions: §5's table against `pub enum Node` (a phantom name fails, and so does a
+live variant the table omits), and every `kernel!` pattern name against the gate files,
+so a registered row cannot be shipped without some hand-parity test naming it. The second
+is a *mention* floor, not proof of parity — only the hand gate itself proves a row
+correct.

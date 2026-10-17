@@ -313,6 +313,11 @@ tulip_rs_macros::kernel! {
     // whose arena contains an OPEN column, so it is the live proof that `ohlc()`'s
     // canonical ranking binds open=0/high=1/low=2/close=3 instead of silently reading
     // a neighbouring column — the exact hazard the column-declared remap closed.
+    // THAT PROOF IS NOW LIVE, and was not before: `Bop` appeared in no engine gate
+    // anywhere (every `bop` hit was in `bop_test.rs`, hand-vs-tulip-C), so the row was
+    // registered, reachable, and unverified. `bop_lone_floor_bit_exact` closes it with
+    // four DISTINCT columns per slot, so a ranking slip moves every bar, plus a
+    // flat-bar block that forces `high == low` into the `Max(_, EPSILON)` floor.
     bop_n: Bop();
     roc_n: Roc(p);
     rocr_n: Rocr(p);

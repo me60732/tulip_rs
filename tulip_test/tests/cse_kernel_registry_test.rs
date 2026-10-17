@@ -2463,6 +2463,66 @@ mod tests {
         }
     }
 
+    /// BOP'S OWN GATE. `bop_n: Bop();` (`registry.rs:316`) is a registered, reachable
+    /// row and until this test it was the ONLY registered pattern with no hand-parity
+    /// gate anywhere in the engine suites: every `bop` match under `tulip_test/tests/`
+    /// lives in `bop_test.rs`, which compares the HAND against tulip C, never against a
+    /// kernel. That leaves the row's stated purpose unproven -- `registry.rs:312-315`
+    /// calls it "the live proof that `ohlc()`'s canonical ranking binds
+    /// open=0/high=1/low=2/close=3 instead of silently reading a neighbouring column",
+    /// and a ranking bug is exactly what this file cannot otherwise see. All four
+    /// columns are therefore DISTINCT series here, so any mis-ranked slot changes every
+    /// published value.
+    #[test]
+    fn bop_lone_floor_bit_exact() {
+        use tulip_rs::indicators::bop::Bop;
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            // open, high, low and close deliberately differ, so a column-rank slip
+            // (close read as high, say) moves every bar, not just some.
+            let op: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+
+            let four = [op.as_slice(), hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let req = Request::new().add(tulip_rs::cse::recipes::bop(&[]), None);
+            let out = run_registered(&req, &four).expect("bop registered");
+            let (b, _) = Bop::indicator(&four, &[], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &b[0], "bop row");
+        }
+
+        // THE FLAT-BAR BLOCK. `high == low` makes the hand's
+        // `(high - low).max(f64::EPSILON)` the denominator, so the row prints
+        // `(close - open) / EPSILON` -- an enormous finite value, NOT 0.0 and NOT NaN.
+        // Only `Node::Max` reproduces that: the `Where*` form an earlier draft reached
+        // for pins 0.0 on the guarded case and diverges on every flat bar, and a
+        // finite-price matrix that never flattens `high - low` cannot tell the two
+        // spellings apart.
+        {
+            let n = 64;
+            let flat = series(n, |_| 100.0);
+            let op: Vec<f64> = flat.iter().map(|v| v - 0.25).collect();
+            let cl: Vec<f64> = flat.iter().map(|v| v + 0.25).collect();
+            let four = [
+                op.as_slice(),
+                flat.as_slice(),
+                flat.as_slice(),
+                cl.as_slice(),
+            ];
+            let req = Request::new().add(tulip_rs::cse::recipes::bop(&[]), None);
+            let out = run_registered(&req, &four).expect("bop flat-bar registered");
+            let (b, _) = Bop::indicator(&four, &[], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &b[0],
+                "bop FLAT-BAR row (guards the EPSILON floor)",
+            );
+        }
+    }
+
     /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
     /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
     /// what the standalone `dema` request builds: the arena must hold THREE `Ema`
