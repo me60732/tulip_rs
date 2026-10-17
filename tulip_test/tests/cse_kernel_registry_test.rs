@@ -2381,6 +2381,141 @@ mod tests {
         }
     }
 
+    /// THE FOUR LONE FLOORS OF THE SECOND TRANCHE, each hand called on ITS OWN
+    /// arity. A registered row is reachable through `try_run`, so an ungated one is
+    /// a latent wrong-value bug with a green suite -- the same class the column law
+    /// closed. Each block also pins that the arena's stream count equals the hand's
+    /// declared inputs: AvgPrice 4 (open,high,low,close), QStick 2 (open,close),
+    /// Vwma 2 (close,volume), Vosc 1 (volume ONLY).
+    #[test]
+    fn calculated_tranche_lone_floors_bit_exact() {
+        use tulip_rs::indicators::avgprice::AvgPrice;
+        use tulip_rs::indicators::qstick::QStick;
+        use tulip_rs::indicators::vosc::Vosc;
+        use tulip_rs::indicators::vwma::Vwma;
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let op: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+
+            let req_avg = Request::new().add(tulip_rs::cse::recipes::avgprice(&[]), None);
+            let four = [op.as_slice(), hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req_avg, &four).expect("avgprice registered");
+            let (a, _) = AvgPrice::indicator(&four, &[], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &a[0], "avgprice row");
+
+            let req_qs = Request::new().add(tulip_rs::cse::recipes::qstick(&[9.0]), None);
+            let two_oc = [op.as_slice(), s.as_slice()];
+            let out = run_registered(&req_qs, &two_oc).expect("qstick registered");
+            let (q, _) = QStick::indicator(&two_oc, &[9.0], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &q[0], "qstick row");
+
+            let req_vw = Request::new().add(tulip_rs::cse::recipes::vwma(&[9.0]), None);
+            let two_cv = [s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req_vw, &two_cv).expect("vwma registered");
+            let (v, _) = Vwma::indicator(&two_cv, &[9.0], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &v[0], "vwma row");
+
+            let req_vo = Request::new().add(tulip_rs::cse::recipes::vosc(&[3.0, 5.0]), None);
+            let one_v = [vol.as_slice()];
+            let out = run_registered(&req_vo, &one_v).expect("vosc registered");
+            let (o, _) = Vosc::indicator(&one_v, &[3.0, 5.0], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &o[0], "vosc row");
+        }
+
+        // THE ZERO-VOLUME BLOCK. This is the ONLY input that reaches the hand's
+        // `if denom == 0.0 { return 0.0 }` guard, and therefore the only thing that
+        // tells a correct guard from an inverted one: positive prices and volumes
+        // pass BOTH spellings, so the loop above alone would have certified the
+        // buggy draft. The first draft spelled it `WhereGe{a: denom, b: 0, t: num}`
+        // FEEDING the divide, which takes the value arm exactly at zero and computes
+        // `num / 0.0` -- inf or NaN where the hand prints 0.0. The rewrite guards the
+        // RESULT with `WhereLe{ Abs(denom) <= 0 }`, whose NaN behaviour also matches
+        // (a NaN compare is false for `<=`, so the value arm runs, as in the hand).
+        {
+            let zero_vol = vec![0.0; 64];
+            let prices: Vec<f64> = (0..64).map(|i| 100.0 + i as f64).collect();
+
+            let req_vw = Request::new().add(tulip_rs::cse::recipes::vwma(&[5.0]), None);
+            let two_cv = [prices.as_slice(), zero_vol.as_slice()];
+            let out = run_registered(&req_vw, &two_cv).expect("vwma zero-volume");
+            let (v, _) = Vwma::indicator(&two_cv, &[5.0], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &v[0],
+                "vwma ZERO-VOLUME row (guards the denom==0 branch)",
+            );
+
+            let req_vo = Request::new().add(tulip_rs::cse::recipes::vosc(&[3.0, 5.0]), None);
+            let one_v = [zero_vol.as_slice()];
+            let out = run_registered(&req_vo, &one_v).expect("vosc zero-volume");
+            let (o, _) = Vosc::indicator(&one_v, &[3.0, 5.0], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &o[0],
+                "vosc ZERO-VOLUME row (guards the denom==0 branch)",
+            );
+        }
+    }
+
+    /// THE GATE THE `dpo` REWRITE WAS DONE FOR. `dpo`'s rolling mean is over a raw
+    /// price Input, so it is spelled `Node::Sma` -- the same kind `sma()` uses. Had it
+    /// stayed a `RollSum{mean:true}` the two would be DIFFERENT signature kinds
+    /// (K_SMA=16 vs K_ROLLSUM=24) and this arena would carry the same rolling mean of
+    /// `real` twice, buying nothing. Counts are read from the arena and printed on
+    /// failure, so the interning is observed rather than asserted in a comment.
+    #[test]
+    fn sma_dpo_shared_p_interns_one_sma_and_is_bit_exact() {
+        use tulip_rs::cse::kernel::registry::SIG_sma_dpo_shared_p;
+        use tulip_rs::cse::signature::{K_INPUT, K_LAG, K_SMA, K_SUB};
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::sma(&[20.0]), None)
+            .add(tulip_rs::cse::recipes::dpo(&[20.0]), None);
+        let (_a, sig, _v, _o) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_sma_dpo_shared_p, "hub arena drifted");
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let (input, sma, lag, sub) = (count(K_INPUT), count(K_SMA), count(K_LAG), count(K_SUB));
+        assert_eq!(
+            (input, sma, lag, sub),
+            (1, 1, 1, 1),
+            "arena observed input={input} sma={sma} lag={lag} sub={sub} -- one close \
+             Input, ONE rolling mean shared by the standalone Sma and dpo's detrend, \
+             dpo's look-back Lag, and dpo's Sub"
+        );
+
+        use tulip_rs::indicators::dpo::Dpo;
+        use tulip_rs::indicators::sma::Sma;
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let streams = [s.as_slice()];
+            let out = run_registered(&req, &streams).expect("sma+dpo registered");
+            let (sm, _) = Sma::indicator(&streams, &[20.0], None).unwrap();
+            let (dp, _) = Dpo::indicator(&streams, &[20.0], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &sm[0],
+                "sma+dpo: standalone Sma row",
+            );
+            assert_bits(row_for(&out, 1, true, 0), &dp[0], "sma+dpo: dpo row");
+            // dpo's own `sma` optional mirror is NOT wanted; the published Sma row
+            // above comes from the standalone request, so a non-empty mirror here
+            // would mean the two sinks were not deduped to the one interned node.
+            for (o, row) in out.owners.iter().zip(out.rows.iter()) {
+                if !o.primary {
+                    assert!(row.is_empty(), "disabled optional {o:?} must be empty");
+                }
+            }
+        }
+    }
+
     /// SAME-SOURCE PACKED TWIN vs SCALAR, byte-for-byte, over three series. The
     /// twin shares the arena's `Signature`, so `try_run` reaches the SCALAR kernel
     /// first — the twin must be called DIRECTLY, exactly as the bench rows do, or

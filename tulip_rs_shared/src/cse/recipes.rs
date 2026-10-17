@@ -2090,22 +2090,23 @@ pub fn qstick(options: &[f64]) -> Recipe {
 /// with `value = real[i]` and `prev_value = real[i − p]` — the INCOMING and OUTGOING
 /// bars of the SAME series — so the window is over `real`, not over the difference
 /// series (that was an earlier misreading of this recipe). `dpo_period = p/2 + 1` is
-/// the hand's own derivation (`dpo.rs`). Streams: 0=real. Options `[period]`.
-/// Primary lead = `period`; `Info.optional_outputs = ["sma"]`, whose own lead is
-/// `period` as well.
+/// the hand's own derivation (`dpo.rs`).
+///
+/// THE ROLL IS `Node::Sma`, NOT `RollSum{mean:true}`: its source is a raw price
+/// Input, which is precisely what `Node::Sma` (which reads `stream[t-p]` directly,
+/// the form `sma()` uses) supports. The two are DIFFERENT signature kinds
+/// (`K_SMA=16` vs `K_ROLLSUM=24`), so spelling it as a ring roll would make a
+/// co-requested `Sma(p) + Dpo(p)` compute the same rolling mean TWICE instead of
+/// interning one node — see the `sma_dpo_shared_p` gate. Streams: 0=real. Options
+/// `[period]`. Primary lead = `period`; `Info.optional_outputs = ["sma"]`, lead
+/// `period`.
 pub fn dpo(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
     let dpo_period = (period / 2 + 1) as u32;
     let mut r = Recipe::price();
     let real = r.add(Node::Input { stream: 0 });
     r.tag(real, "real");
-    let sma = r.add(Node::RollSum {
-        src: real,
-        period,
-        mean: true,
-        skip: 0,
-        steady_from: 0,
-    });
+    let sma = r.add(Node::Sma { src: real, period });
     r.tag(sma, "sma");
     let dpo_price = r.add(Node::Lag {
         src: real,

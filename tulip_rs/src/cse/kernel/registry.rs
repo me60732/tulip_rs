@@ -318,4 +318,23 @@ tulip_rs_macros::kernel! {
     rocr_n: Rocr(p);
     typprice_n: Typprice();
     wcprice_n: WcPrice();
+    // ── THE SECOND CALCULATED-INPUT / OSCILLATOR TRANCHE ─────────────────
+    // Sma(p) + Dpo(p) on ONE period is the reason dpo's roll is spelled
+    // `Node::Sma` and not `RollSum{mean:true}`: the two are DIFFERENT signature
+    // kinds (K_SMA=16 vs K_ROLLSUM=24), so as a ring roll the arena would carry the
+    // same rolling mean of `real` TWICE and the hub would save nothing. As written,
+    // dpo's roll and the standalone Sma request are one interned node -- which
+    // `sma_dpo_shared_p_interns_one_sma_and_is_bit_exact` measures rather than
+    // asserts in prose.
+    sma_dpo_shared_p: Sma(p), Dpo(p);
+    // Lone floors for the same tranche (diagnostics, not shipping options): the
+    // arena-declared arities are the hand's own -- AvgPrice reads open/high/low/
+    // close, QStick open/close (`oc()`), Vwma close/volume (`cvol()`), Vosc volume
+    // only (`vol()`), so each row also pins that its column set is exactly what the
+    // hand's Info declares.
+    avgprice_n: AvgPrice();
+    qstick_n: QStick(p);
+    dpo_n: Dpo(p);
+    vwma_n: Vwma(p);
+    vosc_s_l: Vosc(s, l);
 }
