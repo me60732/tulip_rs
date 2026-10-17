@@ -2475,7 +2475,6 @@ mod tests {
         use tulip_rs::cse::signature::{K_EMA, K_FMA, K_MUL};
         use tulip_rs::indicators::dema::Dema;
         use tulip_rs::indicators::tema::Tema;
-        use tulip_rs::indicators::zlema::Zlema;
 
         let req_hub = Request::new()
             .add(tulip_rs::cse::recipes::dema(&[9.0]), None)
@@ -2529,6 +2528,51 @@ mod tests {
                     .unwrap_or_else(|| panic!("{name} not registered"));
                 assert_bits(row_for(&out, 0, true, 0), &hand[0], name);
             }
+        }
+    }
+
+    /// THE TWO ATR ABLATION RUNGS, bit-exact against their own hands BEFORE any
+    /// number was read off them. `tr_n` is the tr subgraph alone (no recurrence);
+    /// `wilders_n` is the mean-`Wilders` recurrence alone over close (no tr walk).
+    ///
+    /// The leads are the interesting part, and a first reading got them wrong: both
+    /// hand cycles run `for i in 0..len`, which looks like publish-from-0, but each
+    /// writes into a buffer sized by `output_length = len - min_data + 1`, so the ROW
+    /// starts at `min_data - 1` regardless. Measured at the registered leads (tr 1,
+    /// wilders `p`), both rows agree with the hand bar-for-bar with NO shift on all
+    /// three series -- so comparing shifted-by-lead here would be the bug, and the
+    /// zero-shift comparison below is what the probe established before it was trusted.
+    #[test]
+    fn atr_ablation_rungs_bit_exact() {
+        use tulip_rs::indicators::tr::Tr;
+        use tulip_rs::indicators::wilders::Wilders;
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let hlc3: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+
+            let req_tr = Request::new().add(tulip_rs::cse::recipes::tr(&[]), None);
+            let out = run_registered(&req_tr, &hlc3).expect("tr_n registered");
+            let hand = Tr::indicator(&hlc3, &[], None).unwrap().0;
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &hand[0],
+                "tr_n (tr subgraph, no recurrence)",
+            );
+
+            let req_w = Request::new().add(tulip_rs::cse::recipes::wilders(&[14.0]), None);
+            let one = [s.as_slice()];
+            let out = run_registered(&req_w, &one).expect("wilders_n registered");
+            let hand = Wilders::indicator(&one, &[14.0], None).unwrap().0;
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &hand[0],
+                "wilders_n (mean Wilders, no tr walk)",
+            );
         }
     }
 

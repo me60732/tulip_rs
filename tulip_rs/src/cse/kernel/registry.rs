@@ -366,6 +366,17 @@ tulip_rs_macros::kernel! {
     // node), which is a vocabulary decision, not a recipe fix.
     dema_n: Dema(p);
     tema_n: Tema(p);
+    // THE ATR ABLATION RUNGS -- see the `atr_n` note above for why they exist.
+    // `tr_n` is the pure 3-term Max/Abs subgraph over (high, low, close) with a
+    // Lag{close,1}, NO recurrence; `wilders_n` is the mean-Wilders recurrence alone
+    // over close, NO tr subgraph. `atr_n` is both. So
+    //     atr_n − tr_n − wilders_n
+    // is the measured cost of fusing them (register pressure, extra live carries),
+    // and each rung's own engine/hand ratio says WHICH half of atr's 1.60x deficit
+    // belongs to the tr walk and which to the smoothing. Gated in
+    // `atr_ablation_rungs_bit_exact` before any number was read off them.
+    tr_n: Tr();
+    wilders_n: Wilders(p);
     // tema OWNS a DemaState, so its ema1/ema2 AND its `dema` output node are the
     // very nodes the standalone dema request builds -- co-requesting them should
     // intern the whole two-chain subgraph and one dema Fma, with tema's `dema`

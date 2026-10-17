@@ -345,6 +345,12 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Dema" => recipes::dema(&opts),
             "Tema" => recipes::tema(&opts),
             "Zlema" => recipes::zlema(&opts),
+            // The two ATR ABLATION RUNGS. `recipes::tr` and `recipes::wilders` had
+            // zero callers outside the grafts, so `atr_n`'s cost could never be
+            // decomposed: atr = tr subgraph + mean-Wilders(tr), and until each half
+            // can run alone, "why is atr 1.60x behind" has no denominator.
+            "Tr" => recipes::tr(&opts),
+            "Wilders" => recipes::wilders(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
         built.push(r);

@@ -463,6 +463,50 @@ fn bench_fused(c: &mut Criterion) {
         })
     });
 
+    // THE ATR ABLATION RUNGS, benched in the SAME binary as `atr_n` above so the
+    // three numbers share one session (the hybrid-CPU rule: never compare a ratio
+    // across runs). `atr` = the tr subgraph + one mean-`Wilders` over it, so
+    //     atr_n − tr_n − wilders_n
+    // is the measured cost of fusing the two. ANSWERED (one binary, medians): the
+    // smoothing is at near-parity -- `wilders_n` 5.029 vs hand 4.748 = 1.06x behind
+    // -- so atr's 1.59x deficit is the TR WALK: `tr_n` 1.904 vs hand 1.291 standalone,
+    // and INSIDE atr the engine's tr costs 7.668-5.029 = 2.64 us where the hand's costs
+    // 4.826-4.748 = 0.08 us, folded into the same pass. This RETRACTS the earlier claim
+    // that the locus was "the mean-`Wilders` ATR emitter". Both rungs are bit-exact
+    // against their own hands -- gated by
+    // `atr_ablation_rungs_bit_exact`, which also proves they ROUTE a generated
+    // kernel (`run_registered` succeeding), so neither row can silently time the
+    // hand against itself.
+    let (_r6, sig_tr_n, vals_tr_n, _o6) =
+        erase_request(&Request::new().add(tulip_rs::cse::recipes::tr(&[]), None)).unwrap();
+    g.bench_function("generated_runonly_tr_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_tr_n, &vals_tr_n, &hlc3).expect("tr_n template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_tr_n", |b| {
+        b.iter(|| {
+            let t = tulip_rs::indicators::tr::Tr::indicator(&hlc3, &[], None).unwrap();
+            black_box(t.0[0].len())
+        })
+    });
+    let cl1: [&[f64]; 1] = [c0.as_slice()];
+    let (_r7, sig_wl_n, vals_wl_n, _o7) =
+        erase_request(&Request::new().add(tulip_rs::cse::recipes::wilders(&[14.0]), None)).unwrap();
+    g.bench_function("generated_runonly_wilders_n", |b| {
+        b.iter(|| {
+            let rows = try_run(&sig_wl_n, &vals_wl_n, &cl1).expect("wilders_n template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("hand_runonly_wilders_n", |b| {
+        b.iter(|| {
+            let w = tulip_rs::indicators::wilders::Wilders::indicator(&cl1, &[14.0], None).unwrap();
+            black_box(w.0[0].len())
+        })
+    });
+
     let (_ru2, sig_run_mass, vals_run_mass, _ou2) =
         erase_request(&Request::new().add(Mass::recipe(&[40.0]), None)).unwrap();
     g.bench_function("generated_runonly_mass_n", |b| {
