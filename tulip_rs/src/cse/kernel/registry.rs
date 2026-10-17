@@ -342,6 +342,19 @@ tulip_rs_macros::kernel! {
     dpo_n: Dpo(p);
     vwma_n: Vwma(p);
     vosc_s_l: Vosc(s, l);
+    // CHAIKIN MONEY FLOW, registered as a HUB with `Ad` rather than as another lone
+    // floor, because the two share their column set AND their arithmetic: both are
+    // `hlcvol()`, and `chaikinmf.rs::calc_mfv` opens with the same `(high - low)` the AD
+    // chain builds, plus the same `f64::EPSILON` constant. So the pair's arena should
+    // carry the range `Sub` ONCE. What is deliberately NOT shared is the money-flow
+    // numerator: the hand writes `(close - low) - (high - close)` while `ad_nodes` writes
+    // `((close - low) - high) + close`. Different association, therefore not bit-equal in
+    // f64, so interning them would be a fabrication -- the gate asserts the split, not a
+    // tidier-looking count.
+    // NOTE the hand's final divide is UNGUARDED (`sums[0] / sums[1]`), unlike vwma/vosc:
+    // an all-zero-volume window must print the hand's NaN, not a invented 0.0.
+    ad_chaikinmf_shared: Ad(), ChaikinMf(p);
+    chaikinmf_n: ChaikinMf(p);
     // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
     // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
     // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first

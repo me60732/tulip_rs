@@ -2523,6 +2523,155 @@ mod tests {
         }
     }
 
+    /// `Ad + ChaikinMf` share one arena. The expected count is DERIVED from the two
+    /// graphs, not observed and back-filled: `intern` keys on the whole `Node`
+    /// (`merge.rs:576`), so the pair must intern the four `Input` columns, the
+    /// `Sub{high, low}` range AND the `Sub{close, low}` difference (both graphs build
+    /// them over the same global children), plus the one `EPSILON` `Const` (its `bits`
+    /// are part of the key, which is why it dedups even though `erase` drops the value
+    /// from the Signature, `signature.rs:351-353`).
+    /// The two money-flow NUMERATORS stay separate on purpose: the hand's
+    /// `(close-low) - (high-close)` versus `ad_nodes`' `((close-low) - high) + close`.
+    /// Different association ⇒ different bits, so a count that merged them would mean
+    /// one of the two was transcribed wrong.
+    #[test]
+    fn ad_chaikinmf_shared_interns_range_and_eps_but_not_the_numerators() {
+        use tulip_rs::cse::kernel::registry::SIG_ad_chaikinmf_shared;
+        use tulip_rs::cse::signature::{
+            K_ACCUM, K_ADD, K_CONST, K_DIV, K_INPUT, K_MAX, K_MUL, K_ROLLSUM, K_SUB, K_WHERELE,
+        };
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::ad(&[]), None)
+            .add(tulip_rs::cse::recipes::chaikinmf(&[9.0]), None);
+        let (_a, sig, _v, _owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_ad_chaikinmf_shared, "hub arena drifted");
+
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let got = (
+            count(K_INPUT),
+            count(K_SUB),
+            count(K_ADD),
+            count(K_DIV),
+            count(K_MAX),
+            count(K_MUL),
+            count(K_WHERELE),
+            count(K_ACCUM),
+            count(K_CONST),
+            count(K_ROLLSUM),
+        );
+        // sub=5: ad's range, cl-lo, (cl-lo)-hi  +  cmf's hi-cl, its own numerator.
+        // div=3: ad's ratio, cmf's clv, cmf's window ratio.   rollsum=2: the two windows.
+        assert_eq!(
+            got,
+            (4, 5, 1, 3, 1, 1, 1, 1, 1, 2),
+            "arena observed input/sub/add/div/max/mul/wherele/accum/const/rollsum = {got:?}"
+        );
+    }
+
+    /// Bit-exact against BOTH hands, including the two cases that separate a correct
+    /// transcription from a plausible one:
+    /// * `high == low` — forces the per-bar `mfv` denominator into `Max(range, EPSILON)`.
+    /// * all-zero volume — the hand's final `sums[0] / sums[1]` is UNGUARDED, so it
+    ///   prints `0.0 / 0.0` = NaN. `vwma` and `vosc` both guard their ratio; copying that
+    ///   neighbour here would print 0.0 and still pass any finite-data matrix.
+    #[test]
+    fn ad_chaikinmf_shared_bit_exact() {
+        use tulip_rs::indicators::ad::Ad;
+        use tulip_rs::indicators::chaikinmf::ChaikinMf;
+        const P: f64 = 9.0;
+
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            // column order is the hand's Info: high, low, close, volume.
+            let four = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::ad(&[]), None)
+                .add(tulip_rs::cse::recipes::chaikinmf(&[P]), None);
+            let out = run_registered(&req, &four).expect("ad + chaikinmf registered");
+
+            let (a, _) = Ad::indicator(&four, &[], None).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &a[0], "ad row in the cmf hub");
+            let (c, _) = ChaikinMf::indicator(&four, &[P], None).unwrap();
+            assert_bits(row_for(&out, 1, true, 0), &c[0], "chaikinmf row");
+        }
+
+        // FLAT RANGE: high == low every bar, so `(high-low)` is exactly 0.0 and the
+        // epsilon floor is the whole denominator.
+        {
+            let n = 200;
+            let px = series(n, |i| 100.0 + (i % 7) as f64);
+            let vol = volume(n);
+            let four = [px.as_slice(), px.as_slice(), px.as_slice(), vol.as_slice()];
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::ad(&[]), None)
+                .add(tulip_rs::cse::recipes::chaikinmf(&[P]), None);
+            let out = run_registered(&req, &four).expect("ad + chaikinmf flat-range");
+            let (a, _) = Ad::indicator(&four, &[], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &a[0],
+                "ad row on HIGH == LOW (epsilon floor)",
+            );
+            let (c, _) = ChaikinMf::indicator(&four, &[P], None).unwrap();
+            assert_bits(
+                row_for(&out, 1, true, 0),
+                &c[0],
+                "chaikinmf row on HIGH == LOW (epsilon floor)",
+            );
+            // NON-VACUITY: with high == low == close the numerator is exactly 0.0, so the
+            // hand prints `0.0 / EPSILON` = 0.0 and NOT `0.0 / 0.0`. A recipe that omitted
+            // the `Max` floor would print NaN here and fail above; a test that never
+            // reached the floor would pass either way. Pinning a zero (never a NaN) makes
+            // this block evidence that the floor was actually hit.
+            assert!(
+                c[0].iter().all(|v| *v == 0.0),
+                "chaikinmf on HIGH==LOW==CLOSE must print the epsilon floor's 0.0, got \
+                 {:?}",
+                &c[0][..c[0].len().min(4)]
+            );
+        }
+
+        // ZERO VOLUME: the unguarded divide must stay unguarded.
+        {
+            let n = 200;
+            let hi = series(n, |i| 101.0 + (i % 3) as f64);
+            let lo = series(n, |i| 99.0 + (i % 3) as f64);
+            let cl = series(n, |i| 100.0 + (i % 3) as f64);
+            let zero_vol = vec![0.0; n];
+            let four = [
+                hi.as_slice(),
+                lo.as_slice(),
+                cl.as_slice(),
+                zero_vol.as_slice(),
+            ];
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::ad(&[]), None)
+                .add(tulip_rs::cse::recipes::chaikinmf(&[P]), None);
+            let out = run_registered(&req, &four).expect("ad + chaikinmf zero-volume");
+            let (c, _) = ChaikinMf::indicator(&four, &[P], None).unwrap();
+            assert_bits(
+                row_for(&out, 1, true, 0),
+                &c[0],
+                "chaikinmf ZERO-VOLUME row (the hand prints 0/0 = NaN, not 0.0)",
+            );
+            // NON-VACUITY, same discipline as the flat-range block: the oracle row must
+            // actually BE NaN here. If it were finite, this block would prove nothing about
+            // the missing guard and `assert_bits` would pass for an uninteresting reason.
+            assert!(
+                c[0].iter().all(|v| v.is_nan()),
+                "zero volume must drive the hand's unguarded `sums[0] / sums[1]` to NaN, got \
+                 {:?}",
+                &c[0][..c[0].len().min(4)]
+            );
+        }
+    }
+
     /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
     /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
     /// what the standalone `dema` request builds: the arena must hold THREE `Ema`

@@ -2184,6 +2184,92 @@ pub fn vwma(options: &[f64]) -> Recipe {
     r
 }
 
+/// `CHAIKINMF(p)` — Chaikin Money Flow, hand `chaikinmf.rs`. Two rolling sums over
+/// the same window, then their ratio:
+/// `sum(mfv, p) / sum(volume, p)` where
+/// `mfv = ((close - low) - (high - close)) / (high - low).max(EPSILON) * volume`.
+///
+/// Columns are `hlcvol()` because `Info.inputs = ["high", "low", "close", "volume"]`
+/// — the SAME column set as `ad`, so a co-requested `Ad + ChaikinMf` interns all four
+/// `Input` slots, the `Sub{high, low}` range node, and the `EPSILON` `Const` (interned
+/// by value). It does NOT intern the money-flow numerator: the hand writes
+/// `(close - low) - (high - close)`, while `ad_nodes` writes the left-to-right
+/// `((close - low) - high) + close`. Those associate differently and are not bit-equal
+/// in f64, so sharing them would be a fabrication — the two graphs keep separate
+/// numerators on purpose.
+///
+/// THE FINAL DIVIDE IS UNGUARDED. `calc` is literally `self.sums[0] / self.sums[1]`
+/// with no `if denom == 0`, unlike `vwma`/`vosc` which DO guard their ratio. Adding a
+/// `WhereLe` here to match those neighbours would be inventing a guard the hand does not
+/// have: on an all-zero-volume window the hand prints `0.0 / 0.0` = NaN, and so must the
+/// kernel. The `Max(range, EPSILON)` floor belongs only to the per-bar `mfv`, NOT to the
+/// window ratio — reading it as the guard for both is the easy wrong transcription.
+///
+/// Lead = `period`: the hand overrides neither `min_data` (default `options[OP-1] + 1`)
+/// nor `output_length` (default `len - min_data + 1`), and its steady loop starts at
+/// `&high[period..]` — all three agree on `period`.
+pub fn chaikinmf(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::hlcvol();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+    let vol = r.add(Node::Input { stream: 3 });
+    r.tag(vol, "volume");
+
+    // `mfv`, statement order straight out of `calc_mfv`.
+    let range = r.add(Node::Sub { a: hi, b: lo });
+    r.tag(range, "hl_range");
+    let eps = r.constant(f64::EPSILON);
+    let den = r.add(Node::Max { a: range, b: eps });
+    r.tag(den, "hl_range_floored");
+    let cl_lo = r.add(Node::Sub { a: cl, b: lo });
+    let hi_cl = r.add(Node::Sub { a: hi, b: cl });
+    let numer = r.add(Node::Sub { a: cl_lo, b: hi_cl });
+    r.tag(numer, "mfv_numer");
+    let clv = r.add(Node::Div { a: numer, b: den });
+    r.tag(clv, "clv");
+    let mfv = r.add(Node::Mul { a: clv, b: vol });
+    r.tag(mfv, "mfv");
+
+    // The hand keeps ONE `Buffer<Simd<f64, 2>>` and does
+    // `sums += values - buffer.push_with_info(values)` — that buffer is a WINDOW
+    // EVICTION, which is exactly what a ring `RollSum` models, so both lanes are spelled
+    // as rolls (the `vwma` precedent) rather than needing a lag over a derived value.
+    let num_sum = r.add(Node::RollSum {
+        src: mfv,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(num_sum, "mfv_sum");
+    let vol_sum = r.add(Node::RollSum {
+        src: vol,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(vol_sum, "vol_sum");
+
+    // Unguarded, because the hand is unguarded.
+    let line = r.add(Node::Div {
+        a: num_sum,
+        b: vol_sum,
+    });
+    r.tag(line, "chaikinmf");
+
+    r.kind = "chaikinmf";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![num_sum, vol_sum];
+    r.outputs.push(Sink::iface_lead(line, period));
+    r
+}
+
 /// `VOSC(s, l)` — the hand's `calc((current, short, long))` calls
 /// `short_state.calc((current, short))` and `long_state.calc((current, long))`, i.e.
 /// TWO `SmaState` windows over the SAME series (`volume`) with different sizes: `s`
