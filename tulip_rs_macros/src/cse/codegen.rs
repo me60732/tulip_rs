@@ -92,13 +92,26 @@ fn classify_packed(p: &Pattern) -> Classified {
             _ => false,
         };
         if packable {
-            // Buckets stay per-KIND even though the LAW above is per-form: the
-            // unmatched-candidate fallback that sends a lone chain to a scalar
-            // hoist is written for `Kind::Ema` only (see `classify`'s `scalars`
-            // arms), so mixing Ema/Iir/Wilders lanes here would leave an
-            // unmatched `Iir` neither grouped nor scalar-held. Cross-form
-            // buckets are the next step, and they need that fallback widened
-            // first -- not a bucket-key change alone.
+            // Buckets stay per-KIND even though the LAW above is per-form. The reason
+            // is NOT what commit 15b238a's message claimed ("the scalar fallback is
+            // written for `Kind::Ema` only" -- false: there is a second, near-identical
+            // `Kind::Wilders` fallback loop below this function, which is why
+            // `atr_multi_p`'s leftover third Wilders survives today).
+            //
+            // The real blocker is the ARRANGEMENT. `Ema` lowers to
+            // `carry*invms + src*mults`; `Wilders` lowers to the SWAPPED
+            // `carry*mults + src*invms`. That is why the group renderer carries TWO
+            // statements -- one emitting `#g.mul_add(#gi_v, splat(src) * #gm)` and one
+            // emitting `#g.mul_add(#gm, splat(src) * #gi_v)`. A group has exactly ONE
+            // statement, so an Ema lane and a Wilders lane over one source cannot share
+            // it. Cross-form buckets therefore need the GROUP HOIST to normalize each
+            // lane into one arrangement -- carry-coefficient into `#gi_v`,
+            // source-coefficient into `#gm`, per lane, chosen from that lane's kind --
+            // which is a hoist change, not a bucket-key change.
+            //
+            // Separately: `Iir` has NO fallback loop at all (only Ema and Wilders do),
+            // so making it groupable before its fallback exists would let an unmatched
+            // `Iir` fall through with neither a group nor a scalar hoist.
             buckets.entry((node.kind, node.a)).or_default().push(k);
         }
     }
