@@ -2018,3 +2018,237 @@ pub fn wcprice(_options: &[f64]) -> Recipe {
     r.outputs.push(Sink::iface(line));
     r
 }
+
+/// `AVGPRICE` = `(open + high + low + close) * 0.25` — stateless, every bar
+/// publishes (`Sink::iface`, lead 0). Streams: 0=open, 1=high, 2=low, 3=close.
+pub fn avgprice(_options: &[f64]) -> Recipe {
+    let mut r = Recipe::ohlc();
+    let open = r.add(Node::Input { stream: 0 });
+    r.tag(open, "open");
+    let high = r.add(Node::Input { stream: 1 });
+    r.tag(high, "high");
+    let low = r.add(Node::Input { stream: 2 });
+    r.tag(low, "low");
+    let close = r.add(Node::Input { stream: 3 });
+    r.tag(close, "close");
+    let sum = r.add(Node::Add { a: open, b: high });
+    r.tag(sum, "oh_sum");
+    let sum2 = r.add(Node::Add { a: sum, b: low });
+    r.tag(sum2, "ohl_sum");
+    let line = r.add(Node::Add { a: sum2, b: close });
+    r.tag(line, "ohlc_sum");
+    let quarter = r.constant(0.25);
+    r.tag(quarter, "quarter");
+    let avg = r.add(Node::Mul {
+        a: line,
+        b: quarter,
+    });
+    r.tag(avg, "avgprice");
+
+    r.kind = "avgprice";
+    r.options = Vec::new();
+    r.outputs.push(Sink::iface(avg));
+    r
+}
+
+/// `QSTICK(p)` — the hand's `State(SmaState)` fed `(close - open, prev_close -
+/// prev_open)`, and `SmaState::calc((incoming, outgoing))` is
+/// `sum += incoming - outgoing; sum * (1/p)`. So the WINDOW SERIES is `close − open`
+/// and the second tuple element is the bar leaving the ring, NOT a second operand to
+/// difference — the ring supplies it, so no `Lag` node is needed. Hand `INPUTS` is
+/// `["open","close"]`, so the arena declares exactly those two columns: `oc()` →
+/// open=0, close=1. Streams: 0=open, 1=close. Options `[period]`. Publish lead =
+/// `period` (hand `cycle_qstick` runs `i` from `period`; `optional_outputs` is empty).
+pub fn qstick(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::oc();
+    let open = r.add(Node::Input { stream: 0 });
+    r.tag(open, "open");
+    let close = r.add(Node::Input { stream: 1 });
+    r.tag(close, "close");
+    let diff = r.add(Node::Sub { a: close, b: open });
+    r.tag(diff, "co_diff");
+    let sma = r.add(Node::RollSum {
+        src: diff,
+        period,
+        mean: true,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sma, "qstick");
+
+    r.kind = "qstick";
+    r.options = options.to_vec();
+    // The carried state is SmaState's `sum`, which the ring owns.
+    r.tail_inputs = vec![sma];
+    r.outputs.push(Sink::iface_lead(sma, period));
+    r
+}
+
+/// `DPO(p)` = `real[i − (p/2 + 1)] − SMA(real, p)`. The hand's
+/// `calc((value, prev_value, dpo_price))` calls `SmaState::calc((value, prev_value))`
+/// with `value = real[i]` and `prev_value = real[i − p]` — the INCOMING and OUTGOING
+/// bars of the SAME series — so the window is over `real`, not over the difference
+/// series (that was an earlier misreading of this recipe). `dpo_period = p/2 + 1` is
+/// the hand's own derivation (`dpo.rs`). Streams: 0=real. Options `[period]`.
+/// Primary lead = `period`; `Info.optional_outputs = ["sma"]`, whose own lead is
+/// `period` as well.
+pub fn dpo(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let dpo_period = (period / 2 + 1) as u32;
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    let sma = r.add(Node::RollSum {
+        src: real,
+        period,
+        mean: true,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sma, "sma");
+    let dpo_price = r.add(Node::Lag {
+        src: real,
+        n: dpo_period,
+    });
+    r.tag(dpo_price, "dpo_price");
+    let line = r.add(Node::Sub {
+        a: dpo_price,
+        b: sma,
+    });
+    r.tag(line, "dpo");
+
+    r.kind = "dpo";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![sma];
+    r.outputs.push(Sink::iface_lead(line, period));
+    r.optional_outputs.push(Sink::iface_lead(sma, period));
+    r
+}
+
+/// `VWMA(p)` — the volume-weighted moving average: the ratio of two WINDOW SUMS,
+/// `Σ(close·volume)` over `p` bars divided by `Σ volume` over the same `p` bars. The
+/// hand writes this as the telescoping `sum += close*volume − prev_close*prev_volume`
+/// / `vol_sum += volume − prev_volume`, which is exactly what a raw `RollSum` does
+/// internally (incoming minus outgoing) — NOT an unbounded `Accum`, which would never
+/// drop a bar. Hand `if self.vol_sum == 0.0 { return 0.0 }` guards the DIVISION
+/// RESULT, so it is spelled `WhereLe{ Abs(vol_sum) <= 0 } → 0 : ratio`: the take arm
+/// is `!(a <= b)`, which holds for every non-zero finite value AND for NaN (where the
+/// hand also falls through to `sum/NaN`), and pins 0 only at ±0.0. Streams: 0=close,
+/// 1=volume (`cvol()`). Options `[period]`. Publish lead = `period`.
+pub fn vwma(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::cvol();
+    let close = r.add(Node::Input { stream: 0 });
+    r.tag(close, "close");
+    let volume = r.add(Node::Input { stream: 1 });
+    r.tag(volume, "volume");
+    let close_vol = r.add(Node::Mul {
+        a: close,
+        b: volume,
+    });
+    r.tag(close_vol, "close_vol");
+    let sum = r.add(Node::RollSum {
+        src: close_vol,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sum, "pv_sum");
+    let vol_sum = r.add(Node::RollSum {
+        src: volume,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(vol_sum, "vol_sum");
+    let ratio = r.add(Node::Div { a: sum, b: vol_sum });
+    r.tag(ratio, "vwma_ratio");
+    let zero = r.constant(0.0);
+    let mag = r.add(Node::Abs { src: vol_sum });
+    r.tag(mag, "vol_sum_abs");
+    let line = r.add(Node::WhereLe {
+        a: mag,
+        b: zero,
+        t: ratio,
+    });
+    r.tag(line, "vwma");
+
+    r.kind = "vwma";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![sum, vol_sum];
+    r.outputs.push(Sink::iface_lead(line, period));
+    r
+}
+
+/// `VOSC(s, l)` — the hand's `calc((current, short, long))` calls
+/// `short_state.calc((current, short))` and `long_state.calc((current, long))`, i.e.
+/// TWO `SmaState` windows over the SAME series (`volume`) with different sizes: `s`
+/// and `l`. `Info.inputs = ["volume"]` with `INPUTS = 1`, so the arena is `vol()` —
+/// declaring `price()` here would silently bind CLOSE under a "volume" tag, the exact
+/// positional hazard the column-declared remap exists to prevent.
+/// `if slow_sma == 0.0 → 0` guards the result, spelled `WhereLe{ Abs(slow) <= 0 }` for
+/// the same NaN/-0.0 reasons as `vwma`. Streams: 0=volume. Options `[short, long]`.
+/// Primary lead = `long`; `Info.optional_outputs = ["short_sma","long_sma"]` in that
+/// order, each with ITS OWN lead (declared-order rule).
+pub fn vosc(options: &[f64]) -> Recipe {
+    let short_period = options[0] as u32;
+    let long_period = options[1] as u32;
+    let mut r = Recipe::vol();
+    let volume = r.add(Node::Input { stream: 0 });
+    r.tag(volume, "volume");
+    let fast_sma = r.add(Node::RollSum {
+        src: volume,
+        period: short_period,
+        mean: true,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(fast_sma, "short_sma");
+    let slow_sma = r.add(Node::RollSum {
+        src: volume,
+        period: long_period,
+        mean: true,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(slow_sma, "long_sma");
+    let diff = r.add(Node::Sub {
+        a: fast_sma,
+        b: slow_sma,
+    });
+    r.tag(diff, "diff");
+    let hundred = r.constant(100.0);
+    r.tag(hundred, "hundred");
+    let scaled = r.add(Node::Mul {
+        a: diff,
+        b: hundred,
+    });
+    r.tag(scaled, "scaled");
+    let ratio = r.add(Node::Div {
+        a: scaled,
+        b: slow_sma,
+    });
+    r.tag(ratio, "vosc_ratio");
+    let zero = r.constant(0.0);
+    let mag = r.add(Node::Abs { src: slow_sma });
+    r.tag(mag, "slow_abs");
+    let line = r.add(Node::WhereLe {
+        a: mag,
+        b: zero,
+        t: ratio,
+    });
+    r.tag(line, "vosc");
+
+    r.kind = "vosc";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![fast_sma, slow_sma];
+    r.outputs.push(Sink::iface_lead(line, long_period));
+    r.optional_outputs
+        .push(Sink::iface_lead(fast_sma, short_period));
+    r.optional_outputs
+        .push(Sink::iface_lead(slow_sma, long_period));
+    r
+}
