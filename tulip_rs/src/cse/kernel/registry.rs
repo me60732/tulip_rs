@@ -377,6 +377,15 @@ tulip_rs_macros::kernel! {
     // cannot pass as a hub. This is the `E8` payoff measured, not planned.
     vwap_n: Vwap();
     vwap_typprice_shared: Vwap(), Typprice();
+    // SMA ENVELOPE is a calculated-composite hub in the same sense as
+    // `vwap_typpice_shared`: its middle band is the same `Node::Sma{src: Input{0}, period}`
+    // that `recipes::sma` builds, so `Sma(p) + SmaEnvelope(p, m)` interns to ONE roll. The
+    // distinguishing count is K_SMA -- 1 shared versus 2 duplicated (arena length goes 6
+    // vs 7, but `K_SMA` is the claim). It publishes THREE primaries (`Info.outputs =
+    // ["lower","middle","upper"]`, no optionals), so the hub's sink table is 4 rows from 2
+    // consumers, and the gate asserts that count as well as the bit-exactness.
+    smaenvelope_n: SmaEnvelope(p, m);
+    sma_smaenvelope_shared_p: Sma(p), SmaEnvelope(p, m);
     // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
     // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
     // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first

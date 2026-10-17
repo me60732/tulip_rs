@@ -349,6 +349,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             // route to a kernel, which is worse than not implementing Planable at all.
             "Vhf" => recipes::vhf(&opts),
             "Vwap" => recipes::vwap(&opts),
+            "SmaEnvelope" => recipes::smaenvelope(&opts),
             "Dema" => recipes::dema(&opts),
             "Tema" => recipes::tema(&opts),
             "Zlema" => recipes::zlema(&opts),

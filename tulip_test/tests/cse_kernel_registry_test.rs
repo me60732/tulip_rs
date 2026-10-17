@@ -2927,6 +2927,104 @@ mod tests {
         }
     }
 
+    /// SMA + SMAENVELOPE: the envelope's middle band IS the standalone `Sma` node, so the
+    /// pair must carry ONE roll. Counts DERIVED from the two graphs: the envelope needs
+    /// input + `Sma` + `Const(pct)` + `Mul(step)` + `Sub(lower)` + `Add(upper)` = 6 nodes,
+    /// and `sma` contributes only input + `Sma` (both already in that set). So interning
+    /// predicts `K_SMA = 1, len = 6`; a duplicated roll predicts `K_SMA = 2, len = 7`.
+    ///
+    /// `n_sinks` is asserted too (4 = Sma's primary + the envelope's three), because this
+    /// is the first hub whose second consumer publishes THREE primaries -- a sink-table bug
+    /// would show up as a count, not as a wrong value.
+    #[test]
+    fn sma_smaenvelope_shared_interns_one_roll() {
+        use tulip_rs::cse::kernel::registry::SIG_sma_smaenvelope_shared_p;
+        use tulip_rs::cse::signature::{K_ADD, K_CONST, K_INPUT, K_MUL, K_SMA, K_SUB};
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::sma(&[9.0]), None)
+            .add(tulip_rs::cse::recipes::smaenvelope(&[9.0, 5.0]), None);
+        let (arena, sig, _v, _owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_sma_smaenvelope_shared_p, "hub arena drifted");
+
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let got = (
+            count(K_INPUT),
+            count(K_SMA),
+            count(K_CONST),
+            count(K_MUL),
+            count(K_SUB),
+            count(K_ADD),
+        );
+        assert_eq!(
+            got,
+            (1, 1, 1, 1, 1, 1),
+            "arena observed input/sma/const/mul/sub/add = {got:?} -- sma=2 (len 7) would mean \
+             the roll was duplicated instead of shared"
+        );
+        assert_eq!(arena.nodes.len(), 6, "six nodes expected");
+        assert_eq!(
+            sig.n_sinks, 4,
+            "sma's primary + the envelope's lower/middle/upper"
+        );
+    }
+
+    /// Bit-exact against BOTH hands, on the hub AND on the lone floor (`smaenvelope_n` is a
+    /// separately compiled kernel, so the hub passing does not certify it), plus the
+    /// aliasing claim: the envelope's middle row and standalone Sma's row are the same bits
+    /// because they ARE the same node.
+    ///
+    /// The band-opening check is the non-vacuity guard: if `step` were wired to the wrong
+    /// source (say the raw close instead of the roll), lower/middle/upper could still be
+    /// self-consistent within the kernel yet differ from the hand -- and if the three sinks
+    /// were pushed in the wrong order, comparing rows to rows would pass while BOTH were
+    /// mislabelled. Requiring `lower < middle < upper` at every bar of a positive-price
+    /// series pins the arithmetic to the bands' actual meaning.
+    #[test]
+    fn sma_smaenvelope_bit_exact_on_hub_and_floor() {
+        use tulip_rs::indicators::sma::Sma;
+        use tulip_rs::indicators::smaenvelope::SmaEnvelope;
+        const P: f64 = 9.0;
+        const M: f64 = 5.0;
+
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let one = [s.as_slice()];
+            let (sm, _) = Sma::indicator(&one, &[P], None).unwrap();
+            let (e, _) = SmaEnvelope::indicator(&one, &[P, M], None).unwrap();
+            // Info order: lower, middle, upper.
+            assert!(
+                e[0].iter().zip(&e[1]).all(|(l, m_)| l < m_)
+                    && e[2].iter().zip(&e[1]).all(|(u, m_)| u > m_),
+                "the HAND's bands are not ordered lower<middle<upper -- check the shape"
+            );
+
+            // THE HUB: two indicators, one roll.
+            let hub = Request::new()
+                .add(tulip_rs::cse::recipes::sma(&[P]), None)
+                .add(tulip_rs::cse::recipes::smaenvelope(&[P, M]), None);
+            let out = run_registered(&hub, &one).expect("sma + smaenvelope registered");
+            assert_bits(row_for(&out, 0, true, 0), &sm[0], "sma row in the hub");
+            assert_bits(row_for(&out, 1, true, 0), &e[0], "envelope lower [hub]");
+            assert_bits(row_for(&out, 1, true, 1), &e[1], "envelope middle [hub]");
+            assert_bits(row_for(&out, 1, true, 2), &e[2], "envelope upper [hub]");
+            assert_bits(
+                row_for(&out, 1, true, 1),
+                row_for(&out, 0, true, 0),
+                "the middle band and standalone sma are the same node, so same bits",
+            );
+
+            // THE LONE FLOOR: the separately compiled `smaenvelope_n` kernel.
+            let floor = Request::new().add(tulip_rs::cse::recipes::smaenvelope(&[P, M]), None);
+            let out = run_registered(&floor, &one).expect("smaenvelope floor registered");
+            assert_bits(row_for(&out, 0, true, 0), &e[0], "envelope lower [floor]");
+            assert_bits(row_for(&out, 0, true, 1), &e[1], "envelope middle [floor]");
+            assert_bits(row_for(&out, 0, true, 2), &e[2], "envelope upper [floor]");
+        }
+    }
+
     /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
     /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
     /// what the standalone `dema` request builds: the arena must hold THREE `Ema`

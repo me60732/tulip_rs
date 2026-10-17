@@ -2340,6 +2340,56 @@ pub fn vwap(_options: &[f64]) -> Recipe {
     r
 }
 
+/// `SMAENVELOPE(p, b)` — hand `smaenvelope.rs`: the SMA line plus `sma * (b/100)` added
+/// to and subtracted from it. `Info.outputs = ["lower","middle","upper"]` with NO
+/// optional outputs, so all three are PRIMARIES, in that order.
+///
+/// The middle band is the SAME `Node::Sma{src: Input{0}, period}` that [`sma`] builds over
+/// the same close column, so `Sma(p) + SmaEnvelope(p, b)` interns to ONE roll — the arena
+/// carries six nodes, not seven. `intern` keys on the whole `Node` (merge.rs:576), so the
+/// two rolls merge only because the source, period and kind are all identical; and the
+/// envelope's `middle` row is then literally Sma's primary row, not a copy.
+///
+/// The band scale is a `Const`, not a parameter: the hand folds `percentage / 100.0` into
+/// the STATE at `State::new`/`init_state` and then multiplies, so the recipe carries
+/// `constant(options[1] / 100.0)` — one division at plan time, then a plain `Mul` per bar,
+/// matching `let step = sma * self.percentage`. `Const{bits}` is part of the intern key but
+/// its VALUE is not in the Signature (`(K_CONST, 0, 0, 0)`, signature.rs:351-353; the value
+/// rides `vals.consts[k]`), which is what lets two different band widths share a kernel
+/// while still occupying distinct arena slots.
+///
+/// Lead = `period` on ALL THREE rows. `Node::Sma`'s node lead is `period - 1`
+/// (`merge.rs:79-81`, "the first full window ends at lead(src) + period − 1"), but the hand
+/// publishes from bar `period` (`min_data = options[0] + 1`, default `output_length`, and
+/// `cycle` starts at `period..len`). So each sink spells `Sink::iface_lead(_, period)` —
+/// the same explicit `+1` [`sma`] needs for the identical reason. `Sink::iface` here would
+/// publish one bar early.
+pub fn smaenvelope(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "price");
+    let m = r.add(Node::Sma { src: real, period });
+    r.tag(m, "middle");
+    let pct = r.constant(options[1] / 100.0);
+    r.tag(pct, "band_pct");
+    let step = r.add(Node::Mul { a: m, b: pct });
+    r.tag(step, "step");
+    let lower = r.add(Node::Sub { a: m, b: step });
+    r.tag(lower, "lower");
+    let upper = r.add(Node::Add { a: m, b: step });
+    r.tag(upper, "upper");
+
+    r.kind = "smaenvelope";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![m];
+    // Info order: lower, middle, upper.
+    r.outputs.push(Sink::iface_lead(lower, period));
+    r.outputs.push(Sink::iface_lead(m, period));
+    r.outputs.push(Sink::iface_lead(upper, period));
+    r
+}
+
 /// `VOSC(s, l)` — the hand's `calc((current, short, long))` calls
 /// `short_state.calc((current, short))` and `long_state.calc((current, long))`, i.e.
 /// TWO `SmaState` windows over the SAME series (`volume`) with different sizes: `s`
