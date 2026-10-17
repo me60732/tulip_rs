@@ -3191,6 +3191,180 @@ mod tests {
         }
     }
 
+    /// EMA + ATR + KELTNER: the merge the engine exists for, counted before it ran.
+    /// Keltner's bands hang off `atr_nodes` (the same tr walk + mean-`Wilders` over the
+    /// same `hlc()` columns that `Atr` builds) and its middle band is `Ema{src: close}`,
+    /// the node `Ema(p)` builds. So three consumers, ONE of each.
+    ///
+    /// Derived, not observed: 3 `Input`s (H,L,C) + `Lag` 1 + `Sub` 4 (range, h-pc, l-pc,
+    /// lower) + `Abs` 2 + `Max` 2 + `Wilders` 1 + `Ema` 1 + `Mul` 1 (atr*step) + `Add` 1
+    /// (upper) + `Const` 1 (step) = 17 nodes, 8 sinks. Three separate arenas would total
+    /// 2 + 12 + 17 = 31. A duplicated tr walk would show up here as `Abs = 4, Max = 4`.
+    #[test]
+    fn ema_atr_keltner_shared_interns_the_whole_atr_chain() {
+        use tulip_rs::cse::kernel::registry::SIG_ema_atr_keltner_shared_p;
+        use tulip_rs::cse::signature::{
+            K_ABS, K_ADD, K_CONST, K_EMA, K_INPUT, K_LAG, K_MAX, K_MUL, K_SUB, K_WILDERS,
+        };
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::ema(&[14.0]), None)
+            .add(tulip_rs::cse::recipes::atr(&[14.0]), None)
+            .add(tulip_rs::cse::recipes::keltnerchannel(&[14.0, 2.0]), None);
+        let (arena, sig, _v, _owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_ema_atr_keltner_shared_p, "hub arena drifted");
+
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let got = (
+            count(K_INPUT),
+            count(K_LAG),
+            count(K_SUB),
+            count(K_ABS),
+            count(K_MAX),
+            count(K_WILDERS),
+            count(K_EMA),
+            count(K_MUL),
+            count(K_ADD),
+            count(K_CONST),
+        );
+        assert_eq!(
+            got,
+            (3, 1, 4, 2, 2, 1, 1, 1, 1, 1),
+            "arena observed input/lag/sub/abs/max/wilders/ema/mul/add/const = {got:?} -- \
+             abs=4 or max=4 would mean the tr walk was rebuilt instead of shared"
+        );
+        assert_eq!(arena.nodes.len(), 17, "expected 17 nodes");
+        assert_eq!(
+            sig.n_sinks, 8,
+            "1 ema + 1 atr + 1 atr's tr + 3 bands + 2 keltner mirrors"
+        );
+    }
+
+    /// Bit-exact against all THREE hands, and the identity claims that make the sharing
+    /// meaningful rather than merely compact: keltner's `atr` OPTIONAL must equal Atr's
+    /// PRIMARY bit-for-bit (legal only because `keltnerchannel.rs` stores it UNCORRECTED,
+    /// i.e. mean-mode -- adxr's ATR is composite and must be scaled, which is why that
+    /// indicator cannot reuse a row this way), and keltner's `middle` must equal the
+    /// standalone `Ema` row.
+    ///
+    /// FLAT is included deliberately: with high == low == close, every `tr` term is 0, so
+    /// `atr = 0`, `per = 0` and all three bands collapse onto the close. That is the one
+    /// shape where `lower = ema - per` and `upper = ema + per` are indistinguishable by
+    /// value, so the NON-FLAT shapes carry the sign check (`lower < middle < upper`
+    /// asserted against the hand), and flat carries the zero-path/seed check the
+    /// zlema lesson says a trend can hide.
+    #[test]
+    fn ema_atr_keltner_shared_bit_exact() {
+        use tulip_rs::indicators::atr::Atr;
+        use tulip_rs::indicators::ema::Ema;
+        use tulip_rs::indicators::keltnerchannel::KeltnerChannel;
+        const P: f64 = 14.0;
+        const M: f64 = 2.0;
+
+        for (name, s) in [
+            ("wiggle", wiggle()),
+            ("ramp", series(680, |i| 100.0 + i as f64 * 0.05)),
+            ("flat", series(700, |_| 100.0)),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let hlc = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let one = [s.as_slice()];
+
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::ema(&[P]), None)
+                // The optional flags must be asked for HERE as well as in the hand call:
+                // mirrors are structurally in the arena (the count test above passes with
+                // `None`) but their ROWS are empty unless wanted, so `None` here gave a
+                // 0-length engine row against the hand's 699.
+                .add(tulip_rs::cse::recipes::atr(&[P]), Some(&[true]))
+                .add(
+                    tulip_rs::cse::recipes::keltnerchannel(&[P, M]),
+                    Some(&[true, true]),
+                );
+            let out = run_registered(&req, &hlc).expect("ema + atr + keltner registered");
+
+            let (e, _) = Ema::indicator(&one, &[P], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &e[0],
+                &format!("ema row [{name}]"),
+            );
+            let (a, _) = Atr::indicator(&hlc, &[P], Some(&[true])).unwrap();
+            assert_bits(
+                row_for(&out, 1, true, 0),
+                &a[0],
+                &format!("atr row [{name}]"),
+            );
+            assert_bits(
+                row_for(&out, 1, false, 0),
+                &a[1],
+                &format!("atr's tr mirror [{name}]"),
+            );
+
+            let (k, _) = KeltnerChannel::indicator(&hlc, &[P, M], Some(&[true, true])).unwrap();
+            assert_bits(
+                row_for(&out, 2, true, 0),
+                &k[0],
+                &format!("kc lower [{name}]"),
+            );
+            assert_bits(
+                row_for(&out, 2, true, 1),
+                &k[1],
+                &format!("kc middle [{name}]"),
+            );
+            assert_bits(
+                row_for(&out, 2, true, 2),
+                &k[2],
+                &format!("kc upper [{name}]"),
+            );
+            // The shared-node identities: same arena node, so same bits.
+            assert_bits(
+                row_for(&out, 2, false, 0),
+                row_for(&out, 1, true, 0),
+                &format!("kc's atr optional IS atr's primary [{name}]"),
+            );
+            assert_bits(
+                row_for(&out, 2, false, 1),
+                row_for(&out, 1, false, 0),
+                &format!("kc's tr optional IS atr's tr mirror [{name}]"),
+            );
+            assert_bits(
+                row_for(&out, 2, true, 1),
+                row_for(&out, 0, true, 0),
+                &format!("kc middle IS the standalone ema [{name}]"),
+            );
+
+            if name != "flat" {
+                // Sign/order check, against the HAND, and non-vacuity in one: an
+                // all-zero or swapped-band kernel cannot satisfy this and still match.
+                assert!(
+                    k[0].iter().zip(&k[1]).all(|(l, m)| l < m)
+                        && k[2].iter().zip(&k[1]).all(|(u, m)| u > m),
+                    "keltner bands not ordered lower<middle<upper on {name}"
+                );
+                assert!(
+                    k[0].iter().any(|v| *v != 0.0),
+                    "keltner lower row all-zero on {name} -- nothing was computed"
+                );
+            }
+        }
+
+        // The lone floor too: `keltnerchannel_n` is a separately compiled kernel, so the
+        // hub passing does not certify it.
+        {
+            let s = wiggle();
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let hlc = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let floor = Request::new().add(tulip_rs::cse::recipes::keltnerchannel(&[P, M]), None);
+            let out = run_registered(&floor, &hlc).expect("keltner floor registered");
+            let (k, _) = KeltnerChannel::indicator(&hlc, &[P, M], Some(&[true, true])).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &k[0], "kc lower [floor]");
+            assert_bits(row_for(&out, 0, true, 1), &k[1], "kc middle [floor]");
+            assert_bits(row_for(&out, 0, true, 2), &k[2], "kc upper [floor]");
+        }
+    }
+
     /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
     /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
     /// what the standalone `dema` request builds: the arena must hold THREE `Ema`

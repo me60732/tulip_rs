@@ -351,6 +351,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Vwap" => recipes::vwap(&opts),
             "SmaEnvelope" => recipes::smaenvelope(&opts),
             "Obv" => recipes::obv(&opts),
+            "KeltnerChannel" => recipes::keltnerchannel(&opts),
             "Dema" => recipes::dema(&opts),
             "Tema" => recipes::tema(&opts),
             "Zlema" => recipes::zlema(&opts),

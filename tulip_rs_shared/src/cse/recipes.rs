@@ -2453,6 +2453,61 @@ pub fn obv(_options: &[f64]) -> Recipe {
     r
 }
 
+/// `KELTNERCHANNEL(p, m)` — hand `keltnerchannel.rs`: `AtrState` and `EmaState` over the
+/// SAME period, then `per = atr * step`, `(ema - per, ema, ema + per)` plus the `atr`/`tr`
+/// mirrors. Columns `hlc()` from `Info.inputs = ["high","low","close"]`; lead `period`
+/// (`min_data = options[0] + 1` at `keltnerchannel.rs:206`).
+///
+/// COMPOSES THE ATR, DOES NOT RESTATE IT: `atr_nodes` is documented as the ONE spelling
+/// every family member means, so the bands hang off the same `Wilders{composite:false}` and
+/// the same tr walk. That this is legal and not a silent re-scaling is checked, not
+/// assumed: `keltnerchannel.rs:157-160` stores `atr_line => atr` with
+/// `store_optional_outputs!` -- UNCORRECTED. Compare `adxr.rs`, which must use
+/// `store_optional_outputs_corrected!` because ITS ATR is reached through `DxState` and
+/// runs in composite (sum) mode. Keltner calls `AtrState::init_state` directly, i.e. mean
+/// mode, which is exactly the node `Atr` publishes bit-exactly today.
+///
+/// THREE PRIMARIES IN INFO ORDER (`lower, middle, upper`) and TWO OPTIONALS (`atr, tr`),
+/// the `tr` mirror at lead 1 like `atr`'s own (`tr_line` is sized
+/// `Tr::output_length(len)`, so it starts one bar later than the bands).
+///
+/// THE HUB PAYS HERE MORE THAN ANYWHERE ELSE IN THE REGISTRY. `Ema(p) + Atr(p) +
+/// KeltnerChannel(p, m)` is a real dashboard combo, and the ATR ablation measured the tr
+/// walk as the single biggest component of `atr_n`'s 1.59x deficit -- so computing that
+/// walk ONCE for three consumers is the merge win the engine exists for.
+pub fn keltnerchannel(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::hlc();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+
+    let (atr_id, tr) = atr_nodes(&mut r, hi, lo, cl, period);
+    let ema = r.add(Node::Ema { src: cl, period });
+    r.tag(ema, "middle");
+    let step = r.constant(options[1]);
+    r.tag(step, "step");
+    let per = r.add(Node::Mul { a: atr_id, b: step });
+    r.tag(per, "band_half");
+    let lower = r.add(Node::Sub { a: ema, b: per });
+    r.tag(lower, "lower");
+    let upper = r.add(Node::Add { a: ema, b: per });
+    r.tag(upper, "upper");
+
+    r.kind = "keltnerchannel";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface_lead(lower, period));
+    r.outputs.push(Sink::iface_lead(ema, period));
+    r.outputs.push(Sink::iface_lead(upper, period));
+    // Info optional order: [atr, tr] -- both the SAME arena nodes `atr` publishes.
+    r.optional_outputs.push(Sink::iface_lead(atr_id, period));
+    r.optional_outputs.push(Sink::iface_lead(tr, 1));
+    r
+}
+
 /// `VOSC(s, l)` — the hand's `calc((current, short, long))` calls
 /// `short_state.calc((current, short))` and `long_state.calc((current, long))`, i.e.
 /// TWO `SmaState` windows over the SAME series (`volume`) with different sizes: `s`

@@ -396,6 +396,19 @@ tulip_rs_macros::kernel! {
     // `adosc + apo` to be legal at all.
     obv_n: Obv();
     tr_obv_shared: Tr(), Obv();
+    // KELTNER IS THE STRONGEST HUB IN THE REGISTRY, because what it shares is the part the
+    // ATR ablation measured as expensive. Its bands hang off `atr_nodes` -- the SAME
+    // tr walk + mean-`Wilders` nodes `Atr` builds over the SAME `hlc()` columns -- and its
+    // middle band is `Ema{src: close, period}`, the node `Ema(p)` builds. So
+    // `Ema(p) + Atr(p) + KeltnerChannel(p, m)` should carry 17 nodes where three separate
+    // arenas would total 2 + 12 + 17 = 31: the whole ATR chain (the tr walk is the single
+    // biggest component of `atr_n`'s measured 1.59x deficit) computed ONCE for three
+    // consumers. The gate asserts the counts AND that keltner's `atr` optional row is
+    // bit-identical to Atr's primary -- sharing that produces wrong values is not sharing.
+    // Safe because `keltnerchannel.rs:157-160` stores its `atr` UNCORRECTED (mean-mode
+    // AtrState), unlike adxr, whose ATR runs composite and must be scaled.
+    keltnerchannel_n: KeltnerChannel(p, m);
+    ema_atr_keltner_shared_p: Ema(p), Atr(p), KeltnerChannel(p, m);
     // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
     // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
     // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first
