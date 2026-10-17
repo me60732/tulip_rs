@@ -355,6 +355,19 @@ tulip_rs_macros::kernel! {
     // an all-zero-volume window must print the hand's NaN, not a invented 0.0.
     ad_chaikinmf_shared: Ad(), ChaikinMf(p);
     chaikinmf_n: ChaikinMf(p);
+    // VHF IS THE FIRST ROW ADDED PURELY TO ROUTE AN EXISTING RECIPE. `recipes::vhf` was
+    // complete and `impl Planable for Vhf` existed (`vhf.rs:240`), but with no planner arm
+    // and no row the graph could never reach a kernel -- a `Planable` impl that silently
+    // promises more than it delivers.
+    //
+    // `max_min_vhf_shared_p` is the reason to register it as a hub rather than a floor:
+    // `recipes::max` and `recipes::min` each build `RollMax{src: real, period,
+    // look_back: period-1}` / `RollMin{..}` over `price()`, and `vhf` builds the two
+    // IDENTICAL nodes itself. `intern` keys on the whole `Node`, so three consumers share
+    // TWO ring rescans instead of paying four -- the merge win, measured by the arena-count
+    // gate rather than asserted here.
+    vhf_n: Vhf(p);
+    max_min_vhf_shared_p: Max(p), Min(p), Vhf(p);
     // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
     // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
     // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first

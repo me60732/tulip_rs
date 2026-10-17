@@ -343,6 +343,11 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Vwma" => recipes::vwma(&opts),
             "Vosc" => recipes::vosc(&opts),
             "ChaikinMf" => recipes::chaikinmf(&opts),
+            // `vhf` was the one orphan the coverage sweep found: a complete recipe
+            // (recipes.rs) AND a `Planable` impl on the hand module (vhf.rs:240), but no
+            // arm and no row -- so `Vhf::recipe(...)` handed back a graph that could never
+            // route to a kernel, which is worse than not implementing Planable at all.
+            "Vhf" => recipes::vhf(&opts),
             "Dema" => recipes::dema(&opts),
             "Tema" => recipes::tema(&opts),
             "Zlema" => recipes::zlema(&opts),

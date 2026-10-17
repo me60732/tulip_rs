@@ -2672,6 +2672,123 @@ mod tests {
         }
     }
 
+    /// VHF'S FIRST-EVER ARENA LOOK. `recipes::vhf` existed with a `Planable` impl but
+    /// had NO planner arm and NO row, so this is the first time the graph was ever
+    /// erased into a Signature -- nothing had ever checked it.
+    ///
+    /// The counts are DERIVED from the three graphs before running, which is the whole
+    /// point of the hub: `max` and `min` each build one ring over the close column, and
+    /// `vhf` builds the SAME two `RollMax{src: real, period, look_back: period-1}` /
+    /// `RollMin{..}` nodes itself. `intern` keys on the whole `Node`, so all three
+    /// consumers share ONE pair of rescans. Three separate arenas would total
+    /// 2 + 2 + 11 = 15 nodes; the merged arena must total 11, with exactly one RollMax
+    /// and one RollMin. If either count came out at 2, the "hub" is three floors wearing
+    /// a trenchcoat and the row would be pure overhead.
+    #[test]
+    fn max_min_vhf_shared_interns_both_rings() {
+        use tulip_rs::cse::kernel::registry::SIG_max_min_vhf_shared_p;
+        use tulip_rs::cse::signature::{
+            K_ABS, K_CONST, K_DIV, K_INPUT, K_LAG, K_MAX, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SUB,
+        };
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::max(&[9.0]), None)
+            .add(tulip_rs::cse::recipes::min(&[9.0]), None)
+            .add(tulip_rs::cse::recipes::vhf(&[9.0]), None);
+        let (_a, sig, _v, owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_max_min_vhf_shared_p, "hub arena drifted");
+
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let got = (
+            count(K_INPUT),
+            count(K_ROLLMAX),
+            count(K_ROLLMIN),
+            count(K_LAG),
+            count(K_SUB),
+            count(K_ABS),
+            count(K_ROLLSUM),
+            count(K_CONST),
+            count(K_MAX),
+            count(K_DIV),
+        );
+        assert_eq!(
+            got,
+            (1, 1, 1, 1, 2, 1, 1, 1, 1, 1),
+            "arena observed input/rollmax/rollmin/lag/sub/abs/rollsum/const/max/div = {got:?} \
+             — the two extrema rings must appear ONCE each, shared by all three consumers"
+        );
+        assert_eq!(
+            owners.iter().filter(|o| o.primary).count(),
+            3,
+            "three requested indicators publish three primaries"
+        );
+    }
+
+    /// ...and the sharing is identity, not a shared-but-wrong value: every row bit-exact
+    /// against its own HAND. The shapes include a FLAT series, because a rolling extremum
+    /// is where cold-seed asymmetry hides -- on a trend the carried max/min self-corrects
+    /// and a phantom seed is invisible, while flat data pins it. VHF is also the first
+    /// consumer that reads BOTH extrema and their difference, so a wrong seed shows up in
+    /// `range` rather than being divided away.
+    #[test]
+    fn max_min_vhf_shared_bit_exact() {
+        use tulip_rs::indicators::max::Max;
+        use tulip_rs::indicators::min::Min;
+        use tulip_rs::indicators::vhf::Vhf;
+        const P: f64 = 9.0;
+
+        // The FLAT shape is listed with `must_move = false` on purpose, and the first run
+        // taught why: on a constant series every abs-diff is 0 and `max == min`, so
+        // `range / max(sum, EPSILON)` is `0 / EPSILON` = 0.0 for EVERY bar -- zero is the
+        // CORRECT oracle, not an empty kernel. Pinning non-zero there would have failed on
+        // a transcription that is actually right. The other three shapes must produce a
+        // non-zero row, which is what separates "matches" from "both printed nothing".
+        for (name, s, must_move) in [
+            ("wiggle", wiggle(), true),
+            ("ramp", series(680, |i| 100.0 + i as f64 * 0.05), true),
+            ("flat", series(700, |_| 100.0), false),
+            // monotone: the extremum is always the newest bar, so the carried value and
+            // the rescan agree by construction and cannot mask a bad cold seed.
+            ("monotone", series(400, |i| i as f64), true),
+        ] {
+            let one = [s.as_slice()];
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::max(&[P]), None)
+                .add(tulip_rs::cse::recipes::min(&[P]), None)
+                .add(tulip_rs::cse::recipes::vhf(&[P]), None);
+            let out = run_registered(&req, &one).expect("max + min + vhf registered");
+
+            let (mx, _) = Max::indicator(&one, &[P], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &mx[0],
+                &format!("max row [{name}]"),
+            );
+            let (mn, _) = Min::indicator(&one, &[P], None).unwrap();
+            assert_bits(
+                row_for(&out, 1, true, 0),
+                &mn[0],
+                &format!("min row [{name}]"),
+            );
+            let (v, _) = Vhf::indicator(&one, &[P], None).unwrap();
+            let vhf_row = row_for(&out, 2, true, 0);
+            assert_bits(vhf_row, &v[0], &format!("vhf row [{name}]"));
+
+            if must_move {
+                // Non-vacuity, checked against the ORACLE so the claim is about the data,
+                // not about the kernel: this shape must make the hand print something
+                // other than zero, so the equality above carried information.
+                assert!(
+                    v[0].iter().any(|x| *x != 0.0),
+                    "the HAND's vhf row on {name} is all zeros -- the shape proves nothing"
+                );
+                assert!(
+                    vhf_row.iter().any(|x| *x != 0.0),
+                    "kernel vhf row on {name} is all zeros while the hand is not"
+                );
+            }
+        }
+    }
+
     /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
     /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
     /// what the standalone `dema` request builds: the arena must hold THREE `Ema`
