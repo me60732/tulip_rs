@@ -387,6 +387,11 @@ impl Recipe {
             Column::Volume,
         ])
     }
+    /// Full OHLC recipe (`bop` — the only indicator reading OPEN). Slot order is
+    /// the canonical `Column` rank, so open=0, high=1, low=2, close=3.
+    pub fn ohlc() -> Self {
+        Self::with_columns(vec![Column::Open, Column::High, Column::Low, Column::Close])
+    }
     fn with_columns(columns: Vec<Column>) -> Self {
         Recipe {
             columns,

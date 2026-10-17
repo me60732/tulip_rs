@@ -1882,3 +1882,139 @@ pub fn mom(options: &[f64]) -> Recipe {
     r.outputs.push(Sink::iface_lead(line, period));
     r
 }
+
+/// `BOP` — Balance of Power: `(close - open) / (high - low).max(f64::EPSILON)`.
+/// Streams: 0=open, 1=high, 2=low, 3=close. No options.
+pub fn bop(_options: &[f64]) -> Recipe {
+    let mut r = Recipe::ohlc();
+    let open = r.add(Node::Input { stream: 0 });
+    r.tag(open, "open");
+    let high = r.add(Node::Input { stream: 1 });
+    r.tag(high, "high");
+    let low = r.add(Node::Input { stream: 2 });
+    r.tag(low, "low");
+    let close = r.add(Node::Input { stream: 3 });
+    r.tag(close, "close");
+    let hl_diff = r.add(Node::Sub { a: high, b: low });
+    let eps = r.constant(f64::EPSILON);
+    let den = r.add(Node::Max { a: hl_diff, b: eps });
+    let num = r.add(Node::Sub { a: close, b: open });
+    let line = r.add(Node::Div { a: num, b: den });
+    r.tag(line, "bop");
+
+    r.kind = "bop";
+    r.options = Vec::new();
+    r.outputs.push(Sink::iface(line));
+    r
+}
+
+/// `ROC(p)` — Rate of Change, hand `roc.rs::calc` = `calc_rocr(mom, prev_real)` where
+/// `calc_mom = real - prev_real` and `calc_rocr(a, b) = a / b.max(f64::EPSILON)`.
+/// So ROC is `(real − real[p]) / real[p].max(eps)` — **no ×100**, the hand does not scale
+/// it — and it publishes `mom` as its optional row (`Info.optional_outputs: ["mom"]`).
+/// One option (period). Streams: 0=real. Publish lead = period.
+pub fn roc(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::price();
+    let close = r.add(Node::Input { stream: 0 });
+    r.tag(close, "price");
+    let prev = r.add(Node::Lag {
+        src: close,
+        n: period,
+    });
+    r.tag(prev, "prev_period");
+    let mom = r.add(Node::Sub { a: close, b: prev });
+    r.tag(mom, "mom");
+    let eps = r.constant(f64::EPSILON);
+    let den = r.add(Node::Max { a: prev, b: eps });
+    let line = r.add(Node::Div { a: mom, b: den });
+    r.tag(line, "roc");
+
+    r.kind = "roc";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface_lead(line, period));
+    r.optional_outputs.push(Sink::iface_lead(mom, period));
+    r
+}
+
+/// `ROCR(p)` — Rate of Change Ratio, hand `rocr.rs::calc` =
+/// `real / prev_real.max(f64::EPSILON)`. One option (period). Streams: 0=real.
+/// Publish lead = period.
+pub fn rocr(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::price();
+    let close = r.add(Node::Input { stream: 0 });
+    r.tag(close, "price");
+    let prev = r.add(Node::Lag {
+        src: close,
+        n: period,
+    });
+    r.tag(prev, "prev_period");
+    let eps = r.constant(f64::EPSILON);
+    let den = r.add(Node::Max { a: prev, b: eps });
+    let line = r.add(Node::Div { a: close, b: den });
+    r.tag(line, "rocr");
+
+    r.kind = "rocr";
+    r.options = options.to_vec();
+    r.outputs.push(Sink::iface_lead(line, period));
+    r
+}
+
+/// `TYPPRICE` — Typical Price: `(high + low + close) * (1.0 / 3.0)`.
+/// Streams: 0=high, 1=low, 2=close. No options.
+pub fn typprice(_options: &[f64]) -> Recipe {
+    let mut r = Recipe::hlc();
+    let high = r.add(Node::Input { stream: 0 });
+    r.tag(high, "high");
+    let low = r.add(Node::Input { stream: 1 });
+    r.tag(low, "low");
+    let close = r.add(Node::Input { stream: 2 });
+    r.tag(close, "close");
+    let sum = r.add(Node::Add { a: high, b: low });
+    let sum2 = r.add(Node::Add { a: sum, b: close });
+    let div = r.constant(1.0 / 3.0);
+    r.tag(div, "third");
+    let line = r.add(Node::Mul { a: sum2, b: div });
+    r.tag(line, "typprice");
+
+    r.kind = "typprice";
+    r.options = Vec::new();
+    r.outputs.push(Sink::iface(line));
+    r
+}
+
+/// `WCPRICE` — Weighted Close Price, hand `wcprice.rs::calc` =
+/// `close.mul_add(2.0, high + low) * 0.25`. The `mul_add` is **one fused rounding**, so
+/// this spells `Node::Fma` — a separate `Mul`+`Add` double-rounds and is not bit-exact.
+/// Streams: 0=high, 1=low, 2=close. No options.
+pub fn wcprice(_options: &[f64]) -> Recipe {
+    let mut r = Recipe::hlc();
+    let high = r.add(Node::Input { stream: 0 });
+    r.tag(high, "high");
+    let low = r.add(Node::Input { stream: 1 });
+    r.tag(low, "low");
+    let close = r.add(Node::Input { stream: 2 });
+    r.tag(close, "close");
+    let sum_hl = r.add(Node::Add { a: high, b: low });
+    let two = r.constant(2.0);
+    r.tag(two, "two");
+    let prod = r.add(Node::Fma {
+        a: close,
+        b: two,
+        c: sum_hl,
+    });
+    r.tag(prod, "hl_2c");
+    let quarter = r.constant(0.25);
+    r.tag(quarter, "quarter");
+    let line = r.add(Node::Mul {
+        a: prod,
+        b: quarter,
+    });
+    r.tag(line, "wcprice");
+
+    r.kind = "wcprice";
+    r.options = Vec::new();
+    r.outputs.push(Sink::iface(line));
+    r
+}
