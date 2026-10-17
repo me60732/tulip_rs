@@ -346,11 +346,24 @@ tulip_rs_macros::kernel! {
     // dema = ema1*2 - ema2 (ONE `Fma`, matching the hand's single `mul_add`),
     // tema = ema1*3 + (ema2*-3 + ema3) (TWO nested `Fma`s).
     //
-    // ZLEMA IS NOT REGISTERED. Its recipe exists but its row length was wrong at
-    // gate time (engine 688 vs hand 684 for p=9 over a 688-bar series): the publish
-    // lead used here, `lag = (p-1)/2`, is the hand's `cycle` OFFSET, which does not
-    // match how the arena derives a row start for an `Ema` over a derived source.
-    // Un-registered rather than gated against a truncated slice that would hide it.
+    // ZLEMA IS NOT REGISTERED, AND IT IS NOT A LEAD PROBLEM -- MEASURED. Two
+    // separate discrepancies, one cause:
+    //  · LENGTH: the arena computes lead 12 for p=9 (its `adjusted` source is
+    //    defined-from at lag=4, and `Ema(9)` over it composes to 4 + 8 = 12), where
+    //    the hand publishes from bar `lag` = 4. That is 8 rows, explainable.
+    //  · VALUES: aligning the two rows bar-for-bar still differs from the FIRST
+    //    aligned bar -- 137 mismatched bars of 688 on `wiggle()`, 132 of 668 on a
+    //    ramp, and ZERO on a flat 100.0 series. Length alone cannot do that.
+    // The cause is the START STATE, not the lead: `zlema.rs:42` seeds the EMA with
+    // `real[lag - 1]`, while the engine warms the same recurrence through
+    // `[0, gate)`. An EMA carries its seed forever -- the error never decays to zero
+    // in f64 -- so a differing start means every later bar differs, and a flat series
+    // hides it precisely because there the seed equals the warmed value.
+    // So a gate on the aligned overlap would NOT be a fair test: it would compare an
+    // engine with the right recurrence and the wrong initial state against a hand
+    // with the right initial state, and call the residue "close enough". Registering
+    // it needs a seeded-start mechanism (an Ema whose carry is initialized from a
+    // node), which is a vocabulary decision, not a recipe fix.
     dema_n: Dema(p);
     tema_n: Tema(p);
     // tema OWNS a DemaState, so its ema1/ema2 AND its `dema` output node are the
