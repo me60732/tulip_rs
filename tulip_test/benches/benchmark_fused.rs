@@ -506,6 +506,36 @@ fn bench_fused(c: &mut Criterion) {
             black_box(w.0[0].len())
         })
     });
+    // DIRECT-CALL PAIRS -- the per-call ROUTING cost, isolated. `try_run` dispatches
+    // by walking `if *sig == SIG_x` over EVERY registered row (kernel! codegen), and a
+    // `Signature` compare is derived `PartialEq` over `len` then fixed arrays
+    // (`kinds[64]`, five `[u32;64]`, `sink_src`, `ring_class`, `ring_leader`), so the
+    // walk is O(rows) and its size does NOT depend on the shape being run. These rows
+    // call the generated kernel directly with the same plan and same inputs, so
+    // `runonly_X - runonly_X_direct` IS that row's routing cost.
+    //
+    // Why this matters for the lone-shape ladder: a stateless row like `tr_n` has
+    // almost no per-bar work to hide a fixed per-call cost behind, so a routing delta
+    // can be the WHOLE engine-vs-hand gap. `atr_n` sits earlier in the registry than
+    // `tr_n`/`wilders_n`, so the three deltas also test the position dependence.
+    g.bench_function("generated_runonly_tr_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::tr_n(&vals_tr_n, &hlc3);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_wilders_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::wilders_n(&vals_wl_n, &cl1);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_atr_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::atr_n(&vals_atr_n, &hlc3);
+            black_box(rows[0].len())
+        })
+    });
 
     let (_ru2, sig_run_mass, vals_run_mass, _ou2) =
         erase_request(&Request::new().add(Mass::recipe(&[40.0]), None)).unwrap();
