@@ -2270,6 +2270,76 @@ pub fn chaikinmf(options: &[f64]) -> Recipe {
     r
 }
 
+/// `VWAP` — Volume Weighted Average Price, hand `vwap.rs`. CUMULATIVE, not a window:
+/// `pv_sum += tp * volume; vol_sum += volume; (pv_sum / vol_sum, tp)`, zero options — so
+/// both lanes are `Node::Accum` running totals (the `ad` shape) rather than rolls.
+///
+/// `tp` IS `typprice::calc` = `(high + low + close) * (1.0 / 3.0)`, spelled here
+/// node-for-node as [`typprice`] spells it (`Add{h,l}`, `Add{_,c}`, `Const(1/3)`,
+/// `Mul{_,third}`). `intern` keys on the whole `Node`, so a co-requested
+/// `Vwap + Typprice` shares the ENTIRE typical-price subgraph — and vwap's OPTIONAL
+/// `typprice` row is literally Typprice's PRIMARY row: one arena node, two published
+/// rows. That is the `E8` calculated-inputs payoff arriving by ordinary interning, with
+/// no `Node::CalcInput` provision switch built.
+///
+/// THE ACCUMULATOR IS NOT `tp.mul_add(volume, carry)`. The hand writes
+/// `self.pv_sum += tp * volume` — a multiply THAT a separate add, two roundings — while
+/// `Accum{a, b}` is `carry = a.mul_add(b, carry)`, ONE fused rounding. `ad` legitimately
+/// uses the fused form because its hand literally writes `ratio.mul_add(volume, self.ad)`;
+/// copying that spelling here would change the bits. So the product is its own `Mul` node
+/// and each lane is `Accum{a: <something>, b: Const(1.0)}`: `fma(m, 1.0, carry)` is
+/// `RN(m + carry)`, bit-identical to a plain add, because multiplying by 1.0 is exact —
+/// including signed zero and NaN. The volume lane needs the same 1.0, and the `Const`
+/// interns with the price lane's (its bits are the key), so one constant serves both.
+///
+/// THE DIVIDE IS UNGUARDED, exactly like [`chaikinmf`]: `pv_sum / vol_sum` with no zero
+/// test, so an all-zero-volume series must print the hand's `0.0 / 0.0` = NaN. The two
+/// neighbouring volume ratios disagree on this (`vwma` and `vosc` DO guard), which is why
+/// the guard is read from THIS hand rather than borrowed.
+///
+/// Lead = 0: `min_data`/`output_length` both DELEGATE to `Typprice` (`1` and `data_len`),
+/// so bar 0 prints — `Sink::iface` (node-derived lead) rather than an explicit one.
+/// Columns are `hlcvol()`, the hand's `Info.inputs = ["high","low","close","volume"]`.
+pub fn vwap(_options: &[f64]) -> Recipe {
+    let mut r = Recipe::hlcvol();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+    let vol = r.add(Node::Input { stream: 3 });
+    r.tag(vol, "volume");
+
+    let sum = r.add(Node::Add { a: hi, b: lo });
+    let sum2 = r.add(Node::Add { a: sum, b: cl });
+    let third = r.constant(1.0 / 3.0);
+    r.tag(third, "third");
+    let tp = r.add(Node::Mul { a: sum2, b: third });
+    r.tag(tp, "typprice");
+
+    let one = r.constant(1.0);
+    let product = r.add(Node::Mul { a: tp, b: vol });
+    r.tag(product, "tp_vol");
+    let pv_sum = r.add(Node::Accum { a: product, b: one });
+    r.tag(pv_sum, "pv_sum");
+    let vol_sum = r.add(Node::Accum { a: vol, b: one });
+    r.tag(vol_sum, "vol_sum");
+    let line = r.add(Node::Div {
+        a: pv_sum,
+        b: vol_sum,
+    });
+    r.tag(line, "vwap");
+
+    r.kind = "vwap";
+    r.options = Vec::new();
+    r.tail_inputs = vec![pv_sum, vol_sum];
+    r.outputs.push(Sink::iface(line));
+    // Info.optional_outputs = ["typprice"] -- the SAME node Typprice publishes as primary.
+    r.optional_outputs.push(Sink::iface(tp));
+    r
+}
+
 /// `VOSC(s, l)` — the hand's `calc((current, short, long))` calls
 /// `short_state.calc((current, short))` and `long_state.calc((current, long))`, i.e.
 /// TWO `SmaState` windows over the SAME series (`volume`) with different sizes: `s`

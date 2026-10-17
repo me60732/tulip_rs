@@ -368,6 +368,15 @@ tulip_rs_macros::kernel! {
     // gate rather than asserted here.
     vhf_n: Vhf(p);
     max_min_vhf_shared_p: Max(p), Min(p), Vhf(p);
+    // VWAP IS THE CALCULATED-INPUTS HUB THAT ARRIVES WITHOUT ANY NEW MACHINERY. The hand
+    // `vwap.rs:44` computes `tp` by CALLING `typprice::calc`, and `recipes::vwap` spells
+    // that subgraph node-for-node the way `recipes::typprice` does, so `intern` (keyed on
+    // the whole `Node`) merges them: vwap's OPTIONAL `typprice` row and Typprice's PRIMARY
+    // row become the same arena node. If the subgraph failed to intern, `K_ADD` would
+    // count 4 instead of 2 -- the gate asserts the counts, so a silent un-shared graph
+    // cannot pass as a hub. This is the `E8` payoff measured, not planned.
+    vwap_n: Vwap();
+    vwap_typprice_shared: Vwap(), Typprice();
     // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
     // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
     // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first

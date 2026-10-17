@@ -2789,6 +2789,144 @@ mod tests {
         }
     }
 
+    /// VWAP + TYPPRICE: the calculated-inputs hub, measured. The hand `vwap.rs:44` calls
+    /// `calc_typprice`, and `recipes::vwap` spells that subgraph node-for-node the way
+    /// `recipes::typprice` spells it, so `intern` (keyed on the whole `Node`) must merge
+    /// them -- and the column-declared remap is what makes it legal: typprice's
+    /// `Input{0}` is HIGH and vwap's `Input{0}` is HIGH too, so the two `Add{high, low}`
+    /// nodes are genuinely the same computation.
+    ///
+    /// The count is written to DISTINGUISH shared from un-shared, which is the whole point:
+    /// if the subgraph did NOT intern, vwap would carry its own `Add` x2, its own `Mul` for
+    /// tp, and its own `1/3` Const -- giving `add=4, mul=3, const=3, len=16`. Interning
+    /// predicts `add=2, mul=2, const=2, len=13`. A test that asserted only "13" without
+    /// deriving it would be a number read off a green run.
+    #[test]
+    fn vwap_typprice_shared_interns_the_typical_price_subgraph() {
+        use tulip_rs::cse::kernel::registry::SIG_vwap_typprice_shared;
+        use tulip_rs::cse::signature::{K_ACCUM, K_ADD, K_CONST, K_DIV, K_INPUT, K_MUL};
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::vwap(&[]), Some(&[true]))
+            .add(tulip_rs::cse::recipes::typprice(&[]), None);
+        let (arena, sig, _v, _owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_vwap_typprice_shared, "hub arena drifted");
+
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let got = (
+            count(K_INPUT),
+            count(K_ADD),
+            count(K_MUL),
+            count(K_CONST),
+            count(K_ACCUM),
+            count(K_DIV),
+        );
+        assert_eq!(
+            got,
+            (4, 2, 2, 2, 2, 1),
+            "arena observed input/add/mul/const/accum/div = {got:?} -- add=4 or const=3 would \
+             mean the typical-price chain was duplicated, not interned"
+        );
+        // 4 inputs + 2 adds + 2 muls + 2 consts + 2 accums + 1 div = 13.
+        assert_eq!(
+            arena.nodes.len(),
+            sig.len as usize,
+            "arena length must equal the erased node count"
+        );
+        assert_eq!(sig.len, 13, "expected 13 nodes, got {}", sig.len);
+    }
+
+    /// Bit-exact against BOTH hands, and the row-sharing proof: vwap's OPTIONAL
+    /// `typprice` row and Typprice's PRIMARY row are the same arena node, so they must be
+    /// bit-identical to each other AND to each hand's own typical price. Three independent
+    /// comparisons -- two hands and the aliasing -- because an interned-but-wrong node
+    /// would still alias perfectly against itself.
+    ///
+    /// The zero-volume block pins that vwap's `pv_sum / vol_sum` stays UNGUARDED: the hand
+    /// has no `if vol_sum == 0`, so every bar must be `0.0 / 0.0` = NaN. `vwma` and `vosc`
+    /// both guard their ratios, so a guard copied from a neighbour would print 0.0 and pass
+    /// every finite-volume shape.
+    #[test]
+    fn vwap_typprice_shared_bit_exact() {
+        use tulip_rs::indicators::typprice::Typprice;
+        use tulip_rs::indicators::vwap::Vwap;
+
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let four = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let three = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::vwap(&[]), Some(&[true]))
+                .add(tulip_rs::cse::recipes::typprice(&[]), None);
+            let out = run_registered(&req, &four).expect("vwap + typprice registered");
+
+            let (v, _) = Vwap::indicator(&four, &[], Some(&[true])).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &v[0], "vwap row");
+            // vwap's optional typprice, against the typprice HAND and against the
+            // Typprice indicator's own primary row in the SAME arena.
+            let (t_self, _) = Typprice::indicator(&three, &[], None).unwrap();
+            let engine_tp_opt = row_for(&out, 0, false, 0);
+            let engine_tp_pri = row_for(&out, 1, true, 0);
+            assert_bits(engine_tp_opt, &v[1], "vwap's optional typprice vs its hand");
+            assert_bits(engine_tp_pri, &t_self[0], "typprice primary vs its hand");
+            assert_bits(
+                engine_tp_opt,
+                engine_tp_pri,
+                "the two sinks of the interned tp node must be the same bits",
+            );
+        }
+
+        // ZERO VOLUME -> the unguarded divide.
+        {
+            let n = 200;
+            let hi = series(n, |i| 101.0 + (i % 3) as f64);
+            let lo = series(n, |i| 99.0 + (i % 3) as f64);
+            let cl = series(n, |i| 100.0 + (i % 3) as f64);
+            let zero_vol = vec![0.0; n];
+            let four = [
+                hi.as_slice(),
+                lo.as_slice(),
+                cl.as_slice(),
+                zero_vol.as_slice(),
+            ];
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::vwap(&[]), Some(&[true]))
+                .add(tulip_rs::cse::recipes::typprice(&[]), None);
+            let out = run_registered(&req, &four).expect("vwap zero-volume");
+            let (v, _) = Vwap::indicator(&four, &[], Some(&[true])).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &v[0],
+                "vwap ZERO-VOLUME row (the hand prints 0/0 = NaN, not 0.0)",
+            );
+            // NON-VACUITY: the oracle must actually be NaN, else this block tests nothing
+            // about the missing guard (same discipline as the chaikinmf zero-volume pin).
+            assert!(
+                v[0].iter().all(|x| x.is_nan()),
+                "zero volume must drive the hand's unguarded `pv_sum / vol_sum` to NaN, got \
+                 {:?}",
+                &v[0][..v[0].len().min(4)]
+            );
+            // The interned tp row is INDEPENDENT of volume, so it must still be finite and
+            // correct here -- a guard that bled into the shared node would show up on this
+            // row too, and this is the only shape that separates the two.
+            let (t_self, _) =
+                Typprice::indicator(&[hi.as_slice(), lo.as_slice(), cl.as_slice()], &[], None)
+                    .unwrap();
+            assert_bits(
+                row_for(&out, 1, true, 0),
+                &t_self[0],
+                "typprice row on ZERO VOLUME (shared node must stay finite)",
+            );
+        }
+    }
+
     /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
     /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
     /// what the standalone `dema` request builds: the arena must hold THREE `Ema`
