@@ -409,6 +409,15 @@ tulip_rs_macros::kernel! {
     // AtrState), unlike adxr, whose ATR runs composite and must be scaled.
     keltnerchannel_n: KeltnerChannel(p, m);
     ema_atr_keltner_shared_p: Ema(p), Atr(p), KeltnerChannel(p, m);
+    // VORTEx IS THE SECOND ATR-SHARING HUB, and it shares the OTHER half: its `tr` comes
+    // from the same `tr_nodes` walk over the same `hlc()` streams (0,1,2) that `Atr` builds,
+    // so `Atr(p) + Vortex(p)` should carry ONE 8-node tr walk instead of two. Derived: atr
+    // alone = 12 nodes, vortex alone = 22, merged = 23 (inputs 3, lag 3, sub 5, abs 4, max 2,
+    // wilders 1, rollsum 3, div 2). No sharing would show as max=4 / abs=6 / input=6.
+    // Its hand is eviction (`tr_sum += tr - old_tr`), so no new node kind is needed -- the
+    // distinction that makes `adxr` unspellable and this one plain.
+    vortex_n: Vortex(p);
+    atr_vortex_shared_p: Atr(p), Vortex(p);
     // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
     // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
     // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first

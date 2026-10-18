@@ -3246,12 +3246,19 @@ mod tests {
     /// indicator cannot reuse a row this way), and keltner's `middle` must equal the
     /// standalone `Ema` row.
     ///
-    /// FLAT is included deliberately: with high == low == close, every `tr` term is 0, so
-    /// `atr = 0`, `per = 0` and all three bands collapse onto the close. That is the one
-    /// shape where `lower = ema - per` and `upper = ema + per` are indistinguishable by
-    /// value, so the NON-FLAT shapes carry the sign check (`lower < middle < upper`
-    /// asserted against the hand), and flat carries the zero-path/seed check the
-    /// zlema lesson says a trend can hide.
+    /// Shapes and what each one actually carries. Corrected after the run refuted the
+    /// first version of this comment, which called the third shape "flat" and claimed the
+    /// bands collapse: with `hi = s + 2` and `lo = s - 1` the range is a CONSTANT 3.0, not
+    /// zero, so `atr = 3`, `per = 6` and the bands open by exactly 6 about the middle.
+    /// * wiggle / ramp -- ordinary values, varying ATR.
+    /// * even-range -- constant close AND constant gap: `tr` is 3 at every bar, so `atr`
+    ///   must be 3.0 (the mean-Wilders of a constant is that constant) and both bands must
+    ///   sit 6.0 from the middle. This is the zero-drift check the zlema lesson says a
+    ///   trend can hide, and it is what makes the `atr` OPTIONAL equality above non-vacuous.
+    /// A true zero-range shape is deliberately NOT added here: keltner divides nothing, so
+    /// high == low == close would only assert `lower == middle == upper`, and the even-range
+    /// shape already pins the tighter fact (the exact seed). Vortex, which DOES divide,
+    /// carries that case as its own block -- see atr_vortex_shared_bit_exact.
     #[test]
     fn ema_atr_keltner_shared_bit_exact() {
         use tulip_rs::indicators::atr::Atr;
@@ -3263,7 +3270,7 @@ mod tests {
         for (name, s) in [
             ("wiggle", wiggle()),
             ("ramp", series(680, |i| 100.0 + i as f64 * 0.05)),
-            ("flat", series(700, |_| 100.0)),
+            ("even-range", series(700, |_| 100.0)),
         ] {
             let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
             let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
@@ -3334,17 +3341,30 @@ mod tests {
                 &format!("kc middle IS the standalone ema [{name}]"),
             );
 
-            if name != "flat" {
-                // Sign/order check, against the HAND, and non-vacuity in one: an
-                // all-zero or swapped-band kernel cannot satisfy this and still match.
+            // Sign/order check against the HAND, run on EVERY shape. The earlier
+            // `if name != "flat"` skip rested on the same mistaken reading of the fixture:
+            // the gap is a constant 3.0, never zero, so `per = atr * 2 = 6.0` and the bands
+            // open on all three. Left in place, that skip meant the third shape asserted
+            // NOTHING about band order while the suite still reported green.
+            assert!(
+                k[0].iter().zip(&k[1]).all(|(l, m)| l < m)
+                    && k[2].iter().zip(&k[1]).all(|(u, m)| u > m),
+                "keltner bands not ordered lower<middle<upper on {name}"
+            );
+            assert!(
+                k[0].iter().any(|v| *v != 0.0),
+                "keltner lower row all-zero on {name} -- nothing was computed"
+            );
+            if name == "even-range" {
+                // The identity this fixture exists to test: `tr` is exactly 3.0 at every
+                // bar, so the mean-Wilders of a constant must be that constant -- `atr`
+                // == 3.0, with no warm-up residue. A seed that disagreed with the steady
+                // recurrence (the zlema failure mode) shows here as atr != 3.0 near the
+                // front of the row, where a moving series only decays it out of sight.
                 assert!(
-                    k[0].iter().zip(&k[1]).all(|(l, m)| l < m)
-                        && k[2].iter().zip(&k[1]).all(|(u, m)| u > m),
-                    "keltner bands not ordered lower<middle<upper on {name}"
-                );
-                assert!(
-                    k[0].iter().any(|v| *v != 0.0),
-                    "keltner lower row all-zero on {name} -- nothing was computed"
+                    a[0].iter().all(|x| *x == 3.0),
+                    "even-range atr is not exactly 3.0 -- mean-Wilders seed drift: {:?}",
+                    &a[0][..a[0].len().min(4)]
                 );
             }
         }
@@ -3362,6 +3382,198 @@ mod tests {
             assert_bits(row_for(&out, 0, true, 0), &k[0], "kc lower [floor]");
             assert_bits(row_for(&out, 0, true, 1), &k[1], "kc middle [floor]");
             assert_bits(row_for(&out, 0, true, 2), &k[2], "kc upper [floor]");
+        }
+    }
+
+    /// ATR + VORTEX: the tr walk shared, counted before it ran. `Atr` is 12 nodes alone
+    /// (3 inputs + the 8-node tr walk + the Wilders) and `Vortex` is 22 (3 inputs + the SAME
+    /// 8-node tr walk + 2 prev-value lags, 2 subs, 2 abs, 3 rolls, 2 divs). Interning the tr
+    /// walk -- same `tr_nodes` spelling, same `hlc()` streams 0,1,2 -- predicts a merged 23.
+    /// Not shared would show as `max=4, abs=6, input=6`.
+    ///
+    /// `n_sinks` is 5 with only 4 distinct sink NODES, because both indicators mirror the
+    /// SAME interned `tr` -- that two-sinks-one-node shape is the sharing, made visible in
+    /// the sink table and not just in the node counts.
+    #[test]
+    fn atr_vortex_shared_interns_the_tr_walk() {
+        use tulip_rs::cse::kernel::registry::SIG_atr_vortex_shared_p;
+        use tulip_rs::cse::signature::{
+            K_ABS, K_DIV, K_INPUT, K_LAG, K_MAX, K_ROLLSUM, K_SUB, K_WILDERS,
+        };
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::atr(&[14.0]), Some(&[true]))
+            .add(tulip_rs::cse::recipes::vortex(&[14.0]), Some(&[true]));
+        let (arena, sig, _v, _owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_atr_vortex_shared_p, "hub arena drifted");
+
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let got = (
+            count(K_INPUT),
+            count(K_LAG),
+            count(K_SUB),
+            count(K_ABS),
+            count(K_MAX),
+            count(K_WILDERS),
+            count(K_ROLLSUM),
+            count(K_DIV),
+        );
+        assert_eq!(
+            got,
+            (3, 3, 5, 4, 2, 1, 3, 2),
+            "arena observed input/lag/sub/abs/max/wilders/rollsum/div = {got:?} -- max=4 or \
+             abs=6 would mean the tr walk was rebuilt, not shared"
+        );
+        assert_eq!(arena.nodes.len(), 23, "expected 23 nodes");
+        assert_eq!(
+            sig.n_sinks, 5,
+            "atr primary+tr, vortex two bands+tr: 5 sinks, and the two tr sinks alias one node"
+        );
+    }
+
+    /// Bit-exact against both hands. The shapes are chosen for DIFFERENT reasons, and
+    /// conflating them is how a green suite hides nothing:
+    /// * wiggle / ramp carry ordinary VALUES -- varying denominators, bands finite and
+    ///   non-zero, so a match there is a match on real arithmetic.
+    /// * EVEN-RANGE (constant close, constant high-low gap) is a strong identity check the
+    ///   other shapes cannot make: `hi = s+2`, `lo = s-1` gives `tr = 3`, `|high - low[1]| =
+    ///   3` and `|low - high[1]| = 3`, so BOTH bands must be exactly `1.0` -- equal window
+    ///   sums reached through different windows and different subtract operands. A kernel
+    ///   that swapped `lag_hi`/`lag_lo`, or folded `hi-lo` instead of the lagged terms,
+    ///   still lands near 1.0 on wiggle but breaks here.
+    /// * ZERO-RANGE (high == low == close) is the float-class case the derived-roll and
+    ///   float-sweep notes demand: every `tr` term is 0, so the denominator is 0 and the
+    ///   hand's divide is UNGUARDED (`vm_sums / tr_sum_simd`, no `if md == 0`), printing
+    ///   `0.0 / 0.0` = NaN. `vwma`/`vosc`/`bop` DO guard, so copying that neighbour would
+    ///   print 0.0 and pass every finite shape. Pinned as all-NaN to make it evidence.
+    #[test]
+    fn atr_vortex_shared_bit_exact() {
+        use tulip_rs::indicators::atr::Atr;
+        use tulip_rs::indicators::vortex::Vortex;
+        const P: f64 = 14.0;
+
+        for (name, s) in [
+            ("wiggle", wiggle()),
+            ("ramp", series(680, |i| 100.0 + i as f64 * 0.05)),
+            ("even-range", series(700, |_| 100.0)),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let hlc = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::atr(&[P]), Some(&[true]))
+                .add(tulip_rs::cse::recipes::vortex(&[P]), Some(&[true]));
+            let out = run_registered(&req, &hlc).expect("atr + vortex registered");
+
+            let (a, _) = Atr::indicator(&hlc, &[P], Some(&[true])).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &a[0],
+                &format!("atr row [{name}]"),
+            );
+            assert_bits(
+                row_for(&out, 0, false, 0),
+                &a[1],
+                &format!("atr's tr mirror [{name}]"),
+            );
+
+            let (v, _) = Vortex::indicator(&hlc, &[P], Some(&[true])).unwrap();
+            assert_bits(row_for(&out, 1, true, 0), &v[0], &format!("vi_up [{name}]"));
+            assert_bits(
+                row_for(&out, 1, true, 1),
+                &v[1],
+                &format!("vi_down [{name}]"),
+            );
+            // Both tr mirrors are the SAME arena node, so they must be the same bits.
+            assert_bits(
+                row_for(&out, 1, false, 0),
+                row_for(&out, 0, false, 0),
+                &format!("vortex's tr mirror IS atr's tr mirror [{name}]"),
+            );
+            assert_bits(
+                row_for(&out, 1, false, 0),
+                &v[2],
+                &format!("vortex tr mirror vs hand [{name}]"),
+            );
+
+            if name == "even-range" {
+                // `vm_up = |hi - lo[1]| = 3`, `vm_dn = |lo - hi[1]| = 3`, `tr = max(3,2,1) = 3`
+                // at every bar, so all three window sums accumulate the SAME float sequence
+                // and each band is that value over itself: exactly 1.0, not approximately.
+                // A kernel that folded `hi - lo` instead of the lagged terms, or swapped the
+                // two prev-lags, breaks here while still matching on wiggle.
+                assert!(
+                    v[0].iter().all(|x| *x == 1.0) && v[1].iter().all(|x| *x == 1.0),
+                    "even-range bands must be exactly 1.0, got up={:?} down={:?}",
+                    &v[0][..v[0].len().min(4)],
+                    &v[1][..v[1].len().min(4)]
+                );
+            } else {
+                // Non-vacuity for the value shapes: the bands must actually be finite and
+                // non-zero, or matching NaN-to-NaN would look like a pass.
+                assert!(
+                    v[0].iter().any(|x| *x != 0.0 && x.is_finite())
+                        && v[1].iter().any(|x| *x != 0.0 && x.is_finite()),
+                    "vi_up/vi_down are not finite non-zero on {name} -- shape proves nothing"
+                );
+            }
+
+            // The lone floor is a separate compiled kernel; the hub does not certify it.
+            let floor = Request::new().add(tulip_rs::cse::recipes::vortex(&[P]), Some(&[true]));
+            let out = run_registered(&floor, &hlc).expect("vortex floor registered");
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &v[0],
+                &format!("vi_up [{name}] (floor)"),
+            );
+            assert_bits(
+                row_for(&out, 0, true, 1),
+                &v[1],
+                &format!("vi_down [{name}] (floor)"),
+            );
+        }
+
+        // ZERO-RANGE: high == low == close, so every `tr` term is 0 AND every `|high -
+        // low[1]|`/`|low - high[1]|` term is 0 -- both window sums are exactly 0.0. The
+        // hand divides `vm_sums / tr_sum_simd` with no guard, so it prints 0.0/0.0 = NaN,
+        // and the kernel must too. `vwma` and `vosc` BOTH guard their ratio, so a guard
+        // borrowed from either neighbour prints 0.0 here and passes every other shape in
+        // this file -- this block is the only thing that separates the two spellings.
+        {
+            let px = series(300, |_| 100.0);
+            let hlc = [px.as_slice(), px.as_slice(), px.as_slice()];
+            let req = Request::new()
+                .add(tulip_rs::cse::recipes::atr(&[P]), Some(&[true]))
+                .add(tulip_rs::cse::recipes::vortex(&[P]), Some(&[true]));
+            let out = run_registered(&req, &hlc).expect("atr + vortex zero-range");
+
+            let (v, _) = Vortex::indicator(&hlc, &[P], Some(&[true])).unwrap();
+            assert!(
+                v[0].iter().all(|x| x.is_nan()) && v[1].iter().all(|x| x.is_nan()),
+                "the HAND's unguarded 0/0 must be NaN on zero range, got up={:?} down={:?}",
+                &v[0][..v[0].len().min(4)],
+                &v[1][..v[1].len().min(4)]
+            );
+            assert_bits(
+                row_for(&out, 1, true, 0),
+                &v[0],
+                "vi_up zero-range (unguarded 0/0 = NaN)",
+            );
+            assert_bits(
+                row_for(&out, 1, true, 1),
+                &v[1],
+                "vi_down zero-range (unguarded 0/0 = NaN)",
+            );
+            // Atr on the same bars has NO divide, so its row is 0.0, not NaN -- the two
+            // indicators differ at exactly this input class, which is why the shared
+            // `tr` node must still be identical (it is the same node, so it is).
+            let (a, _) = Atr::indicator(&hlc, &[P], Some(&[true])).unwrap();
+            assert_bits(row_for(&out, 0, true, 0), &a[0], "atr row zero-range");
+            assert!(
+                a[0].iter().all(|x| *x == 0.0),
+                "atr on zero range must be 0.0 (no divide), got {:?}",
+                &a[0][..a[0].len().min(4)]
+            );
         }
     }
 

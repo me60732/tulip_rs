@@ -2508,6 +2508,101 @@ pub fn keltnerchannel(options: &[f64]) -> Recipe {
     r
 }
 
+/// `VORTEX(p)` — Vortex Indicators, hand `vortex.rs`. Two bands that share ONE true-range
+/// walk and one window:
+/// `vi_up = sum(|high - low[1]|, p) / sum(tr, p)`, `vi_down = sum(|low - high[1]|, p) /
+/// sum(tr, p)`, with `tr` as the optional third row.
+///
+/// The hand keeps `prev_low_high: Simd<f64,2>` updated to `Simd::from_array([high,low]).
+/// reverse()`, i.e. `[low[i-1], high[i-1]]`, so `vm_simd = ([high,low] - prev_low_high).abs()`
+/// is exactly `|high - low[1]|` and `|low - high[1]|`. Those are lags over COLUMNS, which
+/// `Kind::Lag` can read -- so unlike adxr this needs no new node kind.
+///
+/// EVICTION, NOT PUBLISHED LAG: `tr_sum += tr - old_tr` and `vm_sums += vm_simd - old_vm`
+/// are a window's leaving terms, so three ring `RollSum`s express it (the `chaikinmf`
+/// precedent). The hand's warm pass accumulates WITHOUT eviction (`tr_sum += tr`) while the
+/// buffer fills, and its published windows therefore start at bar 1; the engine's ring folds
+/// bar 0 too, but bar 0's `tr`/`vm` are evicted before any published window opens, so the
+/// published values agree. That agreement is the gate's job, not this comment's.
+///
+/// Lead = `period + 1`, which is NOT `min_data - 1` here: `vortex.rs:218` overrides
+/// `output_length` as `data_len - Self::min_data(options)` with the `+ 1` commented out, so
+/// rows = `len - period - 1` (the hand test's `expected_main_len = n - period - 1`). Using
+/// the trait-default lead would print one bar early -- the zlema/stoch class of error.
+/// The `tr` mirror keeps the `Tr` indicator's own lead 1 (`tr_line` is sized
+/// `Tr::output_length`).
+pub fn vortex(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::hlc();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let cl = r.add(Node::Input { stream: 2 });
+    r.tag(cl, "close");
+
+    // The shared true-range walk -- the same nodes `tr`/`atr`/`adx` build.
+    let tr = tr_nodes(&mut r, hi, lo, cl);
+
+    let lag_hi = r.add(Node::Lag { src: hi, n: 1 });
+    r.tag(lag_hi, "prev_high");
+    let lag_lo = r.add(Node::Lag { src: lo, n: 1 });
+    r.tag(lag_lo, "prev_low");
+    let vm_up_src = r.add(Node::Sub { a: hi, b: lag_lo });
+    r.tag(vm_up_src, "h_minus_prev_l");
+    let vm_up = r.add(Node::Abs { src: vm_up_src });
+    r.tag(vm_up, "vm_up");
+    let vm_dn_src = r.add(Node::Sub { a: lo, b: lag_hi });
+    r.tag(vm_dn_src, "l_minus_prev_h");
+    let vm_dn = r.add(Node::Abs { src: vm_dn_src });
+    r.tag(vm_dn, "vm_dn");
+
+    let sum_up = r.add(Node::RollSum {
+        src: vm_up,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sum_up, "vm_up_sum");
+    let sum_dn = r.add(Node::RollSum {
+        src: vm_dn,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sum_dn, "vm_dn_sum");
+    let sum_tr = r.add(Node::RollSum {
+        src: tr,
+        period,
+        mean: false,
+        skip: 0,
+        steady_from: 0,
+    });
+    r.tag(sum_tr, "tr_sum");
+
+    let vi_up = r.add(Node::Div {
+        a: sum_up,
+        b: sum_tr,
+    });
+    r.tag(vi_up, "vi_up");
+    let vi_dn = r.add(Node::Div {
+        a: sum_dn,
+        b: sum_tr,
+    });
+    r.tag(vi_dn, "vi_down");
+
+    r.kind = "vortex";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![sum_up, sum_dn, sum_tr];
+    r.outputs.push(Sink::iface_lead(vi_up, period + 1));
+    r.outputs.push(Sink::iface_lead(vi_dn, period + 1));
+    // Info.optional_outputs = ["tr"] -- the same arena node `tr_n` publishes.
+    r.optional_outputs.push(Sink::iface_lead(tr, 1));
+    r
+}
+
 /// `VOSC(s, l)` — the hand's `calc((current, short, long))` calls
 /// `short_state.calc((current, short))` and `long_state.calc((current, long))`, i.e.
 /// TWO `SmaState` windows over the SAME series (`volume`) with different sizes: `s`
