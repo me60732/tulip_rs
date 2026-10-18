@@ -418,6 +418,15 @@ tulip_rs_macros::kernel! {
     // distinction that makes `adxr` unspellable and this one plain.
     vortex_n: Vortex(p);
     atr_vortex_shared_p: Atr(p), Vortex(p);
+    // MARKETFI IS STATELESS ((high-low)/volume.max(EPSILON)), so it cannot share a
+    // recurrence -- what it shares with `bop` is ARITHMETIC: bop builds `Sub{high, low}`
+    // and an `EPSILON` Const, and marketfi needs that same range as its NUMERATOR plus a
+    // Max over volume. Both bind close-free/high/low, so after the column remap the range
+    // `Sub` and the constant are the same arena nodes. Derived: merged = 12 nodes
+    // (input 5, sub 2, const 1, max 2, div 2); un-shared would be sub=3, const=2, len=14.
+    // Also the first consumer of `hlvol()` = [High, Low, Volume].
+    marketfi_n: Marketfi();
+    bop_marketfi_shared: Bop(), Marketfi();
     // THE CHAINED-EMA TRANCHE. NOT the registry's first chained EMA -- `mass`
     // already chains twice (`Ema{src: hl}` then `Ema{src: ema}`) and `macd`'s signal
     // chains once off a `Sub`. What is new here is DEPTH: `tema` is the first

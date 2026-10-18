@@ -64,7 +64,7 @@ Canonical order `Open, High, Low, Close, Volume`; a column's arena index is its
 rank **among the columns present**, so subsets shift left. Slot 0 is NOT a fixed
 column: `price()[Close]` → 0, `hl()[High,Low]` → 0,1, `hlc()` → 0,1,2,
 `hlcvol()` → 0,1,2,3, `ohlc()` (open=0,high=1,low=2,close=3), `cvol()` → 0,1,
-`oc()` → 0,1, `vol()` → 0. `with_columns` is private on purpose — a hand-typed column list is the
+`oc()` → 0,1, `hlvol()` → 0,1,2, `vol()` → 0. `with_columns` is private on purpose — a hand-typed column list is the
 table that drifts. Over-declaring adds streams nothing reads.
 
 This is what closes the historical hazard where price recipes bound `Input{0}=close`

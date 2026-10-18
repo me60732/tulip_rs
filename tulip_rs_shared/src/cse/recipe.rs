@@ -387,6 +387,11 @@ impl Recipe {
             Column::Volume,
         ])
     }
+    /// High/low + volume recipe (`marketfi`, `emv`) — the volume-ratio indicators that
+    /// read neither open nor close. Canonical rank gives high=0, low=1, volume=2.
+    pub fn hlvol() -> Self {
+        Self::with_columns(vec![Column::High, Column::Low, Column::Volume])
+    }
     /// Close + volume recipe (`vwma`, `vwap`) — the volume-weighted price averages
     /// that read neither high nor low.
     pub fn cvol() -> Self {

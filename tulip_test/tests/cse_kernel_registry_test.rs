@@ -3577,6 +3577,145 @@ mod tests {
         }
     }
 
+    /// BOP + MARKETFI: sharing that is pure ARITHMETIC, not a recurrence. `bop` builds
+    /// `Sub{high, low}` (its denominator's operand) and an `EPSILON` `Const`; `marketfi`
+    /// needs that SAME range as its numerator and the same constant under its volume floor.
+    /// `bop` binds close to stream 3 via `ohlc()`, `marketfi` binds volume to stream 2 via
+    /// `hlvol()` -- five distinct columns in the union, so this also re-pins the remap on a
+    /// new column set.
+    ///
+    /// Derived before running: input 5, sub 2, const 1, max 2, div 2 = 12 nodes. If the
+    /// range `Sub` failed to intern: sub=3, len=13; if the `EPSILON` Const failed: const=2.
+    /// The two `Max` nodes MUST stay distinct -- one floors the range, the other the volume.
+    #[test]
+    fn bop_marketfi_shared_interns_the_range_and_eps() {
+        use tulip_rs::cse::kernel::registry::SIG_bop_marketfi_shared;
+        use tulip_rs::cse::signature::{K_CONST, K_DIV, K_INPUT, K_MAX, K_SUB};
+        let req = Request::new()
+            .add(tulip_rs::cse::recipes::bop(&[]), None)
+            .add(tulip_rs::cse::recipes::marketfi(&[]), None);
+        let (arena, sig, _v, _owners) = erase_request(&req).unwrap();
+        assert_eq!(sig, SIG_bop_marketfi_shared, "hub arena drifted");
+
+        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
+        let got = (
+            count(K_INPUT),
+            count(K_SUB),
+            count(K_CONST),
+            count(K_MAX),
+            count(K_DIV),
+        );
+        assert_eq!(
+            got,
+            (5, 2, 1, 2, 2),
+            "arena observed input/sub/const/max/div = {got:?} -- sub=3 or const=2 would mean \
+             the shared range/epsilon did not intern"
+        );
+        assert_eq!(arena.nodes.len(), 12, "expected 12 nodes");
+    }
+
+    /// Bit-exact against both hands on the hub AND the lone `marketfi_n` floor, plus a
+    /// ZERO-VOLUME block: the hand writes `(high - low) / volume.max(f64::EPSILON)`, so a
+    /// dead volume prints the range over EPSILON -- an enormous FINITE number. A `Where*`
+    /// guard copied from `vwma`/`vosc` would print 0.0 there and pass every finite-volume
+    /// shape, so this block is what distinguishes the two spellings.
+    ///
+    /// What this block does NOT prove, stated so nobody reads more into it: it is not a
+    /// float-CLASS sweep. With volume exactly 0.0 and EPSILON positive there is no tie and
+    /// no NaN, so it never reaches the one place the engine's `Max` (`select(a > b, a, b)`,
+    /// taking the SECOND operand on an unordered compare) can diverge from `f64::max`
+    /// (which keeps `self`) -- the signed-zero and NaN cases recorded in the float-class
+    /// note. Pinning THOSE needs a fixture at `volume = EPSILON` exactly or a NaN lane,
+    /// which is a separate, deliberate test and not this one.
+    #[test]
+    fn bop_marketfi_shared_bit_exact() {
+        use tulip_rs::indicators::bop::Bop;
+        use tulip_rs::indicators::marketfi::Marketfi;
+
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let op: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            // Column order is the union in canonical rank: open, high, low, close, volume.
+            let five = [
+                op.as_slice(),
+                hi.as_slice(),
+                lo.as_slice(),
+                s.as_slice(),
+                vol.as_slice(),
+            ];
+            let ohlc = [op.as_slice(), hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let hlvol = [hi.as_slice(), lo.as_slice(), vol.as_slice()];
+
+            let hub = Request::new()
+                .add(tulip_rs::cse::recipes::bop(&[]), None)
+                .add(tulip_rs::cse::recipes::marketfi(&[]), None);
+            let out = run_registered(&hub, &five).expect("bop + marketfi registered");
+
+            let (b, _) = Bop::indicator(&ohlc, &[], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &b[0],
+                "bop row in the marketfi hub",
+            );
+            let (m, _) = Marketfi::indicator(&hlvol, &[], None).unwrap();
+            assert_bits(row_for(&out, 1, true, 0), &m[0], "marketfi row [hub]");
+
+            let floor = Request::new().add(tulip_rs::cse::recipes::marketfi(&[]), None);
+            let out = run_registered(&floor, &hlvol).expect("marketfi floor registered");
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &m[0],
+                "marketfi row [floor, hlvol columns]",
+            );
+        }
+
+        // ZERO VOLUME: denominator is exactly EPSILON, so the row is huge and FINITE.
+        {
+            let n = 200;
+            let hi = series(n, |i| 101.0 + (i % 3) as f64);
+            let lo = series(n, |i| 99.0 + (i % 3) as f64);
+            let op = series(n, |i| 100.0 + (i % 3) as f64);
+            let zero_vol = vec![0.0; n];
+            let five = [
+                op.as_slice(),
+                hi.as_slice(),
+                lo.as_slice(),
+                op.as_slice(),
+                zero_vol.as_slice(),
+            ];
+            let hlvol = [hi.as_slice(), lo.as_slice(), zero_vol.as_slice()];
+            let req = Request::new().add(tulip_rs::cse::recipes::marketfi(&[]), None);
+            let out = run_registered(&req, &hlvol).expect("marketfi zero-volume");
+            let (m, _) = Marketfi::indicator(&hlvol, &[], None).unwrap();
+            assert_bits(
+                row_for(&out, 0, true, 0),
+                &m[0],
+                "marketfi ZERO-VOLUME row (EPSILON floor, not a 0.0 guard)",
+            );
+            assert!(
+                m[0].iter().all(|x| x.is_finite() && *x != 0.0),
+                "zero volume must give the range over EPSILON -- huge and finite, got {:?}",
+                &m[0][..m[0].len().min(4)]
+            );
+            // The hub must agree with the floor on the same data.
+            let hub = Request::new()
+                .add(tulip_rs::cse::recipes::bop(&[]), None)
+                .add(tulip_rs::cse::recipes::marketfi(&[]), None);
+            let out = run_registered(&hub, &five).expect("bop + marketfi zero-volume");
+            assert_bits(
+                row_for(&out, 1, true, 0),
+                &m[0],
+                "marketfi zero-volume [hub]",
+            );
+        }
+    }
+
     /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
     /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
     /// what the standalone `dema` request builds: the arena must hold THREE `Ema`

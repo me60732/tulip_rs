@@ -1908,6 +1908,44 @@ pub fn bop(_options: &[f64]) -> Recipe {
     r
 }
 
+/// `MARKETFFI` (Market Facilitation Index) — hand `marketfi.rs::calc` is
+/// `(high - low) / volume.max(f64::EPSILON)`. Stateless: `Info.options = []`,
+/// `min_data = 1`, `output_length = data_len`, so lead 0 and `Sink::iface`.
+///
+/// Columns are `hlvol()` = the hand's `Info.inputs = ["high","low","volume"]`. This is the
+/// first consumer of that constructor, and the reason it exists rather than a hand-typed
+/// column list: `with_columns` is private precisely so a recipe cannot name a column set
+/// the canonical rank order would silently shift.
+///
+/// SHARES ARITHMETIC WITH `BOP`, not a recurrence: `bop` builds `Sub{high, low}` and an
+/// `EPSILON` `Const`, and `marketfi` needs exactly those two nodes -- its denominator is
+/// `Max{volume, EPSILON}` (a DIFFERENT `Max`, over volume rather than the range), and its
+/// numerator IS bop's `hl_diff`. So `Bop() + Marketfi()` interns the range `Sub` and the
+/// constant and adds only two nodes. There is no carry here to share, which is why the
+/// gate counts nodes rather than claiming any fused recurrence.
+pub fn marketfi(_options: &[f64]) -> Recipe {
+    let mut r = Recipe::hlvol();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let vol = r.add(Node::Input { stream: 2 });
+    r.tag(vol, "volume");
+
+    let range = r.add(Node::Sub { a: hi, b: lo });
+    r.tag(range, "hl_range");
+    let eps = r.constant(f64::EPSILON);
+    let den = r.add(Node::Max { a: vol, b: eps });
+    r.tag(den, "vol_floor");
+    let line = r.add(Node::Div { a: range, b: den });
+    r.tag(line, "marketfi");
+
+    r.kind = "marketfi";
+    r.options = Vec::new();
+    r.outputs.push(Sink::iface(line));
+    r
+}
+
 /// `ROC(p)` — Rate of Change, hand `roc.rs::calc` = `calc_rocr(mom, prev_real)` where
 /// `calc_mom = real - prev_real` and `calc_rocr(a, b) = a / b.max(f64::EPSILON)`.
 /// So ROC is `(real − real[p]) / real[p].max(eps)` — **no ×100**, the hand does not scale
