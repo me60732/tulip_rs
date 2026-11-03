@@ -260,6 +260,14 @@ fn cycle(
 
 pub struct Vidya;
 
+use crate::cse::{Planable, Recipe};
+
+impl Planable for Vidya {
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::vidya(options)
+    }
+}
+
 impl Indicator<INPUTS, OPTIONS> for Vidya {
     type IndicatorState = IndicatorState;
     const INFO: Info = Info {

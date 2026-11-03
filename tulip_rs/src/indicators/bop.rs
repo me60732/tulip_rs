@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState};
@@ -116,5 +117,17 @@ impl Indicator<INPUTS, OPTIONS> for Bop {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Bop {
+    /// The graph is leaf data — `crate::cse::recipes::bop`:
+    /// `Sub{close, open} / Max{Sub{high, low}, EPSILON}`, over the `ohlc()`
+    /// column set, stateless. The `Max` IS the hand's flat-bar guard — a
+    /// `Where*` select pins `0.0` where the hand prints `(close - open) /
+    /// f64::EPSILON`, so the floor must stay a `Max` (pinned by
+    /// `bop_lone_floor_bit_exact`'s flat-bar block).
+    fn recipe(_options: &[f64]) -> Recipe {
+        crate::cse::recipes::bop(_options)
     }
 }

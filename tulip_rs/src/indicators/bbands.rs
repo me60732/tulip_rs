@@ -226,3 +226,38 @@ impl crate::cse::Planable for BBands {
         crate::cse::recipes::bbands(options)
     }
 }
+
+/// Rebuild `bbands::State<Warm>`: the `Stddev` chain for `stddev_state`,
+/// plus the recipe's `Mirror{src: k}` wrapping the `std_dev` constant node
+/// (a recipe CONSTANT, not carried state — recovered the same Mirror-of-
+/// Const way `ef`'s `prev`/`drop` are, no new `ChainState` variant needed).
+impl crate::cse::Restorable<INPUTS, OPTIONS> for BBands {
+    const KIND: &'static str = "bbands";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, Stddev};
+        let [Stddev {
+            sum,
+            sum_sq,
+            period,
+        }, Mirror { value: std_dev }] = v.as_slice()
+        else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State {
+                stddev_state: StddevState::new(*sum, *sum_sq, period).into_warm(),
+                std_dev: *std_dev,
+            },
+            period,
+        ))
+    }
+}

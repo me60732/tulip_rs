@@ -438,43 +438,67 @@ impl crate::cse::Planable for Ichimoku {
 /// Rebuild the hand `ichimoku::State<Warm>` — six `{value, trail}` pairs, exactly
 /// the hand's six `MinState`/`MaxState` fields. No derived constant to recompute
 /// (there is no multiplier), and the `high`/`low` tails the hand
-/// `IndicatorState` keeps are the engine's host anchor window.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    use crate::cse::{ChainState, IndicatorStateBox};
-    let [ChainState::RollMin {
-        value: smin,
-        trail: smin_t,
-        ..
-    }, ChainState::RollMax {
-        value: smax,
-        trail: smax_t,
-        ..
-    }, ChainState::RollMin {
-        value: mmin,
-        trail: mmin_t,
-        ..
-    }, ChainState::RollMax {
-        value: mmax,
-        trail: mmax_t,
-        ..
-    }, ChainState::RollMin {
-        value: lmin,
-        trail: lmin_t,
-        ..
-    }, ChainState::RollMax {
-        value: lmax,
-        trail: lmax_t,
-        ..
-    }] = v.as_slice()
-    else {
-        return IndicatorStateBox::Other;
-    };
-    IndicatorStateBox::Ichimoku(State {
-        short_min_state: MinState::new(*smin, *smin_t as usize).into_warm(),
-        short_max_state: MaxState::new(*smax, *smax_t as usize).into_warm(),
-        medium_min_state: MinState::new(*mmin, *mmin_t as usize).into_warm(),
-        medium_max_state: MaxState::new(*mmax, *mmax_t as usize).into_warm(),
-        long_min_state: MinState::new(*lmin, *lmin_t as usize).into_warm(),
-        long_max_state: MaxState::new(*lmax, *lmax_t as usize).into_warm(),
-    })
+/// `IndicatorState` keeps are the engine's host anchor window; `windows[0] =
+/// high`, `windows[1] = low`.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Ichimoku {
+    const KIND: &'static str = "ichimoku";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState;
+        let [ChainState::RollMin {
+            value: smin,
+            trail: smin_t,
+            period: s_period,
+            look_back: s_look_back,
+        }, ChainState::RollMax {
+            value: smax,
+            trail: smax_t,
+            ..
+        }, ChainState::RollMin {
+            value: mmin,
+            trail: mmin_t,
+            period: m_period,
+            look_back: m_look_back,
+        }, ChainState::RollMax {
+            value: mmax,
+            trail: mmax_t,
+            ..
+        }, ChainState::RollMin {
+            value: lmin,
+            trail: lmin_t,
+            period: l_period,
+            look_back: l_look_back,
+        }, ChainState::RollMax {
+            value: lmax,
+            trail: lmax_t,
+            ..
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let periods = (
+            (*s_period as usize, *s_look_back as usize),
+            (*m_period as usize, *m_look_back as usize),
+            (*l_period as usize, *l_look_back as usize),
+        );
+        if windows[0].len() < periods.2 .1 || windows[1].len() < periods.2 .1 {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            windows[1],
+            periods,
+            State {
+                short_min_state: MinState::new(*smin, *smin_t as usize).into_warm(),
+                short_max_state: MaxState::new(*smax, *smax_t as usize).into_warm(),
+                medium_min_state: MinState::new(*mmin, *mmin_t as usize).into_warm(),
+                medium_max_state: MaxState::new(*mmax, *mmax_t as usize).into_warm(),
+                long_min_state: MinState::new(*lmin, *lmin_t as usize).into_warm(),
+                long_max_state: MaxState::new(*lmax, *lmax_t as usize).into_warm(),
+            },
+        ))
+    }
 }

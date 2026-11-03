@@ -275,3 +275,58 @@ impl crate::cse::Planable for Di {
         crate::cse::recipes::di(options)
     }
 }
+
+/// Rebuild `di::State<Warm>`: dm's two COMPOSITE Wilders accumulators +
+/// fresh `Mirror{src: high}`/`Mirror{src: low}` for `di_state`'s
+/// prev_high/prev_low, plus the shared MEAN `Wilders(tr)` atr chain (scaled
+/// back to the COMPOSITE raw sum the hand expects: `mean == sum/period`
+/// every bar, see the recipe's own doc comment) and `Mirror{src: close}`
+/// for `atr_state.tr_state`'s prev_close.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Di {
+    const KIND: &'static str = "di";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, Wilders};
+        let (dmup, dmdown, prev_high, prev_low, atr_mean, atr_period, prev_close) = match v
+            .as_slice()
+        {
+            [Wilders {
+                value: dmup,
+                period,
+            }, Wilders { value: dmdown, .. }, Mirror { value: prev_high }, Mirror { value: prev_low }, Wilders {
+                value: atr_mean,
+                period: atr_period,
+            }, Mirror { value: prev_close }] => (
+                *dmup,
+                *dmdown,
+                *prev_high,
+                *prev_low,
+                *atr_mean,
+                *atr_period,
+                *prev_close,
+            ),
+            _ => return None,
+        };
+        let di_state = DMState::new(
+            dmup,
+            dmdown,
+            prev_high,
+            prev_low,
+            crate::indicators::dm::multiplier(atr_period as usize),
+        )
+        .into_warm();
+        let atr_sum = atr_mean * atr_period as f64;
+        let atr_state = AtrState {
+            wilders_state: crate::indicators::wilders::State::new(atr_sum, atr_period as usize)
+                .into_warm(),
+            tr_state: crate::indicators::tr::State::new(prev_close),
+        };
+        Some(State {
+            di_state,
+            atr_state,
+        })
+    }
+}

@@ -272,3 +272,33 @@ impl crate::cse::Planable for Ao {
         crate::cse::recipes::ao(options)
     }
 }
+
+/// `Ao::IndicatorState` IS `ao::State<Warm>` directly — no `{real, state, period}`
+/// wrapper like every other restorer here. So there is no `ChainState` to
+/// destructure at all: the hand's whole state (the shared `medprice` ring +
+/// the two SMA sums) is a full recompute of `State::init_state` over a raw
+/// `(high, low)` window tail of `LONG_PERIOD` bars — same full-recompute
+/// technique `md`'s restorer uses over `windows[0]`, just with two inputs and
+/// zero carried chains.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Ao {
+    const KIND: &'static str = "ao";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        if !v.is_empty() {
+            return None;
+        }
+        if windows.len() < 2 || windows[0].len() < LONG_PERIOD || windows[1].len() < LONG_PERIOD {
+            return None;
+        }
+        let mut medprice_scratch: [f64; 0] = [];
+        let mut short_sma_scratch: [f64; 0] = [];
+        Some(State::init_state(
+            (windows[0], windows[1]),
+            &mut medprice_scratch,
+            &mut short_sma_scratch,
+        ))
+    }
+}

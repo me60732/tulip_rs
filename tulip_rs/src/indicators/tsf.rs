@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -226,5 +227,24 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Tsf {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Tsf {
+    /// `tsf` is the linreg chain plus ONE fused step, so this forwards to the
+    /// same `linreg_chain` builder `linreg` uses — see `recipes::tsf`.
+    ///
+    /// The sharing is safe for a reason worth stating, because it is the usual
+    /// trap: `cycle_tsf` calls `state.calc(inputs)` unconditionally and the
+    /// `if has_optional` below it gates only the STORES, so tsf's `linreg`
+    /// row is the `calc`-path value — the same value `linreg` publishes once the
+    /// engine always runs `calc`. Had tsf consumed a `partial_calc` state, the
+    /// two requests would have wanted two different numbers from one node and
+    /// interning would have fabricated agreement.
+    ///
+    /// Steady cost over `linreg` alone: `+1` fma (plus one `Const` hoist), and
+    /// the merged arena drops the duplicated chain entirely.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::tsf(options)
     }
 }

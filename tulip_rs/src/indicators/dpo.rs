@@ -5,6 +5,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
+use crate::cse::{Planable, Recipe};
 pub use crate::indicators::sma::{Sma, State as SmaState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -231,5 +232,13 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dpo {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Dpo {
+    /// The graph is leaf data — `crate::cse::recipes::dpo`: `Sma(p)` over
+    /// the raw price minus `Lag(price, p/2 + 1)`.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::dpo(options)
     }
 }

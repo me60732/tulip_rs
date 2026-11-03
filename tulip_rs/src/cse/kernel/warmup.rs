@@ -16,10 +16,12 @@
 //! * `Max` = IEEE maxNum via `f64::max` (the hand's own NaN rule).
 
 use crate::cse::signature::{
-    Signature, Values, K_ABS, K_ACCUM, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HMA, K_IIR,
-    K_IIRCLAMPED, K_INPUT, K_LAG, K_LN, K_MAX, K_MIN, K_MIRROR, K_MUL, K_PREV, K_ROLLMAX,
-    K_ROLLMIN, K_ROLLSUM, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERTREND, K_TRAIL, K_WHEREGE,
-    K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS, K_WMA, MAX, MAX_SINKS,
+    Signature, Values, K_ABS, K_ACCUM, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HIGHPASS, K_HMA,
+    K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED, K_INPUT, K_KVOFLOW, K_LAG, K_LINREGFLOW,
+    K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL, K_NVI, K_PREV, K_PVI, K_ROLLAGE, K_ROLLMAX,
+    K_ROLLMIN, K_ROLLSUM, K_SEEDEDEMA, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERSMOOTHER,
+    K_SUPERTREND, K_TRAIL, K_VARIABLEALPHA, K_WHEREGE, K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS,
+    K_WMA, MAX, MAX_SINKS,
 };
 use crate::ring_buffer::buffer::BufferElement;
 use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
@@ -762,6 +764,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
     // K_HMA's seven accumulators, mirroring `ChainState::Hma` order:
     // [sum1, wsum1, sum2, wsum2, wss, ss, first_diff].
     hacc: &mut [[f64; 7]; MAX],
+    // K_KVOFLOW's own carry: [prev_hlc, cm, prev_hl]. The trend flip-flop
+    // bool rides the node's OWN st[k] slot (unaffected by this array) --
+    // these three fields previously (incorrectly) borrowed st[k+1..k+3],
+    // which are the NEXT arena node's own carry cells.
+    kvacc: &mut [[f64; 3]; MAX],
+    hp_acc: &mut [[f64; 2]; MAX],
+    ss_acc: &mut [[f64; 3]; MAX],
     v: &mut [f64; MAX],
     out: &mut [*mut f64; MAX_SINKS],
     leads: &[u32; MAX_SINKS],
@@ -791,6 +800,46 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         s
                     } else {
                         st[k] = st[k].mul_add(vals.invms[k], s * vals.mults[k]);
+                        st[k]
+                    }
+                }
+                K_SEEDEDEMA => {
+                    let feed = vals.feeds[k] as usize;
+                    if t < feed {
+                        0.0
+                    } else if t == feed {
+                        let seedv = v[SIG.a[k] as usize];
+                        st[k] = seedv;
+                        seedv
+                    } else {
+                        let s = v[SIG.b[k] as usize];
+                        st[k] = st[k].mul_add(vals.invms[k], s * vals.mults[k]);
+                        st[k]
+                    }
+                }
+                K_VARIABLEALPHA => {
+                    // VariableAlpha: carry' = f(carry, value, live w from SIG.c), two
+                    // fold spellings selected by SIG.d (0=Ema, 1=Vidya) -- a structural
+                    // fact, never a runtime value (same principle K_IIRCLAMPED's d/e
+                    // refs already establish). `K_VARIABLEALPHA_EMA`/`_VIDYA` were
+                    // never-declared names here -- an irrefutable catch-all BINDING
+                    // bug that silently swallowed every match arm below it (see
+                    // ENGINE_NOTES.md, 2026-11-03 codegen-recovery entry).
+                    let feed = vals.feeds[k] as usize;
+                    if t < feed {
+                        0.0
+                    } else if t == feed {
+                        let seedv = v[SIG.a[k] as usize];
+                        st[k] = seedv;
+                        seedv
+                    } else {
+                        let s = v[SIG.b[k] as usize];
+                        let w = v[SIG.c[k] as usize]; // live weight from mult node
+                        st[k] = if SIG.d[k] == 0 {
+                            st[k].mul_add(1.0 - w, s * w)
+                        } else {
+                            (s - st[k]).mul_add(w, st[k])
+                        };
                         st[k]
                     }
                 }
@@ -1030,6 +1079,59 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     hacc[k] = [s1, w1, s2, w2, wss, ss, fd];
                     out
                 }
+                K_KVOFLOW => {
+                    // Hand `State::calc_vf`: 4-state machine (trend bool encoded as f64,
+                    // cm cumulative measure, prev_hlc, prev_hl). First vf seeds both EMAs.
+                    let hlc = v[SIG.a[k] as usize] + v[SIG.b[k] as usize] + v[SIG.c[k] as usize];
+                    let dm = v[SIG.a[k] as usize] - v[SIG.b[k] as usize];
+
+                    // Hand `init_state`: BEFORE the recurrence loop starts (at
+                    // i=1), it precomputes `initial_trend`/`initial_cm` from
+                    // bar 0 vs bar 1 directly off the raw high/low/close
+                    // slices -- NOT a zero-initialized carry. `feeds[k]` is
+                    // exactly that first loop bar (erase()'s `+1`), so seed
+                    // here, once, using the raw streams at `t-1` (high/low/
+                    // close are literal Input nodes in every registered kvo()
+                    // recipe, so SIG.a[<node id>] IS that node's stream index).
+                    if t == vals.feeds[k] as usize {
+                        let hs = SIG.a[SIG.a[k] as usize] as usize;
+                        let ls = SIG.a[SIG.b[k] as usize] as usize;
+                        let cs = SIG.a[SIG.c[k] as usize] as usize;
+                        let hlc0 = streams[hs][t - 1] + streams[ls][t - 1] + streams[cs][t - 1];
+                        let hl0 = streams[hs][t - 1] - streams[ls][t - 1];
+                        st[k] = if hlc > hlc0 { 1.0 } else { 0.0 };
+                        let cm0 = if hlc != hlc0 { hl0 } else { 0.0 };
+                        kvacc[k] = [hlc0, cm0, hl0];
+                    }
+                    let [prev_hlc, cm, prev_hl] = kvacc[k];
+
+                    // Trend flip-flop logic:
+                    // - If trend=false (st[k] < 0.5) AND hlc > prev_hlc: flip to true, cm=prev_hl
+                    // - If trend=true (st[k] >= 0.5) AND hlc < prev_hlc: flip to false, cm=prev_hl
+                    // - Otherwise: sign from current trend, no cm update
+                    let mut sign;
+                    let mut cm = cm;
+                    if st[k] < 0.5 && hlc > prev_hlc {
+                        st[k] = 1.0;
+                        cm = prev_hl;
+                        sign = 1.0;
+                    } else if st[k] >= 0.5 && hlc < prev_hlc {
+                        st[k] = 0.0;
+                        cm = prev_hl;
+                        sign = -1.0;
+                    } else {
+                        sign = if st[k] >= 0.5 { 1.0 } else { -1.0 };
+                    }
+                    cm += dm.max(f64::EPSILON);
+
+                    // Update state: prev_hlc = hlc, prev_hl = dm
+                    kvacc[k] = [hlc, cm, dm];
+
+                    // vf = ((dm / cm) * 2.0 - 1.0).abs() * volume * 100.0 * sign
+                    let vf =
+                        (dm / cm).mul_add(2.0, -1.0).abs() * v[SIG.d[k] as usize] * 100.0 * sign;
+                    vf
+                }
                 K_ROLLMAX => {
                     let p = vals.periods[k] as usize;
                     let lb = vals.roll_lb[k] as usize;
@@ -1138,7 +1240,148 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         x
                     }
                 }
+                K_HIGHPASS => {
+                    let real = v[SIG.a[k] as usize];
+                    let [y1, prev_real] = hp_acc[k];
+                    let y = vals.mults[k].mul_add(y1, vals.invms[k] * (real - prev_real));
+                    hp_acc[k] = [y, real];
+                    y
+                }
+                K_SUPERSMOOTHER => {
+                    let real = v[SIG.a[k] as usize];
+                    let [y1, y2, prev_real] = ss_acc[k];
+                    let y = vals.st_step[k].mul_add(
+                        real + prev_real,
+                        vals.mults[k].mul_add(y1, vals.invms[k] * y2),
+                    );
+                    ss_acc[k] = [y, y1, real];
+                    y
+                }
+                K_HTINPHASE => {
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let g = vals.ring_of[k] as usize;
+                        let cap = vals.ring_cap[g] as usize;
+                        let x = v[SIG.a[k] as usize];
+                        rings.feed(g, cap, t, x);
+                        rings.at(g, 3)
+                    }
+                }
+                K_HTQUADRATURE => {
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let g = vals.ring_of[k] as usize;
+                        let cap = vals.ring_cap[g] as usize;
+                        let x = v[SIG.a[k] as usize];
+                        rings.feed(g, cap, t, x);
+                        let q1 = 0.0962_f64.mul_add(rings.at(g, 0), 0.5769 * rings.at(g, 2));
+                        let q2 = (-0.5769_f64).mul_add(rings.at(g, 4), -0.0962 * rings.at(g, 6));
+                        q1 + q2
+                    }
+                }
                 K_TRAIL => trail[SIG.a[k] as usize] as f64,
+                K_ROLLAGE => {
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let n = vals.periods[k] as usize;
+                        let g = vals.ring_of[k] as usize;
+                        let cap = vals.ring_cap[g] as usize;
+                        let x = v[SIG.a[k] as usize];
+                        rings.feed(g, cap, t, x);
+                        rings.evicted(g).unwrap_or(0.0)
+                    }
+                }
+                K_NVI => {
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        if t == f {
+                            st[k] = 1000.0;
+                        }
+                        let volume = v[SIG.c[k] as usize];
+                        let prev_volume = v[SIG.d[k] as usize];
+                        if volume < prev_volume {
+                            let close = v[SIG.a[k] as usize];
+                            let prev_close = v[SIG.b[k] as usize];
+                            st[k] = close / prev_close * st[k];
+                        }
+                        st[k]
+                    }
+                }
+                K_PVI => {
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        if t == f {
+                            st[k] = 1000.0;
+                        }
+                        let volume = v[SIG.c[k] as usize];
+                        let prev_volume = v[SIG.d[k] as usize];
+                        if volume > prev_volume {
+                            let close = v[SIG.a[k] as usize];
+                            let prev_close = v[SIG.b[k] as usize];
+                            st[k] = close / prev_close * st[k];
+                        }
+                        st[k]
+                    }
+                }
+                K_MEANABSDEV => {
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let p = vals.periods[k] as usize;
+                        let sma = v[SIG.b[k] as usize];
+                        let mult = 1.0 / p as f64;
+                        if SIG.kinds[SIG.a[k] as usize] == K_INPUT {
+                            let stream_idx = SIG.a[SIG.a[k] as usize] as usize;
+                            let src = streams[stream_idx];
+                            let start = t + 1 - p;
+                            crate::indicators::md::calc_md_simd::<4>(&src[start..=t], sma, mult)
+                        } else {
+                            let g = vals.ring_of[k] as usize;
+                            let cap = vals.ring_cap[g] as usize;
+                            let x = v[SIG.a[k] as usize];
+                            rings.feed(g, cap, t, x);
+                            let window = rings.window(g, p);
+                            crate::indicators::md::calc_md_simd::<4>(window, sma, mult)
+                        }
+                    }
+                }
+                K_LINREGFLOW => {
+                    // linreg's moment carry (`Node::LinregFlow` doc). Steady is
+                    // the 3-op form, publish BEFORE the evict — the shape no
+                    // `RollSum` region spells, measured bit-exact against the
+                    // hand on 24 series×period cells.
+                    // Below the seam the hand's `init_state` folds with a
+                    // BAR-INDEX weight capped at the steady multiplier, and
+                    // never evicts. `min(t, mult)` covers both instances with
+                    // no branch: `sum_xy` (mult = period) gets weight t, which
+                    // IS the value's absolute bar index (`sum_xy += (i+1)·d`
+                    // with d = real[1+i]); `sum_y` (mult = 1.0) gets weight 1
+                    // from bar 1 on. Bar 0 folds `src · 0.0` — the hand works on
+                    // `real[1..]` and never reads it; sound for a FINITE bar 0,
+                    // the parity matrices' contract.
+                    let f = vals.feeds[k] as usize;
+                    let x = v[SIG.a[k] as usize];
+                    let m = vals.mults[k];
+                    if t < f {
+                        st[k] += x * (t as f64).min(m);
+                        0.0
+                    } else {
+                        let out = st[k] + x * m;
+                        st[k] = out - v[SIG.b[k] as usize];
+                        out
+                    }
+                }
                 K_WHEREGE => {
                     if v[SIG.a[k] as usize] >= v[SIG.b[k] as usize] {
                         v[SIG.c[k] as usize]

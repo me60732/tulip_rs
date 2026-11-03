@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -30,7 +31,6 @@ impl TIndicatorState<4> for IndicatorState {
 fn process(inputs: &[&[f64]; INPUTS]) -> Result<Vec<Vec<f64>>, IndicatorError> {
     validate_inputs(inputs, 1)?;
 
-    
     let [open, high, low, close] = *inputs;
     let mut avgprice_line = crate::uninit_vec!(f64, open.len());
 
@@ -109,5 +109,13 @@ impl Indicator<INPUTS, OPTIONS> for AvgPrice {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for AvgPrice {
+    /// The graph is leaf data — `crate::cse::recipes::avgprice`:
+    /// `((open + high) + low) + close) * 0.25`.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::avgprice(options)
     }
 }

@@ -124,17 +124,44 @@ conversion for you.
 | `HtInPhase{src}` `HtQuadrature{src}` | Hilbert pair, lead +6 | **cannot be erased** — see below |
 | `Ln` | natural log | `Node::Ln` → `K_LN` |
 | `Mirror{src}` | zero-op state copy | for `get_states` |
+| `RollAge{src,n}` | ring-backed age roll, publishes the raw evicted/age-read value | `n` is a VALUE (capacity), not a node id — same hazard class as `period`; bespoke group-of-one, `K_ROLLAGE`; used by `adxr`/`cvi` |
+| `NviRecur{src,prev_close,volume,prev_volume}` `PviRecur{...}` | gated multiplicative prefix product seeded 1000.0 | scalar-only (unpackable), `K_NVI`/`K_PVI` |
+| `MeanAbsDev{src,period,sma}` | window rescan mean absolute deviation | `sma` is an explicit shared `RollSum{mean:true}` operand, not an internally recomputed copy; `K_MEANABSDEV`; used by `md`/`cci` |
+| `LinregFlow{src,sub,period,weighted}` | publish-BEFORE-evict moment carry: `pub = st + src·mult`, publish `pub`, then `st = pub − v[sub]` | `K_LINREGFLOW=44`; `weighted` selects `mults[k]` (`period` vs 1.0) and is therefore a VALUES fact, not structure — the instances already differ in `b`. Needed because every `RollSum` region folds the leave INTO what it prints while `linreg.rs` evicts after publishing (measured: a roll window breaks 697/698 ramp bars and is silent on flat). Below the seam the fold weight is `min(t, mult)`, which reproduces the hand's bar-index init and its never-reading `real[0]`, so no rescan and no warm branch in the steady body. Scalar-only; used by `linreg` |
+| `KvoFlow{high,low,close,volume}` | bespoke 4-state recurrence, outputs the signed volume-force line `vf` | `K_KVOFLOW`; erasable and dispatching (closed D4, 2026-10-25) — reserved state storage `kvacc: [[f64;3];MAX]` (`[prev_hlc, cm, prev_hl]`), separate from `st[k]`'s trend bool; `warmup.rs`'s cold-start arm reproduces the hand's non-zero seed (`initial_trend`/`initial_cm` from bars 0-1), which the generic zero-init path cannot express |
+| `SeededEma{seed,src,period}` | custom-seeded EMA: publishes `seed`'s own value at `seed`'s lead bar, then folds `src` (a DIFFERENT node) from the next bar on | `K_SEEDEDEMA=39`; `feeds[k]=leads[seed]` (mirrors `Ema`'s own-`Input`-override rule, applied to `seed`); plain `Ema{src,period}` is the degenerate case `seed==src`. Never lane-packed — `node.a` is the one-shot SEED, not a shared fold source, so `classify`/`classify_packed` always register it `Scalar::Chain(node.b)`. Used by `trvi`: seed=`high-low` range (bar 0), fold=`tr` (bar 1 on, since `tr`'s own `Lag{close,1}` gives it structural lead 1, so a plain `Ema{src:tr,..}` would seed from a real close-aware `tr[1]`, not the hand's bar-0 range) |
+| `VariableAlpha{seed,value,mult,feed}` | EMA-style carry whose blend weight is read from a LIVE per-bar node value (`v[mult]`), not a recipe-time constant | `K_VARIABLEALPHA=45`; fold shape selected by `AlphaShape` (`Ema`/`Vidya`), encoded structurally into `Signature::d` (0/1) since it changes the arithmetic, not a magnitude — same principle as `composite`'s `Signature::b` encoding for `Wilders`. **Parked, not wired to the planner**: `Kind::VariableAlpha` does not exist in `planner.rs`'s `Kind` enum, so no recipe can reach it yet — `recipe.rs`/`merge.rs`/`signature.rs` carry the leaf-vocabulary scaffolding only (built toward `kama`/`vidya`, see `ENGINE_CHECKLIST.md`'s F1 entry), and it has no registered row, no kernel, no gate |
 
-**Why four of those rows say "cannot be erased".** `HighPass`, `SuperSmoother`,
-`HtInPhase` and `HtQuadrature` are real `Node` variants (`recipe.rs:249-261`) and `merge`
-already knows them — leads at `merge.rs:127-133`, lane-formula ids 26-29 at `:505-508`.
-But `erase` has **no arm** for them: they fall into `_ => return None`
-(`signature.rs:604`, "bespoke/rolling/feedback: later milestones"), and `planner.rs` and
-`codegen.rs` contain zero references. An arena holding one therefore yields no
-`Signature`, so no `SIG_*`, so no kernel and no gate. This is the **erase tier**, not the
-node tier — do not add a fifth HT node expecting it to register.
-`hilberttransform` (`recipes.rs:1173`) is the worked example: its graph is final and it
-registers the day those four kinds get `erase` arms.
+**Why four of those rows USED to say "cannot be erased" — the whole paragraph was stale.**
+`HighPass`, `SuperSmoother`, `HtInPhase` and `HtQuadrature` are real `Node` variants and `merge`
+always knew them. They once fell into `erase`'s `_ => return None` ("bespoke/rolling/feedback:
+later milestones"), which is why an arena holding one yielded no `Signature`, no `SIG_*`, no
+kernel and no gate.
+
+**Every one of those blockers is gone, measured 2026-10-31:**
+
+* `erase` has real arms — `signature.rs:473` (`HighPass`), `:480` (`SuperSmoother`), `:488`
+  (`HtInPhase`), `:493` (`HtQuadrature`); rustc now reports the wildcard at `:781` as
+  **unreachable**, i.e. `erase` covers every `Node` variant.
+* `planner.rs` and `codegen.rs` do NOT "contain zero references": the dispatch arm is
+  `planner.rs:438` `"HilbertTransform" => recipes::hilberttransform(&opts)`, and `codegen.rs`
+  renders the HT ring taps (the 7-tap FIR over the shared `RCLASS_BESPOKE` ring).
+* `hilberttransform` is registered **end to end**, not "pending the erase tier": recipe
+  `recipes.rs:1294`, registry row `registry.rs:127` `hilbert_n: HilbertTransform(ss, hp)`, and a
+  live gate `hilberttransform_bit_exact` (`cse_kernel_registry_test.rs:4790`, inside the 153-test
+  suite). "registers the day those four kinds get `erase` arms" already happened.
+
+Line numbers inside this file drift as the engine grows (the same paragraph also cited the merge
+lead/formula rows at lines that have since moved, and an `erase` wildcard at `:604` now at `:781`)
+— treat any `file:line` here as a pointer to grep, not a coordinate.
+
+**Open consequence, deliberately NOT acted on here.** A dead wildcard is the anti-pattern this
+repo warns about elsewhere: `merge.rs`'s `lane_formula` is explicitly "Exhaustive with NO
+wildcard: a new `Node` variant fails to compile here, so it cannot silently become unpaklable."
+`erase`'s now-dead `_ => return None` does the opposite — a future variant added without an arm
+would compile and silently erase to nothing. Deleting it is a one-line, compile-safe change
+(rustc already proves nothing reaches it), but it changes engine behaviour for kinds not yet
+written, so it is a decision to make on its own, not a stray edit inside another slice.
 
 **`Sma` vs `RollSum` is an interning fact, not a style choice.** They are distinct
 signature kinds (`K_SMA=16`, `K_ROLLSUM=24`) so they never dedup together. Use

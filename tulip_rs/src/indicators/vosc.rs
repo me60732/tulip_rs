@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -262,5 +263,16 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Vosc {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Vosc {
+    /// The graph is leaf data — `crate::cse::recipes::vosc`: two
+    /// `RollSum{mean:true}` over the one `volume` column (short and long), then
+    /// `(fast - slow) * 100 / slow`, guarded by `WhereLe` on `Abs{slow}` pinned to
+    /// `0.0`. The divide's denominator, the guard's `Abs` source and the `slow`
+    /// optional row are all the SAME arena node — one recurrence, three reads.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::vosc(options)
     }
 }

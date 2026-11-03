@@ -63,6 +63,15 @@ fn classify(p: &Pattern) -> Classified {
                 },
             );
         }
+        // SeededEma is never groupable (excluded from `chain_step_form`):
+        // the fold SOURCE is `node.b`, not `node.a` (`node.a` is the SEED,
+        // only read at the one seed bar) -- a shared-source lane group keyed
+        // on `node.a` would bucket unrelated seeds together. Always a scalar
+        // `Chain(node.b)`: the fold source is a derived node (`tr`), never a
+        // literal price stream, for every registered use today.
+        if node.kind == Kind::SeededEma {
+            c.scalars.insert(k, Scalar::Chain(node.b));
+        }
     }
     c
 }
@@ -414,6 +423,9 @@ fn sig_const(p: &Pattern) -> TokenStream {
                     | Kind::WhereGt
                     | Kind::WhereLe
                     | Kind::IirClamped
+                    | Kind::KvoFlow
+                    | Kind::NviRecur
+                    | Kind::PviRecur
             ) {
                 x.c.unwrap_or(0) as u32
             } else {
@@ -1099,6 +1111,9 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 | Kind::WhereLe
                 | Kind::WhereLt
                 | Kind::Fma
+                | Kind::KvoFlow
+                | Kind::NviRecur
+                | Kind::PviRecur
         ) {
             if let Some(c) = node.c {
                 let c_is_input = p
@@ -1111,6 +1126,24 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     if !used_streams.contains(&stream) {
                         used_streams.push(stream);
                     }
+                }
+            }
+        }
+        // `KvoFlow`'s volume (d=volume) and `NviRecur`/`PviRecur`'s prev_volume
+        // (d=prev_volume) reach the arena ONLY through the plain `d` slot, which
+        // (unlike `c`) is never an `Option` and so was never checked by any of
+        // the hoisting logic above -- the same unhoisted-stream bug class the
+        // `c`-operand comment above already documents, just on a different slot.
+        if matches!(node.kind, Kind::KvoFlow | Kind::NviRecur | Kind::PviRecur) {
+            let d_is_input = p
+                .nodes
+                .get(node.d)
+                .map(|n| matches!(n.kind, Kind::Input))
+                .unwrap_or(false);
+            if d_is_input {
+                let stream = p.nodes[node.d].a;
+                if !used_streams.contains(&stream) {
+                    used_streams.push(stream);
                 }
             }
         }
@@ -1224,6 +1257,15 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     let step = chain_step(&ck, &ik, &mk, &src);
                     body.push(quote! { let #xk = { #step }; });
                 }
+            }
+            Kind::SeededEma => {
+                let ident_k = idents[k].clone();
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let ik = format_ident!("{}_inv", ident_k);
+                let src = ev(node.b, &idents);
+                let step = chain_step(&ck, &ik, &mk, &src);
+                body.push(quote! { let #xk = { #step }; });
             }
             Kind::Sub | Kind::Add | Kind::Mul | Kind::Div | Kind::Max | Kind::Min => {
                 let (ea, eb) = (ev(node.a, &idents), ev(node.b, &idents));
@@ -1742,6 +1784,216 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     #stc_ub = ub;
                 });
             }
+            Kind::HighPass => {
+                // One-pole HighPass recurrence (`K_HIGHPASS`): carry is
+                // `hp_acc[k] = [y1, prev_real]`, re-derived from `warmup.rs`'s
+                // `K_HIGHPASS` arm verbatim. Steady bars are all past the
+                // chain's feed, so no gating is needed here (exec's warm
+                // call already carried `hp_acc[k]` up to the seam).
+                let ki = k;
+                let real = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let real = #real;
+                        let [y1, prev_real] = hp_acc[#ki];
+                        let y = vals.mults[#ki].mul_add(y1, vals.invms[#ki] * (real - prev_real));
+                        hp_acc[#ki] = [y, real];
+                        y
+                    };
+                });
+            }
+            Kind::SuperSmoother => {
+                // Two-pole SuperSmoother recurrence (`K_SUPERSMOOTHER`),
+                // transcribed from `warmup.rs`'s arm verbatim; carry is
+                // `ss_acc[k] = [y1, y2, prev_real]`.
+                let ki = k;
+                let real = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let real = #real;
+                        let [y1, y2, prev_real] = ss_acc[#ki];
+                        let y = vals.st_step[#ki].mul_add(
+                            real + prev_real,
+                            vals.mults[#ki].mul_add(y1, vals.invms[#ki] * y2),
+                        );
+                        ss_acc[#ki] = [y, y1, real];
+                        y
+                    };
+                });
+            }
+            Kind::RollAge => {
+                // Ring-backed age roll (`K_ROLLAGE`): push this bar, publish
+                // the eviction. Steady bars are all past the feed, so the
+                // ring is always full here (no `unwrap_or(0.0)` needed, same
+                // convention as `RollSum`'s steady arm dropping the `Option`).
+                let ki = k;
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let x = #src;
+                        let g = vals.ring_of[#ki] as usize;
+                        rings.feed(g, gate + i, x);
+                        rings.evicted(g)
+                    };
+                });
+            }
+            Kind::HtInPhase => {
+                // Centre tap of the shared 7-tap ring (`K_HTINPHASE`).
+                let ki = k;
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let x = #src;
+                        let g = vals.ring_of[#ki] as usize;
+                        rings.feed(g, gate + i, x);
+                        rings.at(g, 3)
+                    };
+                });
+            }
+            Kind::HtQuadrature => {
+                // FIR sum over the shared 7-tap ring (`K_HTQUADRATURE`),
+                // transcribed from `warmup.rs`'s arm verbatim. Shares the
+                // SAME ring group as the paired `HtInPhase` node -- `feed` is
+                // idempotent per (group, bar), so pushing from both nodes in
+                // the same bar is safe (one push wins, the rest are no-ops).
+                let ki = k;
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let x = #src;
+                        let g = vals.ring_of[#ki] as usize;
+                        rings.feed(g, gate + i, x);
+                        let q1 = 0.0962_f64.mul_add(rings.at(g, 0), 0.5769 * rings.at(g, 2));
+                        let q2 = (-0.5769_f64).mul_add(rings.at(g, 4), -0.0962 * rings.at(g, 6));
+                        q1 + q2
+                    };
+                });
+            }
+            Kind::MeanAbsDev => {
+                // Mean Absolute Deviation rescan over a shared sma operand
+                // (`K_MEANABSDEV`): `a`=src, `b`=sma. Raw vs ring source is a
+                // COMPILE-TIME fact here (the node's own `a` operand kind),
+                // mirroring `RollMax`/`RollMin`'s derived-vs-raw split.
+                let ki = k;
+                let sma_v = ev(node.b, &idents);
+                if p.nodes[node.a].kind == Kind::Input {
+                    let stream_idx = p.nodes[node.a].a;
+                    body.push(quote! {
+                        let #xk = {
+                            let p = vals.periods[#ki] as usize;
+                            let sma = #sma_v;
+                            let mult = 1.0 / p as f64;
+                            let base = unsafe { streams[#stream_idx].as_ptr() };
+                            let start = gate + i + 1 - p;
+                            let window = unsafe { std::slice::from_raw_parts(base.add(start), p) };
+                            crate::indicators::md::calc_md_simd::<4>(window, sma, mult)
+                        };
+                    });
+                } else {
+                    let src_v = ev(node.a, &idents);
+                    body.push(quote! {
+                        let #xk = {
+                            let p = vals.periods[#ki] as usize;
+                            let sma = #sma_v;
+                            let mult = 1.0 / p as f64;
+                            let g = vals.ring_of[#ki] as usize;
+                            let x = #src_v;
+                            rings.feed(g, gate + i, x);
+                            let window = rings.window(g, p);
+                            crate::indicators::md::calc_md_simd::<4>(window, sma, mult)
+                        };
+                    });
+                }
+            }
+            Kind::LinregFlow => {
+                // linreg's moment carry (`K_LINREGFLOW`), publish-before-evict:
+                // `out = st + x*mult; st = out - v[sub]`. `a`=src, `b`=sub.
+                let ki = k;
+                let src = ev(node.a, &idents);
+                let sub_v = ev(node.b, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let x = #src;
+                        let m = vals.mults[#ki];
+                        let out = st[#ki] + x * m;
+                        st[#ki] = out - #sub_v;
+                        out
+                    };
+                });
+            }
+            Kind::NviRecur => {
+                // Negative Volume Index recurrence (`K_NVI`): `a`=close,
+                // `b`=prev_close, `c`=volume, `d`=prev_volume. Steady bars
+                // are all past the seed bar (exec's warm call already seeded
+                // `st[k] = 1000.0` and carried it to the seam).
+                let ki = k;
+                let close = ev(node.a, &idents);
+                let prev_close = ev(node.b, &idents);
+                let volume = ev(node.c.expect("NviRecur: volume operand"), &idents);
+                let prev_volume = ev(node.d, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        if #volume < #prev_volume {
+                            st[#ki] = #close / #prev_close * st[#ki];
+                        }
+                        st[#ki]
+                    };
+                });
+            }
+            Kind::PviRecur => {
+                // Positive Volume Index recurrence (`K_PVI`), the mirror
+                // gate of `NviRecur`.
+                let ki = k;
+                let close = ev(node.a, &idents);
+                let prev_close = ev(node.b, &idents);
+                let volume = ev(node.c.expect("PviRecur: volume operand"), &idents);
+                let prev_volume = ev(node.d, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        if #volume > #prev_volume {
+                            st[#ki] = #close / #prev_close * st[#ki];
+                        }
+                        st[#ki]
+                    };
+                });
+            }
+            Kind::KvoFlow => {
+                // Bespoke KVO flow machine (`K_KVOFLOW`): `a`=high, `b`=low,
+                // `c`=close, `d`=volume. Carry `kvacc[k] = [prev_hlc, cm,
+                // prev_hl]`; the trend flip-flop bool rides `st[k]`. Steady
+                // bars are all past the seed bar (exec's warm call already
+                // seeded `kvacc[k]`/`st[k]` from bar 0 vs bar 1 and carried
+                // them to the seam) -- transcribed from `warmup.rs`'s arm
+                // verbatim, minus the one-time `t == feed` seed branch.
+                let ki = k;
+                let high = ev(node.a, &idents);
+                let low = ev(node.b, &idents);
+                let close = ev(node.c.expect("KvoFlow: close operand"), &idents);
+                let volume = ev(node.d, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let hlc = #high + #low + #close;
+                        let dm = #high - #low;
+                        let [prev_hlc, cm, prev_hl] = kvacc[#ki];
+                        let mut sign;
+                        let mut cm = cm;
+                        if st[#ki] < 0.5 && hlc > prev_hlc {
+                            st[#ki] = 1.0;
+                            cm = prev_hl;
+                            sign = 1.0;
+                        } else if st[#ki] >= 0.5 && hlc < prev_hlc {
+                            st[#ki] = 0.0;
+                            cm = prev_hl;
+                            sign = -1.0;
+                        } else {
+                            sign = if st[#ki] >= 0.5 { 1.0 } else { -1.0 };
+                        }
+                        cm += dm.max(f64::EPSILON);
+                        kvacc[#ki] = [hlc, cm, dm];
+                        (dm / cm).mul_add(2.0, -1.0).abs() * #volume * 100.0 * sign
+                    };
+                });
+            }
         }
     }
     let mut const_hoists = Vec::new();
@@ -1986,9 +2238,12 @@ fn run_fn(p: &Pattern) -> TokenStream {
             let mut trail = [0usize; crate::cse::MAX]; // roll trail carry
             let mut rings = crate::cse::kernel::warmup::RingSet::new();
             let mut hacc = [[0.0f64; 7]; crate::cse::MAX];
+            let mut kvacc = [[0.0f64; 3]; crate::cse::MAX]; // KvoFlow's [prev_hlc, cm, prev_hl]
+            let mut hp_acc = [[0.0f64; 2]; crate::cse::MAX]; // HighPass's [y1, prev_real]
+            let mut ss_acc = [[0.0f64; 3]; crate::cse::MAX]; // SuperSmoother's [y1, y2, prev_real]
             let mut v = [0.0f64; crate::cse::MAX];
             // Warm-up bars: shared interpreter, cold path once per request.
-            crate::cse::kernel::exec::<#sig, true>(vals, streams, 0, gate, &mut st, &mut stb, &mut stc_ub, &mut stlb, &mut sumsq, &mut wsum, &mut trail, &mut rings, &mut hacc, &mut v, &mut ptrs, &vals.sink_lead);
+            crate::cse::kernel::exec::<#sig, true>(vals, streams, 0, gate, &mut st, &mut stb, &mut stc_ub, &mut stlb, &mut sumsq, &mut wsum, &mut trail, &mut rings, &mut hacc, &mut kvacc, &mut hp_acc, &mut ss_acc, &mut v, &mut ptrs, &vals.sink_lead);
             if gate >= n {
                 return vec![#(#row_refs),*];
             }
@@ -2094,7 +2349,7 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
         let ident_k = idents[k].clone();
         let ki = k;
         match node.kind {
-            Kind::Ema | Kind::Wilders => {
+            Kind::Ema | Kind::Wilders | Kind::SeededEma => {
                 let ck = format_ident!("{}_carry", ident_k);
                 let mk = format_ident!("{}_mult", ident_k);
                 let ik = format_ident!("{}_inv", ident_k);
@@ -2749,6 +3004,17 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let step = chain_step(&ck, &ik, &mk, &ea);
                 body.push(quote! { let #xk = { #step }; });
             }
+            Kind::SeededEma => {
+                // Same fma as `Kind::Ema`, but the fold value is `node.b`
+                // (the FOLD source, e.g. `tr`) -- `node.a` (the SEED) is
+                // only read at the warm-up seed bar, already baked into the
+                // carry this lane's warm left in `stw`.
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let ik = format_ident!("{}_inv", idents[k]);
+                let step = chain_step(&ck, &ik, &mk, &eb);
+                body.push(quote! { let #xk = { #step }; });
+            }
             Kind::Wilders => {
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
@@ -2990,6 +3256,218 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     #stc_ub = trend.select(ub0, ub_c);
                 });
             }
+            Kind::HighPass => {
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let real_arr = #ea.to_array();
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            let real = real_arr[a];
+                            let [y1, prev_real] = hp_accw[a][#ki];
+                            let y = vals.mults[#ki].mul_add(y1, vals.invms[#ki] * (real - prev_real));
+                            hp_accw[a][#ki] = [y, real];
+                            y
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::SuperSmoother => {
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let real_arr = #ea.to_array();
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            let real = real_arr[a];
+                            let [y1, y2, prev_real] = ss_accw[a][#ki];
+                            let y = vals.st_step[#ki].mul_add(
+                                real + prev_real,
+                                vals.mults[#ki].mul_add(y1, vals.invms[#ki] * y2),
+                            );
+                            ss_accw[a][#ki] = [y, y1, real];
+                            y
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::RollAge => {
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let x_arr = #ea.to_array();
+                        let g = vals.ring_of[#ki] as usize;
+                        let cap = vals.ring_cap[g] as usize;
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            ringw[a].feed(g, cap, gate + i, x_arr[a]);
+                            ringw[a].evicted(g).unwrap_or(0.0)
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::HtInPhase => {
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let x_arr = #ea.to_array();
+                        let g = vals.ring_of[#ki] as usize;
+                        let cap = vals.ring_cap[g] as usize;
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            ringw[a].feed(g, cap, gate + i, x_arr[a]);
+                            ringw[a].at(g, 3)
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::HtQuadrature => {
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let x_arr = #ea.to_array();
+                        let g = vals.ring_of[#ki] as usize;
+                        let cap = vals.ring_cap[g] as usize;
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            ringw[a].feed(g, cap, gate + i, x_arr[a]);
+                            let q1 = 0.0962_f64.mul_add(ringw[a].at(g, 0), 0.5769 * ringw[a].at(g, 2));
+                            let q2 = (-0.5769_f64).mul_add(ringw[a].at(g, 4), -0.0962 * ringw[a].at(g, 6));
+                            q1 + q2
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::MeanAbsDev => {
+                let ki = k;
+                if p.nodes[node.a].kind == Kind::Input {
+                    let s = stream_slot(node.a);
+                    let sfa = format_ident!("sp{}", s);
+                    body.push(quote! {
+                        let #xk = {
+                            let p = vals.periods[#ki] as usize;
+                            let sma_arr = #eb.to_array();
+                            let mult = 1.0 / p as f64;
+                            let out: [f64; L] = std::array::from_fn(|a| {
+                                let base = unsafe {
+                                    #sfa[a].offset((i as isize) + 1 - (p as isize))
+                                };
+                                let window = unsafe { std::slice::from_raw_parts(base, p) };
+                                crate::indicators::md::calc_md_simd::<4>(window, sma_arr[a], mult)
+                            });
+                            Simd::<f64, L>::from_array(out)
+                        };
+                    });
+                } else {
+                    body.push(quote! {
+                        let #xk = {
+                            let p = vals.periods[#ki] as usize;
+                            let sma_arr = #eb.to_array();
+                            let mult = 1.0 / p as f64;
+                            let x_arr = #ea.to_array();
+                            let g = vals.ring_of[#ki] as usize;
+                            let cap = vals.ring_cap[g] as usize;
+                            let out: [f64; L] = std::array::from_fn(|a| {
+                                ringw[a].feed(g, cap, gate + i, x_arr[a]);
+                                let window = ringw[a].window(g, p);
+                                crate::indicators::md::calc_md_simd::<4>(window, sma_arr[a], mult)
+                            });
+                            Simd::<f64, L>::from_array(out)
+                        };
+                    });
+                }
+            }
+            Kind::LinregFlow => {
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let x_arr = #ea.to_array();
+                        let sub_arr = #eb.to_array();
+                        let m = vals.mults[#ki];
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            let out = stw[a][#ki] + x_arr[a] * m;
+                            stw[a][#ki] = out - sub_arr[a];
+                            out
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::NviRecur => {
+                let ki = k;
+                let ec = ev(node.c.expect("NviRecur: volume operand"), &idents);
+                let ed = ev(node.d, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let close_arr = #ea.to_array();
+                        let prev_close_arr = #eb.to_array();
+                        let volume_arr = #ec.to_array();
+                        let prev_volume_arr = #ed.to_array();
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            if volume_arr[a] < prev_volume_arr[a] {
+                                stw[a][#ki] = close_arr[a] / prev_close_arr[a] * stw[a][#ki];
+                            }
+                            stw[a][#ki]
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::PviRecur => {
+                let ki = k;
+                let ec = ev(node.c.expect("PviRecur: volume operand"), &idents);
+                let ed = ev(node.d, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let close_arr = #ea.to_array();
+                        let prev_close_arr = #eb.to_array();
+                        let volume_arr = #ec.to_array();
+                        let prev_volume_arr = #ed.to_array();
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            if volume_arr[a] > prev_volume_arr[a] {
+                                stw[a][#ki] = close_arr[a] / prev_close_arr[a] * stw[a][#ki];
+                            }
+                            stw[a][#ki]
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::KvoFlow => {
+                let ki = k;
+                let ec = ev(node.c.expect("KvoFlow: close operand"), &idents);
+                let ed = ev(node.d, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let high_arr = #ea.to_array();
+                        let low_arr = #eb.to_array();
+                        let close_arr = #ec.to_array();
+                        let volume_arr = #ed.to_array();
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            let hlc = high_arr[a] + low_arr[a] + close_arr[a];
+                            let dm = high_arr[a] - low_arr[a];
+                            let [prev_hlc, cm, prev_hl] = kvaccw[a][#ki];
+                            let mut sign;
+                            let mut cm = cm;
+                            if stw[a][#ki] < 0.5 && hlc > prev_hlc {
+                                stw[a][#ki] = 1.0;
+                                cm = prev_hl;
+                                sign = 1.0;
+                            } else if stw[a][#ki] >= 0.5 && hlc < prev_hlc {
+                                stw[a][#ki] = 0.0;
+                                cm = prev_hl;
+                                sign = -1.0;
+                            } else {
+                                sign = if stw[a][#ki] >= 0.5 { 1.0 } else { -1.0 };
+                            }
+                            cm += dm.max(f64::EPSILON);
+                            kvaccw[a][#ki] = [hlc, cm, dm];
+                            (dm / cm).mul_add(2.0, -1.0).abs() * volume_arr[a] * 100.0 * sign
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
         }
     }
 
@@ -3155,6 +3633,12 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     .collect();
             let mut haccw: Vec<[[f64; 7]; crate::cse::MAX]> =
                 vec![[[0.0f64; 7]; crate::cse::MAX]; L];
+            let mut kvaccw: Vec<[[f64; 3]; crate::cse::MAX]> =
+                vec![[[0.0f64; 3]; crate::cse::MAX]; L];
+            let mut hp_accw: Vec<[[f64; 2]; crate::cse::MAX]> =
+                vec![[[0.0f64; 2]; crate::cse::MAX]; L];
+            let mut ss_accw: Vec<[[f64; 3]; crate::cse::MAX]> =
+                vec![[[0.0f64; 3]; crate::cse::MAX]; L];
             if n > 0 {
                 for a in 0..L {
                     let mut ptrs: [*mut f64; crate::cse::MAX_SINKS] =
@@ -3175,6 +3659,9 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                         &mut trailw[a],
                         &mut ringw[a],
                         &mut haccw[a],
+                        &mut kvaccw[a],
+                        &mut hp_accw[a],
+                        &mut ss_accw[a],
                         &mut v,
                         &mut ptrs,
                         &vals.sink_lead,

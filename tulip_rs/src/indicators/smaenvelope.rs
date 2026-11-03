@@ -5,6 +5,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
+use crate::cse::{Planable, Recipe};
 use crate::indicators::sma::State as SmaState;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -221,5 +222,14 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for SmaEnvelope {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for SmaEnvelope {
+    /// The graph is leaf data — `crate::cse::recipes::smaenvelope`: the
+    /// `Sma(p)` middle band ± `middle * (percentage / 100.0)`, sharing the
+    /// same `Node::Sma` node a co-requested `Sma(p)` declares.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::smaenvelope(options)
     }
 }

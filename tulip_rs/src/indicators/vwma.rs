@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -214,5 +215,18 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Vwma {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Vwma {
+    /// The graph is leaf data — `crate::cse::recipes::vwma`: `Mul{close, volume}`
+    /// and `volume` each through a `RollSum`, divided, then `WhereLe` on
+    /// `Abs{vol_sum}` pinned to `0.0` for the hand's zero-volume guard. The
+    /// NUMERATOR roll reads a derived source (`close*volume`), which `Node::Sma`'s
+    /// erase guard rejects (`signature.rs:553` requires a raw `Input`), so both
+    /// rolls are spelled `RollSum` — the ring-backed form that accepts derived
+    /// srcs (`signature.rs:681`), the same substitution `trima`'s outer mean needed.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::vwma(options)
     }
 }

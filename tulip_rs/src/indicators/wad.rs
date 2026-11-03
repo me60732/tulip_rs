@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -142,5 +143,11 @@ impl Indicator<INPUTS, OPTIONS> for Wad {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Wad {
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::wad(options)
     }
 }

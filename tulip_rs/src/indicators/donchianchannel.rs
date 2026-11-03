@@ -274,22 +274,40 @@ impl crate::cse::Planable for DonchianChannel {
     }
 }
 
-/// Rebuild the hand `donchianchannel::State<Warm>` from the two roll chains.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::RollMin {
-        value: min,
-        trail: mt,
-        ..
-    }, crate::cse::ChainState::RollMax {
-        value: max,
-        trail: xt,
-        ..
-    }] = v.as_slice()
-    else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::DonchianChannel(State {
-        min_state: MinState::new(*min, *mt as usize).into_warm(),
-        max_state: MaxState::new(*max, *xt as usize).into_warm(),
-    })
+/// Rebuild the hand `donchianchannel::State<Warm>` from the two roll chains;
+/// `windows[0] = high`, `windows[1] = low`.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for DonchianChannel {
+    const KIND: &'static str = "donchianchannel";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollMin {
+            value: min,
+            trail: mt,
+            period,
+            look_back,
+        }, crate::cse::ChainState::RollMax {
+            value: max,
+            trail: xt,
+            ..
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let periods = (*period as usize, *look_back as usize);
+        if windows[0].len() < periods.1 || windows[1].len() < periods.1 {
+            return None;
+        }
+        Some(IndicatorState::new(
+            State {
+                min_state: MinState::new(*min, *mt as usize).into_warm(),
+                max_state: MaxState::new(*max, *xt as usize).into_warm(),
+            },
+            windows[0],
+            windows[1],
+            periods,
+        ))
+    }
 }

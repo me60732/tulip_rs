@@ -13,11 +13,14 @@ mod tests {
     use tulip_rs::indicators::ad::Ad;
     use tulip_rs::indicators::adosc::Adosc;
     use tulip_rs::indicators::apo::Apo;
+    use tulip_rs::indicators::highpass::HighPass;
     use tulip_rs::indicators::macd::Macd;
     use tulip_rs::indicators::mass::Mass;
     use tulip_rs::indicators::mom::Mom;
     use tulip_rs::indicators::natr::Natr;
     use tulip_rs::indicators::ppo::Ppo;
+    use tulip_rs::indicators::roofingfilter::RoofingFilter;
+    use tulip_rs::indicators::supersmoother::SuperSmoother;
     use tulip_rs::indicators::ultosc::Ultosc;
 
     fn apo_ppo_macd_shared_sl_req() -> Request {
@@ -3071,8 +3074,8 @@ mod tests {
         );
         assert_eq!(
             arena.nodes.len(),
-            17,
-            "17 nodes if the closes interned, 18 if not"
+            18,
+            "18 nodes if the closes interned, 19 if not (17/18 before A5's tr Mirror)"
         );
     }
 
@@ -3232,7 +3235,11 @@ mod tests {
             "arena observed input/lag/sub/abs/max/wilders/ema/mul/add/const = {got:?} -- \
              abs=4 or max=4 would mean the tr walk was rebuilt instead of shared"
         );
-        assert_eq!(arena.nodes.len(), 17, "expected 17 nodes");
+        assert_eq!(
+            arena.nodes.len(),
+            18,
+            "expected 18 nodes -- 17 plus atr's Mirror{{src: close}} tail-capture node (A5)"
+        );
         assert_eq!(
             sig.n_sinks, 8,
             "1 ema + 1 atr + 1 atr's tr + 3 bands + 2 keltner mirrors"
@@ -3423,7 +3430,11 @@ mod tests {
             "arena observed input/lag/sub/abs/max/wilders/rollsum/div = {got:?} -- max=4 or \
              abs=6 would mean the tr walk was rebuilt, not shared"
         );
-        assert_eq!(arena.nodes.len(), 23, "expected 23 nodes");
+        assert_eq!(
+            arena.nodes.len(),
+            24,
+            "expected 24 nodes -- 23 plus atr's own Mirror{{src: close}} tail-capture node (A5)"
+        );
         assert_eq!(
             sig.n_sinks, 5,
             "atr primary+tr, vortex two bands+tr: 5 sinks, and the two tr sinks alias one node"
@@ -4685,6 +4696,1052 @@ mod tests {
             assert_bits(row_for(&out, 4, true, 0), &atr[0], "hub7: ATR");
             assert_bits(row_for(&out, 5, true, 0), &natr[0], "hub7: NATR");
             assert_bits(row_for(&out, 6, true, 0), &st[0], "hub7: SUPERTREND");
+        }
+    }
+
+    #[test]
+    fn nvi_bit_exact() {
+        use tulip_rs::indicators::nvi::Nvi;
+        let req = Request::new().add(Nvi::recipe(&[]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let vol = volume(s.len());
+            let streams = [s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &streams).expect("nvi registered");
+            let (n, _) = Nvi::indicator(&streams, &[], None).unwrap();
+            assert_bits(&out.rows[0], &n[0], "nvi row");
+        }
+    }
+
+    #[test]
+    fn pvi_bit_exact() {
+        use tulip_rs::indicators::pvi::Pvi;
+        let req = Request::new().add(Pvi::recipe(&[]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let vol = volume(s.len());
+            let streams = [s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &streams).expect("pvi registered");
+            let (p, _) = Pvi::indicator(&streams, &[], None).unwrap();
+            assert_bits(&out.rows[0], &p[0], "pvi row");
+        }
+    }
+
+    #[test]
+    fn adxr_bit_exact() {
+        use tulip_rs::indicators::adxr::Adxr;
+        const P: [f64; 1] = [14.0];
+        let req = Request::new().add(Adxr::recipe(&P), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("adxr registered");
+            let (a, _) = Adxr::indicator(&streams, &P, None).unwrap();
+            assert_bits(&out.rows[0], &a[0], "adxr row");
+        }
+    }
+
+    #[test]
+    fn md_bit_exact() {
+        use tulip_rs::indicators::md::Md;
+        const P: [f64; 1] = [14.0];
+        let req = Request::new().add(Md::recipe(&P), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let streams = [s.as_slice()];
+            let out = run_registered(&req, &streams).expect("md registered");
+            let (m, _) = Md::indicator(&streams, &P, None).unwrap();
+            assert_bits(&out.rows[0], &m[0], "md row");
+        }
+    }
+
+    #[test]
+    fn cci_bit_exact() {
+        use tulip_rs::indicators::cci::Cci;
+        const P: [f64; 1] = [14.0];
+        let req = Request::new().add(Cci::recipe(&P), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("cci registered");
+            let (c, _) = Cci::indicator(&streams, &P, None).unwrap();
+            assert_bits(&out.rows[0], &c[0], "cci row");
+        }
+    }
+
+    #[test]
+    fn highpass_planable_bit_exact() {
+        for p in [7.0, 20.0, 48.0] {
+            let req = Request::new().add(HighPass::recipe(&[p]), None);
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("highpass registered");
+                let (h, _) = HighPass::indicator(&streams, &[p], None).unwrap();
+                assert_bits(&out.rows[0], &h[0], "highpass row [Planable]");
+            }
+        }
+    }
+
+    #[test]
+    fn supersmoother_planable_bit_exact() {
+        for p in [7.0, 20.0, 48.0] {
+            let req = Request::new().add(SuperSmoother::recipe(&[p]), None);
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("supersmoother registered");
+                let (s, _) = SuperSmoother::indicator(&streams, &[p], None).unwrap();
+                assert_bits(&out.rows[0], &s[0], "supersmoother row [Planable]");
+            }
+        }
+    }
+
+    #[test]
+    fn roofingfilter_planable_bit_exact() {
+        for p in [[10.0, 48.0], [5.0, 20.0]] {
+            let req = Request::new().add(RoofingFilter::recipe(&p), Some(&[true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("roofingfilter registered");
+                let (r, _) = RoofingFilter::indicator(&streams, &p, Some(&[true])).unwrap();
+                // roofingfilter: primary=roofing(node 2), optional=highpass(node 1)
+                assert_bits(&out.rows[0], &r[0], "roofing filter [Planable]");
+                assert_bits(&out.rows[1], &r[1], "highpass intermediate [Planable]");
+            }
+        }
+    }
+
+    #[test]
+    fn hilberttransform_bit_exact() {
+        use tulip_rs::indicators::hilberttransform::HilbertTransform;
+        for p in [[10.0_f64, 48.0_f64], [6.0, 20.0]] {
+            let req = Request::new().add(HilbertTransform::recipe(&p), None);
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("hilberttransform registered");
+                let (h, _) = HilbertTransform::indicator(&streams, &p, None).unwrap();
+                assert_bits(&out.rows[0], &h[0], "hilberttransform in_phase");
+                assert_bits(&out.rows[1], &h[1], "hilberttransform quadrature");
+            }
+        }
+    }
+
+    #[test]
+    fn cvi_bit_exact() {
+        use tulip_rs::indicators::cvi::Cvi;
+        const P: [f64; 1] = [10.0];
+        let req = Request::new().add(Cvi::recipe(&P), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice()];
+            let out = run_registered(&req, &streams).expect("cvi registered");
+            let (c, _) = Cvi::indicator(&streams, &P, None).unwrap();
+            assert_bits(&out.rows[0], &c[0], "cvi row");
+        }
+    }
+
+    #[test]
+    fn kvo_bit_exact() {
+        use tulip_rs::indicators::kvo::Kvo;
+        const P: [f64; 2] = [34.0, 55.0];
+        let req = Request::new().add(Kvo::recipe(&P), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &streams).expect("kvo registered");
+            let (k, _) = Kvo::indicator(&streams, &P, None).unwrap();
+            assert_bits(&out.rows[0], &k[0], "kvo row");
+        }
+    }
+
+    #[test]
+    fn chandelierexit_bit_exact() {
+        use tulip_rs::indicators::chandelierexit::ChandelierExit;
+        const P: [f64; 2] = [22.0, 3.0];
+        let req = Request::new().add(ChandelierExit::recipe(&P), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("chandelierexit registered");
+            let (ce, _) = ChandelierExit::indicator(&streams, &P, None).unwrap();
+            assert_bits(&out.rows[0], &ce[0], "chandelierexit long row");
+            assert_bits(&out.rows[1], &ce[1], "chandelierexit short row");
+        }
+    }
+
+    #[test]
+    fn elderray_bit_exact() {
+        use tulip_rs::indicators::elderray::Elderray;
+        const P: [f64; 1] = [13.0];
+        let req = Request::new().add(Elderray::recipe(&P), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("elderray registered");
+            let (er, _) = Elderray::indicator(&streams, &P, None).unwrap();
+            assert_bits(&out.rows[0], &er[0], "elderray bull row");
+            assert_bits(&out.rows[1], &er[1], "elderray bear row");
+        }
+    }
+
+    #[test]
+    fn trvi_bit_exact() {
+        use tulip_rs::indicators::trvi::Trvi;
+        const P: [f64; 1] = [13.0];
+        let req = Request::new().add(Trvi::recipe(&P), Some(&[true, true]));
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("trvi registered");
+            let (t, _) = Trvi::indicator(&streams, &P, Some(&[true, true])).unwrap();
+            assert_bits(&out.rows[0], &t[0], "trvi row");
+            assert_bits(&out.rows[1], &t[1], "trvi tr row");
+            assert_bits(&out.rows[2], &t[2], "trvi ema row");
+        }
+    }
+
+    #[test]
+    fn dema_bit_exact() {
+        use tulip_rs::indicators::dema::Dema;
+        for p in [5.0, 14.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Dema::recipe(&pp), Some(&[true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("dema registered");
+                let (d, _) = Dema::indicator(&streams, &pp, Some(&[true])).unwrap();
+                assert_bits(&out.rows[0], &d[0], "dema row");
+                assert_bits(&out.rows[1], &d[1], "dema ema row");
+            }
+        }
+    }
+
+    #[test]
+    fn tema_bit_exact() {
+        use tulip_rs::indicators::tema::Tema;
+        for p in [5.0, 14.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Tema::recipe(&pp), Some(&[true, true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("tema registered");
+                let (t, _) = Tema::indicator(&streams, &pp, Some(&[true, true])).unwrap();
+                assert_bits(&out.rows[0], &t[0], "tema row");
+                assert_bits(&out.rows[1], &t[1], "tema dema row");
+                assert_bits(&out.rows[2], &t[2], "tema ema row");
+            }
+        }
+    }
+
+    #[test]
+    fn trima_bit_exact() {
+        use tulip_rs::indicators::trima::Trima;
+        for p in [5.0, 14.0, 15.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Trima::recipe(&pp), None);
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("trima registered");
+                let (t, _) = Trima::indicator(&streams, &pp, None).unwrap();
+                assert_bits(&out.rows[0], &t[0], "trima row");
+            }
+        }
+    }
+
+    #[test]
+    fn trix_bit_exact() {
+        use tulip_rs::indicators::trix::Trix;
+        for p in [5.0, 14.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Trix::recipe(&pp), Some(&[true, true, true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("trix registered");
+                let (t, _) = Trix::indicator(&streams, &pp, Some(&[true, true, true])).unwrap();
+                assert_bits(&out.rows[0], &t[0], "trix row");
+                assert_bits(&out.rows[1], &t[1], "trix tema row");
+                assert_bits(&out.rows[2], &t[2], "trix dema row");
+                assert_bits(&out.rows[3], &t[3], "trix ema row");
+            }
+        }
+    }
+
+    #[test]
+    fn roc_bit_exact() {
+        use tulip_rs::indicators::roc::Roc;
+        for p in [5.0, 14.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Roc::recipe(&pp), Some(&[true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("roc registered");
+                let (r, _) = Roc::indicator(&streams, &pp, Some(&[true])).unwrap();
+                assert_bits(&out.rows[0], &r[0], "roc row");
+                assert_bits(&out.rows[1], &r[1], "roc mom row");
+            }
+        }
+    }
+
+    #[test]
+    fn rocr_bit_exact() {
+        use tulip_rs::indicators::rocr::Rocr;
+        for p in [5.0, 14.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Rocr::recipe(&pp), None);
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("rocr registered");
+                let (r, _) = Rocr::indicator(&streams, &pp, None).unwrap();
+                assert_bits(&out.rows[0], &r[0], "rocr row");
+            }
+        }
+    }
+
+    #[test]
+    fn dpo_bit_exact() {
+        use tulip_rs::indicators::dpo::Dpo;
+        for p in [5.0, 14.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Dpo::recipe(&pp), Some(&[true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("dpo registered");
+                let (d, _) = Dpo::indicator(&streams, &pp, Some(&[true])).unwrap();
+                assert_bits(&out.rows[0], &d[0], "dpo row");
+                assert_bits(&out.rows[1], &d[1], "dpo sma row");
+            }
+        }
+    }
+
+    #[test]
+    fn typprice_bit_exact() {
+        use tulip_rs::indicators::typprice::Typprice;
+        let pp: [f64; 0] = [];
+        let req = Request::new().add(Typprice::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("typprice registered");
+            let (t, _) = Typprice::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &t[0], "typprice row");
+        }
+    }
+
+    #[test]
+    fn wcprice_bit_exact() {
+        use tulip_rs::indicators::wcprice::WcPrice;
+        let pp: [f64; 0] = [];
+        let req = Request::new().add(WcPrice::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("wcprice registered");
+            let (w, _) = WcPrice::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &w[0], "wcprice row");
+        }
+    }
+
+    #[test]
+    fn avgprice_bit_exact() {
+        use tulip_rs::indicators::avgprice::AvgPrice;
+        let pp: [f64; 0] = [];
+        let req = Request::new().add(AvgPrice::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let op: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [op.as_slice(), hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("avgprice registered");
+            let (a, _) = AvgPrice::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &a[0], "avgprice row");
+        }
+    }
+
+    #[test]
+    fn smaenvelope_bit_exact() {
+        use tulip_rs::indicators::smaenvelope::SmaEnvelope;
+        for (p, pct) in [(5.0, 2.5), (14.0, 1.0)] {
+            let pp: [f64; 2] = [p, pct];
+            let req = Request::new().add(SmaEnvelope::recipe(&pp), None);
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("smaenvelope registered");
+                let (se, _) = SmaEnvelope::indicator(&streams, &pp, None).unwrap();
+                assert_bits(&out.rows[0], &se[0], "smaenvelope lower row");
+                assert_bits(&out.rows[1], &se[1], "smaenvelope middle row");
+                assert_bits(&out.rows[2], &se[2], "smaenvelope upper row");
+            }
+        }
+    }
+
+    // THE FOUR VOLUME/PRICE HUBS VIA THEIR OWN `Planable` FORWARDERS. Every
+    // pre-existing gate for these kinds builds its request from the free
+    // function `recipes::x(&[..])`, so the hand module's one-line forwarder was
+    // the one thing in the engine no test reached -- the `registry.rs:406`
+    // orphan shape ("a `Planable` impl that silently promises more than it
+    // delivers"), here in its inverse: impl + arm + row + recipe all live, only
+    // the trait call site missing. Same assertions, same columns, same
+    // lead/order as the hub gates above -- only the entry point differs, so a
+    // forwarder that drifted from its free function fails here and nowhere else.
+
+    #[test]
+    fn bop_planable_bit_exact() {
+        use tulip_rs::indicators::bop::Bop;
+        let pp: [f64; 0] = [];
+        let req = Request::new().add(Bop::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let op: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [op.as_slice(), hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("bop via Planable registered");
+            let (b, _) = Bop::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &b[0], "bop row [Planable]");
+        }
+    }
+
+    #[test]
+    fn emv_planable_bit_exact() {
+        use tulip_rs::indicators::emv::Emv;
+        let pp: [f64; 0] = [];
+        let req = Request::new().add(Emv::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let streams = [hi.as_slice(), lo.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &streams).expect("emv via Planable registered");
+            let (e, _) = Emv::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &e[0], "emv row [Planable]");
+        }
+    }
+
+    #[test]
+    fn marketfi_planable_bit_exact() {
+        use tulip_rs::indicators::marketfi::Marketfi;
+        let pp: [f64; 0] = [];
+        let req = Request::new().add(Marketfi::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol: Vec<f64> = s.iter().map(|v| 1000.0 + v).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &streams).expect("marketfi via Planable registered");
+            let (m, _) = Marketfi::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &m[0], "marketfi row [Planable]");
+        }
+    }
+
+    #[test]
+    fn vortex_planable_bit_exact() {
+        use tulip_rs::indicators::vortex::Vortex;
+        const P: f64 = 14.0;
+        let pp: [f64; 1] = [P];
+        let req = Request::new().add(Vortex::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("vortex via Planable registered");
+            let (v, _) = Vortex::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &v[0], "vi_up row [Planable]");
+            assert_bits(&out.rows[1], &v[1], "vi_down row [Planable]");
+        }
+    }
+
+    #[test]
+    fn keltnerchannel_planable_bit_exact() {
+        use tulip_rs::indicators::keltnerchannel::KeltnerChannel;
+        const P: f64 = 14.0;
+        const M: f64 = 2.0;
+        let pp: [f64; 2] = [P, M];
+        let req = Request::new().add(KeltnerChannel::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("keltner via Planable registered");
+            let (k, _) = KeltnerChannel::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &k[0], "kc lower [Planable]");
+            assert_bits(&out.rows[1], &k[1], "kc middle [Planable]");
+            assert_bits(&out.rows[2], &k[2], "kc upper [Planable]");
+        }
+    }
+
+    // THE OTHER SIX VOLUME/PRICE HUBS VIA THEIR OWN `Planable` FORWARDERS. Same
+    // reason as the four above: every pre-existing gate for these kinds calls the
+    // free function `recipes::x(&[..])`, so without these the hand module's
+    // forwarder compiles with nothing exercising it. Column sets copied from the
+    // existing gates for each kind -- NOT re-derived -- because a mis-ranked slot
+    // is invisible to a green suite (the positional-stream trap).
+
+    #[test]
+    fn obv_planable_bit_exact() {
+        use tulip_rs::indicators::obv::Obv;
+        let req = Request::new().add(Obv::recipe(&[]), None);
+        for s in [
+            series(400, |i| i as f64),
+            series(400, |i| 400.0 - i as f64),
+            // The plateau carries TIES (`close == prev`), which is the only shape
+            // that separates the two `WhereGt` spelling from a `WhereGe` one.
+            series(400, |i| 100.0 + ((i / 3) % 2) as f64),
+            series(400, |_| 100.0),
+        ] {
+            let vol = volume(s.len());
+            let cv = [s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &cv).expect("obv via Planable registered");
+            let (o, _) = Obv::indicator(&cv, &[], None).unwrap();
+            assert_bits(&out.rows[0], &o[0], "obv row [Planable]");
+        }
+    }
+
+    #[test]
+    fn wad_planable_bit_exact() {
+        use tulip_rs::indicators::wad::Wad;
+        let pp: [f64; 0] = [];
+        let req = Request::new().add(Wad::recipe(&pp), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(680, |i| 200.0 - i as f64 * 0.05),
+            series(680, |i| 100.0 + ((i / 3) % 2) as f64),
+            series(680, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &streams).expect("wad via Planable registered");
+            let (w, _) = Wad::indicator(&streams, &pp, None).unwrap();
+            assert_bits(&out.rows[0], &w[0], "wad row [Planable]");
+        }
+    }
+
+    #[test]
+    fn mfi_planable_bit_exact() {
+        use tulip_rs::indicators::mfi::Mfi;
+        for p in [1.0, 2.0, 5.0, 14.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Mfi::recipe(&pp), None);
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |i| 200.0 - i as f64 * 0.05),
+                series(680, |_| 100.0),
+                series(p as usize + 1, |i| 100.0 + i as f64),
+            ] {
+                let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+                let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+                let vol = volume(s.len());
+                let streams = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+                let out = run_registered(&req, &streams).expect("mfi via Planable registered");
+                let (m, _) = Mfi::indicator(&streams, &pp, None).unwrap();
+                assert_bits(&out.rows[0], &m[0], "mfi row [Planable]");
+            }
+        }
+    }
+
+    #[test]
+    fn vwap_planable_bit_exact() {
+        use tulip_rs::indicators::vwap::Vwap;
+        let req = Request::new().add(Vwap::recipe(&[]), Some(&[true]));
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let four = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &four).expect("vwap via Planable registered");
+            let (v, _) = Vwap::indicator(&four, &[], Some(&[true])).unwrap();
+            assert_bits(&out.rows[0], &v[0], "vwap row [Planable]");
+            assert_bits(&out.rows[1], &v[1], "vwap typprice optional [Planable]");
+        }
+    }
+
+    #[test]
+    fn vwma_planable_bit_exact() {
+        use tulip_rs::indicators::vwma::Vwma;
+        let req = Request::new().add(Vwma::recipe(&[9.0]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let vol = volume(s.len());
+            let two_cv = [s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &two_cv).expect("vwma via Planable registered");
+            let (v, _) = Vwma::indicator(&two_cv, &[9.0], None).unwrap();
+            assert_bits(&out.rows[0], &v[0], "vwma row [Planable]");
+        }
+        // ZERO VOLUME: the only input that reaches the `WhereLe` pin. Positive
+        // prices and volumes pass both a correct guard and an inverted one.
+        {
+            let n = 200;
+            let s = series(n, |i| 100.0 + (i % 3) as f64);
+            let zero = vec![0.0; n];
+            let two_cv = [s.as_slice(), zero.as_slice()];
+            let out = run_registered(&req, &two_cv).expect("vwma zero-volume via Planable");
+            let (v, _) = Vwma::indicator(&two_cv, &[9.0], None).unwrap();
+            assert_bits(&out.rows[0], &v[0], "vwma ZERO-VOLUME row [Planable]");
+        }
+    }
+
+    #[test]
+    fn vosc_planable_bit_exact() {
+        use tulip_rs::indicators::vosc::Vosc;
+        let req = Request::new().add(Vosc::recipe(&[3.0, 5.0]), None);
+        for n in [680usize, 700] {
+            let vol = volume(n);
+            let one_v = [vol.as_slice()];
+            let out = run_registered(&req, &one_v).expect("vosc via Planable registered");
+            let (v, _) = Vosc::indicator(&one_v, &[3.0, 5.0], None).unwrap();
+            assert_bits(&out.rows[0], &v[0], "vosc row [Planable]");
+        }
+    }
+
+    #[test]
+    fn qstick_planable_bit_exact() {
+        use tulip_rs::indicators::qstick::QStick;
+        let req = Request::new().add(QStick::recipe(&[9.0]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let op: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
+            let two_oc = [op.as_slice(), s.as_slice()];
+            let out = run_registered(&req, &two_oc).expect("qstick via Planable registered");
+            let (q, _) = QStick::indicator(&two_oc, &[9.0], None).unwrap();
+            assert_bits(&out.rows[0], &q[0], "qstick row [Planable]");
+        }
+    }
+
+    #[test]
+    fn chaikinmf_planable_bit_exact() {
+        use tulip_rs::indicators::chaikinmf::ChaikinMf;
+        let req = Request::new().add(ChaikinMf::recipe(&[9.0]), None);
+        for s in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = s.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
+            let vol = volume(s.len());
+            let four = [hi.as_slice(), lo.as_slice(), s.as_slice(), vol.as_slice()];
+            let out = run_registered(&req, &four).expect("chaikinmf via Planable registered");
+            let (c, _) = ChaikinMf::indicator(&four, &[9.0], None).unwrap();
+            assert_bits(&out.rows[0], &c[0], "chaikinmf row [Planable]");
+        }
+    }
+
+    /// `linreg` via `Node::LinregFlow`, the publish-before-evict moment carry.
+    ///
+    /// BOTH optional rows are checked, not just the primary: the engine always
+    /// runs the hand's `calc` path, so the whole three-row triple is the
+    /// contract. The hand is therefore called with `Some(&[true, true])`, which
+    /// is the branch that produces these rows — its default `partial_calc`
+    /// branch is a DIFFERENT expression (it collapses the same two moments
+    /// through pre-multiplied `xy_coef`/`y_coef`) and disagrees by up to
+    /// ~9e-16 relative, inside the authorised 1e-12 tolerance.
+    ///
+    /// The wiggle and ramp series are load-bearing, not decoration: a FLAT
+    /// series cannot see the window-fold shape at all. Measured — swapping
+    /// `sum_y` for a `RollSum`-folded window leaves flat at 0/698 but breaks
+    /// 697/698 on ramp p=2 and 685/686 on wiggle p=14, because the hand evicts
+    /// AFTER publishing while every `RollSum` region evicts inside what it
+    /// prints. A flat-only gate would wave that through.
+    #[test]
+    fn linreg_planable_bit_exact() {
+        use tulip_rs::indicators::linreg::Linreg;
+        for p in [2.0, 5.0, 14.0, 27.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Linreg::recipe(&pp), Some(&[true, true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("linreg via Planable registered");
+                let (h, _) = Linreg::indicator(&streams, &pp, Some(&[true, true])).unwrap();
+                assert_bits(&out.rows[0], &h[0], "linreg row [Planable]");
+                assert_bits(&out.rows[1], &h[1], "linregslope row [Planable]");
+                assert_bits(&out.rows[2], &h[2], "linregintercept row [Planable]");
+            }
+        }
+    }
+
+    /// `tsf` = the linreg chain + ONE `Fma`. Gated against the hand's four rows
+    /// in its own return order, `[tsf, linreg, slope, intercept]`.
+    ///
+    /// The `linreg` row here is the point: `cycle_tsf` calls `calc`
+    /// unconditionally, so it must agree with the standalone `linreg` request
+    /// bar for bar -- and it does, which is the premise that lets the pair share
+    /// one chain (asserted structurally by `linreg_tsf_shares_one_chain` below).
+    #[test]
+    fn tsf_planable_bit_exact() {
+        use tulip_rs::indicators::tsf::Tsf;
+        for p in [2.0, 5.0, 14.0, 27.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Tsf::recipe(&pp), Some(&[true, true, true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("tsf via Planable registered");
+                let (h, _) = Tsf::indicator(&streams, &pp, Some(&[true, true, true])).unwrap();
+                assert_bits(&out.rows[0], &h[0], "tsf row [Planable]");
+                assert_bits(&out.rows[1], &h[1], "tsf/linreg row [Planable]");
+                assert_bits(&out.rows[2], &h[2], "tsf/linregslope row [Planable]");
+                assert_bits(&out.rows[3], &h[3], "tsf/linregintercept row [Planable]");
+            }
+        }
+    }
+
+    /// The sharing claim, measured rather than asserted in prose: `linreg` and
+    /// `tsf` request the SAME moment chain, so the merged arena must carry TWO
+    /// `K_LINREGFLOW` nodes in total -- not four. Two hand-written copies of a
+    /// chain this size drift eventually; both recipes call `recipes::linreg_chain`
+    /// precisely so this test cannot go red for that reason.
+    #[test]
+    fn linreg_tsf_shares_one_chain() {
+        use tulip_rs::cse::kernel::registry::SIG_linreg_tsf_shared_p;
+        use tulip_rs::cse::signature::K_LINREGFLOW;
+        use tulip_rs::indicators::linreg::Linreg;
+        use tulip_rs::indicators::tsf::Tsf;
+        let pair = Request::new()
+            .add(Linreg::recipe(&[14.0]), Some(&[true, true]))
+            .add(Tsf::recipe(&[14.0]), Some(&[true, true, true]));
+        let (merged, sig, _, _) = erase_request(&pair).unwrap();
+        assert_eq!(sig, SIG_linreg_tsf_shared_p, "pair arena drifted");
+        assert_eq!(merged.nodes.len(), sig.len as usize, "arena length");
+        let count = |kinds: &[u8; MAX], len: u32| {
+            kinds[..len as usize]
+                .iter()
+                .filter(|&&x| x == K_LINREGFLOW)
+                .count()
+        };
+        let solo_l = erase_request(&Request::new().add(Linreg::recipe(&[14.0]), None)).unwrap();
+        let solo_t = erase_request(&Request::new().add(Tsf::recipe(&[14.0]), None)).unwrap();
+        // Counted off each arena's OWN live slots, so the merged number is
+        // compared against the solos instead of asserted from a guess.
+        assert_eq!(
+            (
+                count(&solo_l.1.kinds, solo_l.1.len),
+                count(&solo_t.1.kinds, solo_t.1.len)
+            ),
+            (2, 2),
+            "each request solo owns one moment pair"
+        );
+        assert_eq!(
+            count(&sig.kinds, sig.len),
+            2,
+            "the pair shares ONE moment chain (two LinregFlow nodes), not two pairs"
+        );
+        // MEASURED, then pinned: the pair costs exactly tsf's own arena,
+        // because linreg's 14 nodes are a strict SUBSET of tsf's 16 -- the two
+        // extra are tsf's `Const(n+1)` and its one `Fma`. So adding `linreg` to
+        // a `tsf` request is FREE: 0 extra nodes against the 14 a second chain
+        // would cost. The loose `<` would have stayed green if the subset
+        // property ever broke while some other pair still deduped, so the exact
+        // sizes are the assertion.
+        assert_eq!(sig.len, 16, "merged arena: tsf's 16 nodes, no more");
+        assert_eq!(solo_l.1.len, 14, "solo linreg: the shared chain alone");
+        assert_eq!(solo_t.1.len, 16, "solo tsf: the chain + Const + Fma");
+        assert_eq!(
+            sig.len, solo_t.1.len,
+            "linreg adds NOTHING to tsf's arena -- it is a strict subset"
+        );
+    }
+
+    /// `fosc` = the tsf chain + `RollAge{tsf,1}` + Sub/Mul/Div, gated on all FIVE
+    /// rows in the hand's return order `[fosc, tsf, linreg, slope, intercept]`.
+    ///
+    /// The flat series is load-bearing, not decoration: fosc's published lag is
+    /// a ring over a COMPUTED source (the tsf node), and a derived-source roll
+    /// seeds from the source's materialized value -- a phantom `0.0` there is
+    /// invisible to a trend and only shows up on flat/all-equal data. Same class
+    /// that poisoned `RollMin` before the cold-start init pass materialized
+    /// bar 0.
+    ///
+    /// Row LENGTHS differ on purpose: fosc overrides `Fosc::min_data` to
+    /// `options[0] + 2` so its own row starts at bar
+    /// `period + 1`, while the four re-published regression rows keep tsf's
+    /// lead `period`. `assert_bits` length-asserts, so a wrong lead on either
+    /// family fails here instead of silently truncating.
+    #[test]
+    fn fosc_planable_bit_exact() {
+        use tulip_rs::indicators::fosc::Fosc;
+        for p in [2.0, 5.0, 14.0, 27.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Fosc::recipe(&pp), Some(&[true, true, true, true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("fosc via Planable registered");
+                let (h, _) =
+                    Fosc::indicator(&streams, &pp, Some(&[true, true, true, true])).unwrap();
+                assert_bits(&out.rows[0], &h[0], "fosc row [Planable]");
+                assert_bits(&out.rows[1], &h[1], "fosc/tsf row [Planable]");
+                assert_bits(&out.rows[2], &h[2], "fosc/linreg row [Planable]");
+                assert_bits(&out.rows[3], &h[3], "fosc/linregslope row [Planable]");
+                assert_bits(&out.rows[4], &h[4], "fosc/linregintercept row [Planable]");
+            }
+        }
+    }
+
+    /// Three requests, ONE moment chain: `linreg + tsf + fosc` must cost exactly
+    /// what `fosc` alone costs, because fosc's arena is a superset of tsf's
+    /// which is a superset of linreg's. Asserted RELATIONALLY against solo
+    /// fosc, so the number is measured, not a constant I typed from a guess.
+    #[test]
+    fn linreg_tsf_fosc_share_one_chain() {
+        use tulip_rs::cse::kernel::registry::SIG_linreg_tsf_fosc_shared_p;
+        use tulip_rs::cse::signature::K_LINREGFLOW;
+        use tulip_rs::indicators::fosc::Fosc;
+        use tulip_rs::indicators::linreg::Linreg;
+        use tulip_rs::indicators::tsf::Tsf;
+        let trio = Request::new()
+            .add(Linreg::recipe(&[14.0]), None)
+            .add(Tsf::recipe(&[14.0]), None)
+            .add(Fosc::recipe(&[14.0]), None);
+        let (_, sig, _, _) = erase_request(&trio).unwrap();
+        assert_eq!(sig, SIG_linreg_tsf_fosc_shared_p, "trio arena drifted");
+        let moments = |kinds: &[u8; MAX], len: u32| {
+            kinds[..len as usize]
+                .iter()
+                .filter(|&&x| x == K_LINREGFLOW)
+                .count()
+        };
+        let solo_f = erase_request(&Request::new().add(Fosc::recipe(&[14.0]), None)).unwrap();
+        // ONE moment chain across all three requests, not three.
+        assert_eq!(moments(&sig.kinds, sig.len), 2, "trio shares one chain");
+        assert_eq!(
+            sig.len, solo_f.1.len,
+            "linreg + tsf add NOTHING to fosc's arena: {} vs {}",
+            sig.len, solo_f.1.len
+        );
+    }
+
+    /// ZLEMA(p) seeds its EMA from real[lag-1] (zlema.rs:42, lag = ((p-1)/2).max(1)),
+    /// which the engine spells via Node::SeededEma{feed: Some(lag-1)}. Test multiple
+    /// periods (odd and even, since lag depends on (period-1)/2) and multiple series
+    /// shapes (ramp, flat, wiggle/noise). Flat-series-only tests hide real bugs — the
+    /// seed gap is invisible to a constant series.
+    #[test]
+    fn zlema_planable_bit_exact() {
+        use tulip_rs::indicators::zlema::Zlema;
+        for p in [2.0, 5.0, 14.0, 27.0] {
+            let pp: [f64; 1] = [p];
+            let req = Request::new().add(Zlema::recipe(&pp), None);
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("zlema via Planable registered");
+                let (h, _) = Zlema::indicator(&streams, &pp, None).unwrap();
+                assert_bits(&out.rows[0], &h[0], "zlema row [Planable]");
+            }
+        }
+    }
+
+    /// KAMA(p) uses VariableAlphaEma with live w from efficiency_ratio^2.
+    /// Seeds at bar period-1, output starts at bar period.
+    ///
+    /// PARKED (2026-11-03): `Node::VariableAlpha` is leaf-vocabulary scaffolding only
+    /// (`recipe.rs`/`merge.rs`/`signature.rs`) -- `Kind::VariableAlpha` does not exist in
+    /// `planner.rs`, so no recipe reaches a kernel yet. See `ENGINE_CHECKLIST.md`'s F1 entry
+    /// and `RECIPE_VOCABULARY.md` section 5's `VariableAlpha` row. Un-ignore once wired.
+    #[test]
+    #[ignore = "VariableAlpha not wired into planner.rs yet -- see ENGINE_CHECKLIST.md F1"]
+    fn kama_planable_bit_exact() {
+        use tulip_rs::indicators::kama::Kama;
+        for p in [5.0, 10.0, 30.0] {
+            let pp: [f64; 1] = [p];
+            // Request with both primary and optional output enabled
+            let req = Request::new().add(Kama::recipe(&pp), Some(&[true, true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("kama via Planable registered");
+                let (rows, _state) = Kama::indicator(&streams, &pp, Some(&[true, true])).unwrap();
+                assert_bits(&out.rows[0], &rows[0], "kama row [Planable]");
+                assert_bits(&out.rows[1], &rows[1], "kama ef row [Planable]");
+            }
+        }
+    }
+
+    /// VIDYA(short, long, alpha) uses VariableAlphaVidya with live w from (short_stddev/long_stddev)*alpha.
+    /// Seeds at bar long_period-2, output starts at bar long_period-1.
+    ///
+    /// PARKED (2026-11-03): same reason as `kama_planable_bit_exact` above.
+    #[test]
+    #[ignore = "VariableAlpha not wired into planner.rs yet -- see ENGINE_CHECKLIST.md F1"]
+    fn vidya_planable_bit_exact() {
+        use tulip_rs::indicators::vidya::Vidya;
+        const OPTS: [([f64; 3], &[&str]); 3] = [
+            ([5.0, 20.0, 0.5], &["short", "long", "alpha"]),
+            ([9.0, 30.0, 0.65], &["short", "long", "alpha"]),
+            ([3.0, 10.0, 0.2], &["short", "long", "alpha"]),
+        ];
+        for &(ref opts, _) in &OPTS {
+            let req =
+                Request::new().add(Vidya::recipe(opts), Some(&[true, true, true, true, true]));
+            for s in [
+                wiggle(),
+                series(680, |i| 100.0 + i as f64 * 0.05),
+                series(680, |_| 100.0),
+            ] {
+                let streams = [s.as_slice()];
+                let out = run_registered(&req, &streams).expect("vidya via Planable registered");
+                let (rows, _state) =
+                    Vidya::indicator(&streams, opts, Some(&[true, true, true, true, true]))
+                        .unwrap();
+                assert_bits(&out.rows[0], &rows[0], "vidya row [Planable]");
+                assert_bits(&out.rows[1], &rows[1], "vidya short_sma row [Planable]");
+                assert_bits(&out.rows[2], &rows[2], "vidya long_sma row [Planable]");
+                assert_bits(&out.rows[3], &rows[3], "vidya short_stddev row [Planable]");
+                assert_bits(&out.rows[4], &rows[4], "vidya long_stddev row [Planable]");
+            }
         }
     }
 }

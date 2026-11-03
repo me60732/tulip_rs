@@ -319,3 +319,50 @@ impl crate::cse::Planable for SuperTrend {
         crate::cse::recipes::supertrend(options)
     }
 }
+
+/// Rebuild `supertrend::State<Warm>`: the shared mean `Wilders(tr)` chain +
+/// `Mirror{src: close}` for `atr_state.tr_state`'s `prev_close` (same shape
+/// `atr`'s own restorer uses), plus the `SuperTrend` node's own 4-field
+/// feedback carry (`prev_st`/`prev_ub`/`prev_lb`/`trend`) and its recipe-
+/// constant `step`.
+impl crate::cse::Restorable<3, 2> for SuperTrend {
+    const KIND: &'static str = "supertrend";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, Supertrend, Wilders};
+        let (atr, period, prev_close, prev_st, prev_ub, prev_lb, trend, step) = match v.as_slice() {
+            [Wilders { value, period }, Mirror { value: prev_close }, Supertrend {
+                prev_st,
+                prev_ub,
+                prev_lb,
+                trend,
+                step,
+            }] => (
+                *value,
+                *period,
+                *prev_close,
+                *prev_st,
+                *prev_ub,
+                *prev_lb,
+                *trend,
+                *step,
+            ),
+            _ => return None,
+        };
+        let atr_state = AtrState {
+            wilders_state: crate::indicators::wilders::State::new(atr, period as usize).into_warm(),
+            tr_state: crate::indicators::tr::State::new(prev_close),
+        };
+        Some(State {
+            atr_state,
+            prev_st,
+            prev_ub,
+            prev_lb,
+            step,
+            trend,
+        })
+    }
+}

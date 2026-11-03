@@ -158,3 +158,28 @@ impl Indicator<INPUTS, OPTIONS> for Pvi {
         )
     }
 }
+
+impl crate::cse::Planable for Pvi {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::pvi(options)
+    }
+}
+
+/// Rebuild `pvi::State`: identical shape to `nvi`'s restorer — three
+/// `Mirror` nodes (`pvi`, `close`, `volume`).
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Pvi {
+    const KIND: &'static str = "pvi";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::Mirror;
+        match v.as_slice() {
+            [Mirror { value: pvi }, Mirror { value: close }, Mirror { value: volume }] => {
+                Some(State::new(*pvi, *close, *volume))
+            }
+            _ => None,
+        }
+    }
+}

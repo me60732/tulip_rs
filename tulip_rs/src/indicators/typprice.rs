@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -124,5 +125,13 @@ impl Indicator<INPUTS, OPTIONS> for Typprice {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Typprice {
+    /// The graph is leaf data — `crate::cse::recipes::typprice`:
+    /// `(high + low + close) * (1.0 / 3.0)`.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::typprice(options)
     }
 }

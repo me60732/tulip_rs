@@ -76,9 +76,106 @@ pub enum ChainState {
         p2: u32,
         psqrt: u32,
     },
+    /// `Node::SuperTrend`'s own 4-field feedback carry (`stb`/`stc_ub`/
+    /// `stlb`/`st` in the kernel's per-node state arrays) — mirrors hand
+    /// `supertrend::State`'s `prev_st`/`prev_ub`/`prev_lb`/`trend`. `step` is
+    /// not carried state — it's the node's own `step_bits` literal, copied
+    /// through the same way `Ema`/`Wilders` carry their recipe-constant
+    /// `period` alongside the live value.
+    Supertrend {
+        prev_st: f64,
+        prev_ub: f64,
+        prev_lb: f64,
+        trend: bool,
+        step: f64,
+    },
+    /// `Node::RollAge` — a ring-backed published-lag roll (e.g. `adxr`'s ring of
+    /// past ADX values): the raw ring contents + cursor, read back the same way
+    /// `ChainState::Hma`'s `ring`/`cursor` pair is (see `Hma` restorer in
+    /// `hma.rs` for the reconstruction pattern).
+    RollAge { ring: Vec<f64>, cursor: u64, n: u32 },
+    /// `Node::KvoFlow`'s own hidden 4-field feedback carry (`cm`/`prev_hlc`/
+    /// `prev_hl`/`trend` in the kernel's per-node state arrays) — mirrors hand
+    /// `kvo::State`'s own `cm`/`prev_hlc`/`prev_hl`/`trend` fields. `KvoFlow`
+    /// only *publishes* `vf` downstream, so this hidden state needs its own
+    /// dedicated variant, the same way `ChainState::Supertrend` does for
+    /// `Node::SuperTrend`'s hidden band-feedback fields.
+    KvoFlow {
+        cm: f64,
+        prev_hlc: f64,
+        prev_hl: f64,
+        trend: bool,
+    },
+    /// `Node::IirClamped`'s own hidden carried value (`fisher`'s `val1`) —
+    /// a single `st[k]` scalar, same shape as [`ChainState::Mirror`], but
+    /// tagged distinctly because it originates from a dedicated node KIND
+    /// (`Node::IirClamped`, not `Node::Mirror`), matching this enum's
+    /// one-variant-per-node-kind convention (`Ema`/`Wilders`/`Supertrend`/
+    /// `KvoFlow` are all named after their originating `Node` kind the same
+    /// way). No `period` field: `IirClamped`'s `a_bits`/`b_bits`/clamp
+    /// thresholds are recipe-fixed constants, not per-period data, so the
+    /// node carries nothing else worth restoring.
+    IirClamped { value: f64 },
+    /// `Node::RollSum`'s own ring, when the hand state needs the raw WINDOW
+    /// content (not just the running `sum`) — e.g. `mass`'s `buffer: Buffer`
+    /// of past `mass` ratios, which the generic `ChainState::Sma` shape
+    /// (`{sum, period}`, no ring) cannot express. The physical per-group ring
+    /// storage (`rings.feed`/`rings.at`/`rings.window` in the generated
+    /// kernel, `tulip_rs_macros::cse::codegen`) already exists for every
+    /// `RollSum` group regardless of its `RCLASS_SUM`/`RCLASS_RESCAN` class
+    /// — `lowering.rs`'s "the buffer is NOT a mirror" note is about skipping a
+    /// SECOND lane-major copy for the rescan-disjoint-trigger case, not about
+    /// the primary ring not existing — so this is a per-node EXPORT CHOICE a
+    /// populator makes at a specific `RollSum` node (read its own ring
+    /// instead of collapsing to the generic `Sma` shape), the same way
+    /// `Hma`/`RollAge` already get bespoke ring shapes instead of a generic
+    /// default for their own nodes. Reconstruction mirrors
+    /// `ChainState::Hma`'s `ring`/`cursor` pair (see the `Hma`/`Adxr`
+    /// restorers).
+    RollSumRing {
+        sum: f64,
+        ring: Vec<f64>,
+        cursor: u64,
+        period: u32,
+    },
+    /// `Node::HighPass`'s own hidden 2-field carry (`y1`, `prev_real`) —
+    /// mirrors hand `highpass::State`'s own fields. `period` rides alongside
+    /// (the `Ema`/`Wilders` convention) so a restorer can recompute `(a1, a2)`
+    /// via `highpass::multiplier`/`multipliers::highpass_multiplier` without
+    /// a second storage path for the coefficients.
+    HighPass {
+        y1: f64,
+        prev_real: f64,
+        period: u32,
+    },
+    /// `Node::SuperSmoother`'s own hidden 3-field carry (`y1`, `y2`,
+    /// `prev_real`) — mirrors hand `supersmoother::State`'s own fields, same
+    /// `period`-alongside convention as [`ChainState::HighPass`].
+    SuperSmoother {
+        y1: f64,
+        y2: f64,
+        prev_real: f64,
+        period: u32,
+    },
+    /// The shared 7-tap ring `Node::HtInPhase`/`Node::HtQuadrature` co-own
+    /// over one `src` — chronological order (oldest first), exactly 7
+    /// elements; rebuild via `FixedRingBuffer::new()` + 7 sequential
+    /// `.push()` calls + `.into_full()` (mirrors `ChainState::Hma`'s
+    /// `ring`/`cursor` reconstruction idiom, minus the cursor: the hand's
+    /// `FixedRingBuffer` carries no separate cursor field).
+    HtRing { ring: Vec<f64> },
 }
 
 /// A primitive the node graph can contain.
+/// Which fold spelling a `Node::VariableAlpha` uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AlphaShape {
+    /// kama-style
+    Ema,
+    /// vidya-style
+    Vidya,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Node {
     Input {
@@ -87,6 +184,43 @@ pub enum Node {
     Ema {
         src: Id,
         period: Id,
+    },
+    /// EMA recurrence whose SEED and FOLD source differ: bar `feed`
+    /// (leads[seed] or explicit override) seeds straight from `seed`'s own
+    /// value, every later bar folds `src`'s value with the ordinary EMA step.
+    /// `trvi`'s hand seeds from `high[0]-low[0]` (the bar-0 range) then folds
+    /// the real true-range `tr` from bar 1 on -- `tr` itself is only valid
+    /// from its own structural lead (the `Lag{close,1}` inside it), one bar
+    /// LATER than the plain range's lead 0, so a bare `Ema{src: tr, ..}`
+    /// would seed from `tr[1]` (wrong) instead of the hand's bar-0 range.
+    /// `zlema` seeds from `real[lag-1]`, where `lag-1` is known at recipe-build
+    /// time but the raw `Input{stream: 0}` node's own lead is 0, so it needs an
+    /// explicit feed-bar override. Ordinary `Ema{src,period}` is the special case
+    /// `seed == src`.
+    SeededEma {
+        seed: Id,
+        src: Id,
+        period: Id,
+        /// When `Some(bar)`, overrides the seed bar to an explicit literal bar
+        /// index instead of `leads[seed]` — needed when the seed must be read at a
+        /// bar LATER than the seed node's own natural lead (e.g. `zlema` seeds
+        /// `real[lag-1]` where `lag-1` is known at recipe-build time but `real`'s
+        /// own lead is 0).
+        feed: Option<u32>,
+    },
+    /// Variable alpha recurrence: carry' = carry*(1-w) + value*w, with w computed live per bar.
+    /// Two spellings are supported via the `shape` field:
+    /// - Ema shape (kama-style): carry.mul_add(1.0 - w, value * w)
+    ///   where kama computes w = smoothing_constant.powi(2) with
+    ///   smoothing_constant = (fast_ema - slow_ema).mul_add(ef, slow_ema);
+    /// - Vidya shape: (value - carry).mul_add(w, carry)
+    ///   where vidya computes w = (short_stddev / long_stddev) * alpha.
+    VariableAlpha {
+        seed: Id,
+        src: Id,  // the "value" input
+        mult: Id, // node whose live value each bar is blend weight w
+        feed: Option<u32>,
+        shape: AlphaShape,
     },
     Sub {
         a: Id,
@@ -167,6 +301,7 @@ pub enum Node {
         src: Id,
         period: Id,
     },
+
     Wilders {
         src: Id,
         period: Id,
@@ -242,6 +377,91 @@ pub enum Node {
     },
     Prev {
         src: Id,
+    },
+    /// Ring-backed age roll (publish src delayed by n bars, backed by a ring
+    /// of capacity n). The published value is the raw evicted/age-read from
+    /// the ring. Same group protocol as RollSum.
+    RollAge {
+        src: Id,
+        n: Id,
+    },
+    /// Negative Volume Index recurrence: a gated multiplicative prefix
+    /// product seeded 1000.0, `nvi = close/prev_close * nvi` only when
+    /// `volume < prev_volume`, held flat otherwise. The gate and the
+    /// multiplier are both NODES, so it hoists like `Prev`/`Accum` and stops
+    /// there -- scalar-only, no SIMD form.
+    NviRecur {
+        src: Id,
+        prev_close: Id,
+        volume: Id,
+        prev_volume: Id,
+    },
+    /// Positive Volume Index recurrence -- the mirror gate
+    /// (`volume > prev_volume`). See [`Node::NviRecur`].
+    PviRecur {
+        src: Id,
+        prev_close: Id,
+        volume: Id,
+        prev_volume: Id,
+    },
+    /// Mean Absolute Deviation rescan: `sum(|x - sma|) / period` over the
+    /// window ending at this bar. NOT incrementally updatable (unlike
+    /// RollSum) because `|x - mean|` isn't linear -- every bar needs a full
+    /// rescan with the CURRENT bar's sma. `sma` is an explicit shared
+    /// `RollSum{mean:true}` operand (not an internally recomputed copy), so
+    /// `md`/`cci`'s mean-of-window math is read off ONE carried sum.
+    MeanAbsDev {
+        src: Id,
+        period: u32,
+        sma: Id,
+    },
+    /// `linreg`'s sliding-moment carry. Steady shape, one arm for both of the
+    /// hand's sums: `publish = st + src·mult`, then `st = publish − sub`, with
+    /// `mult` 1.0 for `sum_y` and `period` for `sum_xy`. `weighted` picks which
+    /// and is a VALUES fact (it becomes `Values::mults`, like any other
+    /// period): both spellings emit the identical `st + src·m`, and the two
+    /// instances already differ in `b`, so it is NOT structure.
+    ///
+    /// It exists because the hand publishes BEFORE it evicts:
+    /// `sum_y += value` … publish … `sum_y -= prev_value`. `RollSum` cannot
+    /// spell that — its steady region is `st += x − leave` and its init region
+    /// `(st + x) − leave`, both of which fold the leave into the PUBLISHED
+    /// value. Measured against the hand module: this shape is bit-exact on
+    /// every bar of 24 series×period cells (ramp/flat/wiggle/noise, p 2..60);
+    /// a `RollSum` window breaks 697/698, 685/686 and 672/673 of them. Flat
+    /// series hide that entirely, which is why the gate must not be flat-only.
+    ///
+    /// The `w = min(t, mult)` fold also replaces the seam rescan this node was
+    /// going to need: the hand seeds `sum_xy += (i+1)·real[1+i]`, and `i+1` IS
+    /// that value's absolute bar index, so bars below the lead accumulate with
+    /// a bar-index weight capped at `mult`, and `min(t, mult) == mult` once
+    /// `t >= period` — so the steady arm needs no clamp and no branch. Bar 0
+    /// contributes `src · 0.0`, which is the hand never reading `real[0]` (it
+    /// works on `real[1..]`) — SOUND ONLY WHILE BAR 0 IS FINITE, the parity
+    /// matrices' contract (`inf·0.0`/`NaN·0.0` would poison the carry where the
+    /// hand stays clean). No hand-module helper, no second region, one `st`
+    /// cell per instance.
+    ///
+    /// The two instances chain: `sum_y`'s `sub` is `Lag(real, period − 1)` (the
+    /// evicting bar — a column, so `Lag` applies), while `sum_xy`'s `sub` is
+    /// the `sum_y` NODE published the same bar. Scalar-only: `sub` is a slot
+    /// read and the fold carries `st`, so there is no lane form (cf.
+    /// `NviRecur`/`KvoFlow`).
+    LinregFlow {
+        src: Id,
+        sub: Id,
+        period: u32,
+        weighted: bool,
+    },
+    /// Bespoke KVO flow machine: a 4-field-state recurrence (trend flip-flop,
+    /// cm accumulator, prev hlc, prev hl) that cannot be expressed with
+    /// existing node kinds. Output is the signed volume-force line `vf`;
+    /// the two EMAs and their difference are separate nodes downstream.
+    KvoFlow {
+        high: Id,
+        low: Id,
+        close: Id,
+        volume: Id,
     },
     Const {
         bits: u64,

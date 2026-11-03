@@ -66,7 +66,7 @@ pub const DENSE_NODES: usize = 27;
 pub use router::query;
 pub use router::{
     erase_request, restorer_for, run_assets_registered, run_registered, AssetsOutcome,
-    ChainStateEma, IndicatorStateBox, Outcome, Request, Results, RowRef, StateRestorer,
+    ChainStateEma, IndicatorStateBox, Outcome, Request, Restorable, Results, RowRef, StateRestorer,
 };
 
 // ── Kernel facade (the generated engines + the warm/oracle machine) ─────

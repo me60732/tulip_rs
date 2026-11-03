@@ -1,5 +1,6 @@
 //use std::vec;
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
@@ -119,5 +120,18 @@ impl Indicator<INPUTS, OPTIONS> for Obv {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Obv {
+    /// The graph is leaf data — `crate::cse::recipes::obv`: two `WhereGt` selects
+    /// (`close > prev` and `prev > close`, both taking `volume`) subtracted into a
+    /// signed delta, then `Accum{delta, 1.0}`. A tie makes BOTH selects miss, so
+    /// the delta is `0.0` — exactly the hand's `else if` chain (`obv.rs:32-36`).
+    /// Making ONE arm a `WhereGe` instead flips every flat bar into ±volume; the
+    /// plateau series in `obv_planable_bit_exact` is what pins that. (`Ge` on both
+    /// arms stays equivalent — `vol - vol` — so it is not what this guards.)
+    fn recipe(_options: &[f64]) -> Recipe {
+        crate::cse::recipes::obv(_options)
     }
 }

@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
@@ -186,5 +187,11 @@ impl Indicator<INPUTS, OPTIONS> for Emv {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Emv {
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::emv(options)
     }
 }

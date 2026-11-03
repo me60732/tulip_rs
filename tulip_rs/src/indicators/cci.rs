@@ -299,3 +299,50 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Cci {
         )
     }
 }
+
+impl crate::cse::Planable for Cci {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::cci(options)
+    }
+}
+
+/// `cci`'s continuable state wraps `md::State`, whose own ring holds a
+/// `typprice`-derived series — `typprice` is a `Mul` node (a DERIVED stream,
+/// not `Node::Input`), so there is no existing `ChainState` shape that can
+/// export that ring's contents directly. Instead we recompute the entire warm
+/// `State` from scratch via `State::init_state`, fed a sufficiently long raw
+/// `high`/`low`/`close` tail (`typprice_calc` is cheap and exact to re-derive
+/// bar-by-bar). This is bit-exact by construction: it's the literal cold-start
+/// code path, just run again. The only fact we actually need out of the
+/// engine's captured chains is `period`, read off the `sma` node (an existing
+/// `Node::RollSum{mean:true}` already live in the recipe's graph — adding it
+/// to `tail_inputs` costs nothing new).
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Cci {
+    const KIND: &'static str = "cci";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { period, .. }] = v.as_slice() else {
+            return None;
+        };
+        let period = *period as usize;
+        let (high, low, close) = (windows[0], windows[1], windows[2]);
+        let min_data = Cci::min_data(&[period as f64]);
+        if high.len() < min_data || low.len() < min_data || close.len() < min_data {
+            return None;
+        }
+        let mut sma_scratch = vec![0.0; high.len()];
+        let mut md_scratch = vec![0.0; high.len()];
+        let mut typprice_scratch = vec![0.0; high.len()];
+        let state = State::init_state(
+            high,
+            low,
+            close,
+            period,
+            (&mut sma_scratch, &mut md_scratch, &mut typprice_scratch),
+        );
+        Some(IndicatorState::new(state, period))
+    }
+}

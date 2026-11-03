@@ -179,6 +179,14 @@ pub fn multiplier() -> (f64, f64) {
 
 pub struct Kama;
 
+use crate::cse::{Planable, Recipe};
+
+impl Planable for Kama {
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::kama(options)
+    }
+}
+
 impl Indicator<INPUTS, OPTIONS> for Kama {
     type IndicatorState = IndicatorState;
     const INFO: Info = Info {

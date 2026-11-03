@@ -16,7 +16,7 @@
 //! is what makes `Apo`'s `ema12/ema26` and `Macd`'s literally the same arena
 //! nodes, the §4 identity falling out of CSE for free.
 
-use crate::cse::{Column, Id, Node, Recipe, Sink, SinkSrc};
+use crate::cse::{AlphaShape, Column, Id, Node, Recipe, Sink, SinkSrc};
 use std::collections::HashMap;
 
 /// Merged, node-deduplicated interface graph. Child `Id`s in `nodes` are
@@ -41,6 +41,25 @@ impl Merged {
             let id = match *node {
                 Node::Input { .. } | Node::Const { .. } => 0,
                 Node::Ema { src, period } => leads[src as usize] + period.saturating_sub(1),
+                // Recurrence starts at the SEED's lead or explicit feed override.
+                // For zlema, `feed` specifies the seed bar (lag-1), and output
+                // starts at bar `base + 1 = lag`. For trvi, `feed` is leads[seed]
+                // (0 for range), but the recipe sets sink lead to override.
+                Node::SeededEma {
+                    seed, period, feed, ..
+                } => {
+                    let base = feed.unwrap_or(leads[seed as usize]);
+                    // The output starts at bar `base + 1` (where we start folding
+                    // the src node), not at bar `base` (where we seed). The recipe's
+                    // sink lead override can push the effective start later if needed.
+                    base + 1
+                }
+                // Same seed/feed shape as SeededEma -- the mult stream is a
+                // separate per-bar read inside the fold body, not a lead input.
+                Node::VariableAlpha { seed, feed, .. } => {
+                    let base = feed.unwrap_or(leads[seed as usize]);
+                    base + 1
+                }
                 Node::Sub { a, b }
                 | Node::Add { a, b }
                 | Node::Mul { a, b }
@@ -60,6 +79,12 @@ impl Merged {
                 Node::WhereLe { a, b, t } => leads[a as usize]
                     .max(leads[b as usize])
                     .max(leads[t as usize]),
+                // Ring-backed age roll: capacity n, fed every bar from the
+                // src lead onward. MirrorBuffer Cold push_with_info only
+                // returns Some once count == capacity BEFORE the push, i.e.
+                // the (n+1)-th push, at bar lead(src) + n (not + n - 1: the
+                // n-th push just reaches full, nothing has evicted yet).
+                Node::RollAge { src, n } => leads[src as usize] + n,
                 // A running total is defined once both operands are — the same
                 // rule as the product it fuses into one rounding.
                 Node::Accum { a, b } => leads[a as usize].max(leads[b as usize]),
@@ -124,13 +149,73 @@ impl Merged {
                 Node::Fma { a, b, c } => leads[a as usize]
                     .max(leads[b as usize])
                     .max(leads[c as usize]),
-                Node::HighPass { input, period } => {
-                    leads[input as usize] + period.saturating_sub(1)
+                // HighPass's own `State::init_state` warms for exactly
+                // `period` bars (discarded) then publishes — unlike `Ema` it
+                // does NOT reuse its last warmup bar, so the standalone lead
+                // is `period`, not `period - 1`. When chained (RoofingFilter)
+                // the hand runs HighPass and SuperSmoother in LOCKSTEP from
+                // bar 0 and warms for `max(hp_period, ss_period)` bars total
+                // (not the sum) before publishing — so composition is `max`,
+                // not a chained sum.
+                Node::HighPass { input, period } => leads[input as usize].max(period),
+                Node::SuperSmoother { src, period } => leads[src as usize].max(period),
+                // The hand's `HilbertTransform::State::init_state` fills the
+                // 7-slot ring with 7 pushes (bars `lead(roofing)..lead(roofing)+6`)
+                // and publishes starting ONE bar after the ring becomes full,
+                // i.e. `lead(roofing) + 7` — matching `RollAge`'s "(n+1)-th
+                // push" convention, not the FIR's own tap count minus one.
+                Node::HtInPhase { src } | Node::HtQuadrature { src } => leads[src as usize] + 7,
+                // Gated multiplicative prefix product: defined once every
+                // operand is (same rule as Accum's two-node recurrence).
+                Node::NviRecur {
+                    src,
+                    prev_close,
+                    volume,
+                    prev_volume,
                 }
-                Node::SuperSmoother { src, period } => {
-                    leads[src as usize] + period.saturating_sub(1)
+                | Node::PviRecur {
+                    src,
+                    prev_close,
+                    volume,
+                    prev_volume,
+                } => leads[src as usize]
+                    .max(leads[prev_close as usize])
+                    .max(leads[volume as usize])
+                    .max(leads[prev_volume as usize]),
+                // The shared `sma` operand (a RollSum{mean:true}) is itself
+                // valid from `leads[src] + period - 1`; the hand's own
+                // rescan loop starts ONE bar later than that (`i = period`,
+                // not `period - 1`), so MeanAbsDev's lead is `leads[sma] + 1`
+                // -- do NOT `.max()` with `leads[src]`, that under-counts by
+                // one bar (leads[sma] always >= leads[src], so the max just
+                // resolves to leads[sma], one bar too early).
+                Node::MeanAbsDev { sma, .. } => leads[sma as usize] + 1,
+                // linreg's moment carry. `src` is a price column, so
+                // `leads[src]` is 0 and the first valid bar is `period` — the
+                // hand's own first published bar (it works on `real[1..]` and
+                // seeds from `real[1..period]`). The two instances agree:
+                // `sum_y`'s `sub` is a `Lag` one bar *inside* the window
+                // (lead `period - 1`), `sum_xy`'s is the `sum_y` node itself
+                // (lead `period`), so the `max` never moves the answer.
+                Node::LinregFlow {
+                    src, sub, period, ..
+                } => (leads[src as usize] + period).max(leads[sub as usize]),
+                // Bespoke 4-state recurrence: hand's `init_state` loop
+                // starts at i=1, never calling `calc_vf` at i=0 (needs a
+                // previous bar to compare against) -- first valid vf bar is
+                // one past the inputs' own lead (same `+1` as erase()'s feed).
+                Node::KvoFlow {
+                    high,
+                    low,
+                    close,
+                    volume,
+                } => {
+                    leads[high as usize]
+                        .max(leads[low as usize])
+                        .max(leads[close as usize])
+                        .max(leads[volume as usize])
+                        + 1
                 }
-                Node::HtInPhase { src } | Node::HtQuadrature { src } => leads[src as usize] + 6,
             };
             leads.push(id);
         }
@@ -460,6 +545,10 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         Const { .. } => (2, 0),
         // `fma(state, c0, mul(x, c1))` — the Ema/Wilders identity, one formula.
         Ema { .. } => (3, 2),
+        // Same fma identity as `Ema` -- seed bar aside, the fold step is
+        // identical (`st.mul_add(invm, src*mult)`); the seed-vs-fold source
+        // split lives in `node_children`/`erase`, not the lane shape.
+        SeededEma { .. } => (3, 2),
         Wilders {
             composite: false, ..
         } => (3, 2),
@@ -495,6 +584,8 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         // Projections/copies: one conversion, or none.
         Trail { .. } => (18, 1),
         Mirror { .. } => (19, 0),
+        // Ring-backed age roll: no arithmetic, just read from ring.
+        RollAge { .. } => (40, 0),
         Ln { .. } => (20, 1),
         Sqrt { .. } => (21, 1),
         // One fused instruction — deliberately NOT formula 3.
@@ -515,6 +606,25 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         // A running total is ONE fused instruction (`a.mul_add(b, st)`) — it is
         // not formula 3, whose second operand is a scaled `src`.
         Accum { .. } => (37, 1),
+        // Scalar-only gated multiplicative prefix product: the per-bar
+        // branch on volume-vs-prev-volume cannot be lane-packed, so there
+        // is no SIMD form -- same as the hand.
+        NviRecur { .. } => (0, 0),
+        PviRecur { .. } => (0, 0),
+        // Window rescan over the shared sma operand: one state value, no
+        // arithmetic shared with RollSum's own formula (its `sum` is NOT
+        // what this walks -- it rescans |x - sma| fresh every bar).
+        MeanAbsDev { .. } => (38, 0),
+        // linreg's moment carry: scalar-only. Its `sub` is a slot read (the
+        // `sum_y` node, or a per-lane `Lag` load) and the recurrence owns a
+        // `st` cell, so it never shares an assembly with a neighbour — the
+        // same standing as `NviRecur`/`KvoFlow`.
+        LinregFlow { .. } => (0, 0),
+        // Bespoke 4-state recurrence, branchy like Nvi/Pvi -- scalar-only.
+        KvoFlow { .. } => (0, 0),
+        // Per-bar stream-read blend weight: scalar-only, same standing as
+        // NviRecur/LinregFlow/KvoFlow.
+        VariableAlpha { .. } => (0, 0),
     }
 }
 
@@ -540,6 +650,7 @@ fn lane_warmup(node: &Node) -> u8 {
     use Node::*;
     match *node {
         Ema { .. } => 0,
+        SeededEma { .. } => 0,
         Wilders { feed, .. } => 1 | ((feed as u8) << 1),
         Sma { .. } | Stddev { .. } | Wma { .. } | RollSum { .. } => 2,
         RollMax { .. } | RollMin { .. } => 3,
@@ -610,6 +721,30 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
         Ema { src, period } => Ema {
             src: g(src),
             period,
+        },
+        SeededEma {
+            seed,
+            src,
+            period,
+            feed,
+        } => SeededEma {
+            seed: g(seed),
+            src: g(src),
+            period,
+            feed,
+        },
+        VariableAlpha {
+            seed,
+            src,
+            mult,
+            feed,
+            shape,
+        } => VariableAlpha {
+            seed: g(seed),
+            src: g(src),
+            mult: g(mult),
+            feed,
+            shape,
         },
         Sub { a, b } => Sub { a: g(a), b: g(b) },
         Add { a, b } => Add { a: g(a), b: g(b) },
@@ -712,6 +847,10 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             look_back,
         },
         Trail { src } => Trail { src: g(src) },
+        // Ring-backed age roll: remap src through the graph; n is a plain
+        // capacity VALUE (not an arena id -- node_children doesn't visit it
+        // either), so it must NOT be run through the index-remapping g().
+        RollAge { src, n } => RollAge { src: g(src), n },
         Mirror { src } => Mirror { src: g(src) },
         Sqrt { src } => Sqrt { src: g(src) },
         Ln { src } => Ln { src: g(src) },
@@ -757,6 +896,55 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
         },
         HtInPhase { src } => HtInPhase { src: g(src) },
         HtQuadrature { src } => HtQuadrature { src: g(src) },
+        NviRecur {
+            src,
+            prev_close,
+            volume,
+            prev_volume,
+        } => NviRecur {
+            src: g(src),
+            prev_close: g(prev_close),
+            volume: g(volume),
+            prev_volume: g(prev_volume),
+        },
+        PviRecur {
+            src,
+            prev_close,
+            volume,
+            prev_volume,
+        } => PviRecur {
+            src: g(src),
+            prev_close: g(prev_close),
+            volume: g(volume),
+            prev_volume: g(prev_volume),
+        },
+        MeanAbsDev { src, period, sma } => MeanAbsDev {
+            src: g(src),
+            period,
+            sma: g(sma),
+        },
+        LinregFlow {
+            src,
+            sub,
+            period,
+            weighted,
+        } => LinregFlow {
+            src: g(src),
+            sub: g(sub),
+            period,
+            weighted,
+        },
+        KvoFlow {
+            high,
+            low,
+            close,
+            volume,
+        } => KvoFlow {
+            high: g(high),
+            low: g(low),
+            close: g(close),
+            volume: g(volume),
+        },
     }
 }
 
@@ -783,12 +971,17 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         | RollMin { src, .. }
         | Trail { src }
         | Mirror { src }
+        | RollAge { src, .. }
         | Wilders { src, .. }
         | SuperSmoother { src, .. }
         | Iir { src, .. }
         | Prev { src }
         | HtInPhase { src }
         | HtQuadrature { src } => visit(*src),
+        SeededEma { seed, src, .. } => {
+            visit(*seed);
+            visit(*src);
+        }
         Sub { a, b } | Add { a, b } | Mul { a, b } | Div { a, b } | Max { a, b } | Min { a, b } => {
             visit(*a);
             visit(*b);
@@ -845,6 +1038,53 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
             visit(*atr);
             visit(*med);
             visit(*close);
+        }
+        NviRecur {
+            src,
+            prev_close,
+            volume,
+            prev_volume,
+        }
+        | PviRecur {
+            src,
+            prev_close,
+            volume,
+            prev_volume,
+        } => {
+            visit(*src);
+            visit(*prev_close);
+            visit(*volume);
+            visit(*prev_volume);
+        }
+        MeanAbsDev { src, sma, .. } => {
+            visit(*src);
+            visit(*sma);
+        }
+        LinregFlow { src, sub, .. } => {
+            visit(*src);
+            visit(*sub);
+        }
+        KvoFlow {
+            high,
+            low,
+            close,
+            volume,
+        } => {
+            visit(*high);
+            visit(*low);
+            visit(*close);
+            visit(*volume);
+        }
+        VariableAlpha {
+            seed,
+            src,
+            mult,
+            shape: _,
+            ..
+        } => {
+            visit(*seed);
+            visit(*src);
+            visit(*mult);
         }
     }
 }

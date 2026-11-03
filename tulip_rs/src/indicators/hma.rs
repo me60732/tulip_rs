@@ -313,41 +313,58 @@ impl crate::cse::Planable for Hma {
 /// `pub(crate)`, so the same-crate module rebuilds it exactly). The engine's
 /// `curs` (next-push slot) == hand `Buffer::index` after the last push, and
 /// slot `i` holds the diff the hand pushed there — a faithful Warm buffer.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::Hma {
-        accs,
-        cursor,
-        ring,
-        period,
-        p2,
-        psqrt,
-    }] = v.as_slice()
-    else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    let [sum1, ws1, sum2, ws2, wss, ss] = *accs;
-    let state1 = WMAState::new(sum1, ws1, *period as usize).into_warm();
-    let state2 = WMAState::new(sum2, ws2, *p2 as usize).into_warm();
-    let capacity = *psqrt as usize;
-    let index = (cursor / 8) as usize;
-    let prev_idx = (index + capacity - 1) % capacity;
-    let periodsqrt = capacity as f64;
-    let weightssqrt = periodsqrt * (periodsqrt + 1.0) / 2.0;
-    let prev_diff = Buffer::<Warm> {
-        vals: ring.clone(),
-        index,
-        capacity,
-        count: capacity,
-        prev_idx,
-        state: std::marker::PhantomData,
-    };
-    crate::cse::IndicatorStateBox::Hma(State {
-        prev_diff,
-        state1,
-        state2,
-        weighted_sumsqrt: wss,
-        weightssqrt,
-        periodsqrt,
-        sumsqrt: ss,
-    })
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Hma {
+    const KIND: &'static str = "hma";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Hma {
+            accs,
+            cursor,
+            ring,
+            period,
+            p2,
+            psqrt,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let [sum1, ws1, sum2, ws2, wss, ss] = *accs;
+        let period = *period as usize;
+        let period2 = *p2 as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+        let state1 = WMAState::new(sum1, ws1, period).into_warm();
+        let state2 = WMAState::new(sum2, ws2, period2).into_warm();
+        let capacity = *psqrt as usize;
+        let index = (cursor / 8) as usize;
+        let prev_idx = (index + capacity - 1) % capacity;
+        let periodsqrt = capacity as f64;
+        let weightssqrt = periodsqrt * (periodsqrt + 1.0) / 2.0;
+        let prev_diff = Buffer::<Warm> {
+            vals: ring.clone(),
+            index,
+            capacity,
+            count: capacity,
+            prev_idx,
+            state: std::marker::PhantomData,
+        };
+        Some(IndicatorState::new(
+            windows[0],
+            State {
+                prev_diff,
+                state1,
+                state2,
+                weighted_sumsqrt: wss,
+                weightssqrt,
+                periodsqrt,
+                sumsqrt: ss,
+            },
+            period,
+            period2,
+        ))
+    }
 }

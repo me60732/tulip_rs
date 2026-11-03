@@ -259,9 +259,24 @@ impl crate::cse::Planable for Sma {
 /// Rebuild the hand `sma::State<Warm>` from the group's rolling `sum`
 /// (`get_states`). The price window `IndicatorState` also holds lives in
 /// the engine's host `JitState.window`, not here.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::Sma(State::new(*sum, *period as usize).into_warm())
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Sma {
+    const KIND: &'static str = "sma";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State::new(*sum, period).into_warm(),
+            period,
+        ))
+    }
 }

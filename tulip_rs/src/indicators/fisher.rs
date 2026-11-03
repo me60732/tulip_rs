@@ -282,3 +282,50 @@ impl crate::cse::Planable for Fisher {
         crate::cse::recipes::fisher(options)
     }
 }
+
+/// Rebuild the hand `fisher::State<Warm>` from the op's two tail chains PLUS
+/// a raw `(high, low)` tail — a HYBRID restore, new for this project (every
+/// prior restorer used one technique only): `buffer`/`min_state`/`max_state`
+/// are a `period`-wide window of `medprice = 0.5·(high+low)`, a pointwise
+/// function of raw high/low, so they're fully recomputed via
+/// `State::init_state` over a raw tail (the `cci`/`stochrsi`/`md` technique).
+/// `val1`/`fish` are bespoke single-node hidden carries no window can recover
+/// (`val1` is `Node::IirClamped`'s own `st[k]`, exported as the new
+/// `ChainState::IirClamped`; `fish` is `Node::Iir`'s own `st[k]`, recovered
+/// for free through the already-live `signal` node — `Node::Prev{src: fish}`
+/// publishes exactly fish's prior value every bar, so it reads back through
+/// the existing `ChainState::Mirror` shape with no new vocabulary). After
+/// `init_state` rebuilds the ring/min/max fields (its own internal
+/// `calc_fisher` call seeds `val1`/`fish` with throwaway values along the
+/// way), both fields are OVERWRITTEN with the chain-sourced values before
+/// returning — the struct's fields are `pub`, same visibility precedent as
+/// `Hma`'s restorer.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Fisher {
+    const KIND: &'static str = "fisher";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::IirClamped { value: val1 }, crate::cse::ChainState::Mirror { value: fish }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        let [high, low] = windows else {
+            return None;
+        };
+        let period = high.len();
+        if period == 0 || low.len() != period {
+            return None;
+        }
+
+        let mut fisher_line = vec![0.0; 1];
+        let mut signal_line = vec![0.0; 1];
+        let mut state = State::init_state(high, low, period, &mut fisher_line, &mut signal_line);
+        state.val1 = *val1;
+        state.fish = *fish;
+
+        Some(IndicatorState { state, period })
+    }
+}

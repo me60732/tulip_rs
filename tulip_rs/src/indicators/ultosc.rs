@@ -410,3 +410,51 @@ impl crate::cse::Planable for Ultosc {
         crate::cse::recipes::ultosc(options)
     }
 }
+
+/// The hand `State` is fully recomputable from a raw `(high, low, close)`
+/// window tail via its own `init_state` -- same full-recompute technique
+/// `md`/`cci`/`stochrsi`/`vhf` use (the hand's `MultiBuffer`-shaped carry
+/// isn't worth exporting field by field). Reading `init_state`'s loop
+/// bounds (`.skip(1).take(long_period)`, writing `ultosc_line[0]` at
+/// `i == long_period`) gives the exact minimum: valid indices run `1..=
+/// long_period`, so the tail needs `long_period + 1` bars, not one more.
+/// The three periods are recovered for free from the three `RollSum{mean:
+/// false}` groups `recipes::ultosc` already builds (`bp_s`/`bp_m`/`bp_l`)
+/// -- they report via `ChainState::Sma{period, ..}`, the same variant a
+/// `mean: true` group uses (the engine doesn't spell a separate kind for
+/// the non-mean roll); `bp_l` is already a live ancestor of the output, so
+/// `tail_inputs = vec![bp_s, bp_m, bp_l]` adds only two more liveness
+/// roots.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Ultosc {
+    const KIND: &'static str = "ultosc";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { period: short, .. }, crate::cse::ChainState::Sma { period: medium, .. }, crate::cse::ChainState::Sma { period: long, .. }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        let (short, medium, long) = (*short as usize, *medium as usize, *long as usize);
+        if windows.len() < 3 {
+            return None;
+        }
+        let (high, low, close) = (windows[0], windows[1], windows[2]);
+        let min_len = long + 1;
+        if high.len() < min_len || low.len() < min_len || close.len() < min_len {
+            return None;
+        }
+        let state = State::init_state(
+            high,
+            low,
+            close,
+            (short, medium, long),
+            &mut [0.0_f64],
+            &mut [],
+            &mut [],
+        );
+        Some(IndicatorState::new(state, (short, medium)))
+    }
+}

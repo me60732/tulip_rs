@@ -224,3 +224,16 @@ impl crate::cse::Planable for Natr {
         crate::cse::recipes::natr(options)
     }
 }
+
+/// Rebuild `natr::State<Warm>`: a transparent wrapper around `atr::State`,
+/// same tail shape as `atr`'s own restorer.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Natr {
+    const KIND: &'static str = "natr";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        <Atr as crate::cse::Restorable<INPUTS, OPTIONS>>::restore_state(v, windows).map(State)
+    }
+}

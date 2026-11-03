@@ -346,22 +346,40 @@ impl crate::cse::Planable for Willr {
 }
 
 /// Rebuild the hand `willr::State<Warm>` from the two roll chains (the
-/// `high`/`low` tails are the engine's host anchor window).
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::RollMin {
-        value: min,
-        trail: mt,
-        ..
-    }, crate::cse::ChainState::RollMax {
-        value: max,
-        trail: xt,
-        ..
-    }] = v.as_slice()
-    else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::Willr(State {
-        min_state: MinState::new(*min, *mt as usize).into_warm(),
-        max_state: MaxState::new(*max, *xt as usize).into_warm(),
-    })
+/// `high`/`low` tails are the engine's host anchor window); `windows[0] =
+/// high`, `windows[1] = low`.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Willr {
+    const KIND: &'static str = "willr";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollMin {
+            value: min,
+            trail: mt,
+            period,
+            ..
+        }, crate::cse::ChainState::RollMax {
+            value: max,
+            trail: xt,
+            ..
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period || windows[1].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(
+            State {
+                min_state: MinState::new(*min, *mt as usize).into_warm(),
+                max_state: MaxState::new(*max, *xt as usize).into_warm(),
+            },
+            windows[0],
+            windows[1],
+            period,
+        ))
+    }
 }

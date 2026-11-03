@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -212,5 +213,13 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dema {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Dema {
+    /// The graph is leaf data — `crate::cse::recipes::dema`: two chained
+    /// `Ema`s plus the `Fma` DEMA line (`2*ema1 - ema2` as one rounding).
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::dema(options)
     }
 }

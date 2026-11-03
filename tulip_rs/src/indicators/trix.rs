@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -249,5 +250,14 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Trix {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Trix {
+    /// The graph is leaf data — `crate::cse::recipes::trix`: the tema
+    /// three-chain plus `100.0 * (ema3 - Lag(ema3, 1)) / ema3`, evaluated
+    /// in the hand's exact left-to-right order.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::trix(options)
     }
 }

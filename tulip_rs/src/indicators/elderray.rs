@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::ChainStateEma;
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -197,5 +198,28 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Elderray {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl crate::cse::Planable for Elderray {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::elderray(options)
+    }
+}
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Elderray {
+    const KIND: &'static str = "elderray";
+
+    /// Rebuild the hand `elderray::State` (a transparent `EmaState` wrapper)
+    /// from its single chain slot (`tail_inputs = [ema]`, the SAME `ema()`
+    /// chain `recipes::elderray` builds).
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [chain] = v.as_slice() else {
+            return None;
+        };
+        Some(State(chain.as_ema()))
     }
 }

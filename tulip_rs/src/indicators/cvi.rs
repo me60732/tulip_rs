@@ -181,3 +181,50 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Cvi {
         )
     }
 }
+
+impl crate::cse::Planable for Cvi {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::cvi(options)
+    }
+}
+
+/// Rebuild `cvi::State<Warm>` from the op's own chains: the same `Ema` +
+/// `RollAge` composition `trvi`/`adxr` already use, just for `cvi`'s shape
+/// (one `Ema`, one `RollAge` over it -- no extra TR/Wilders chain riding
+/// along). `recipes::cvi`'s `tail_inputs` are `[ema, old_ema]`, matching
+/// `State`'s field order (`ema_state` then `buffer`). `v[0]` is the
+/// `ChainState::Ema` carry for `ema_state`; `v[1]` is the `Node::RollAge`
+/// ring of past published EMA values `buffer` rolls over (`period` deep) --
+/// reconstructed directly from the ring's slot order + cursor, the same
+/// pattern `hma.rs`'s restorer uses for its own ring.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Cvi {
+    const KIND: &'static str = "cvi";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Ema { value, period }, crate::cse::ChainState::RollAge { ring, cursor, n }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        let period = *period as usize;
+        let capacity = *n as usize;
+        if ring.len() != capacity {
+            return None;
+        }
+        let ema_state = EmaState::new(*value, period).into_warm();
+        let index = (*cursor / 8) as usize;
+        let prev_idx = (index + capacity - 1) % capacity;
+        let buffer = Buffer::<Warm> {
+            vals: ring.clone(),
+            index,
+            capacity,
+            count: capacity,
+            prev_idx,
+            state: std::marker::PhantomData,
+        };
+        Some(State { buffer, ema_state })
+    }
+}

@@ -279,3 +279,75 @@ impl crate::cse::Planable for Adx {
         crate::cse::recipes::adx(options)
     }
 }
+
+/// Rebuild `adx::State<Warm>`: the 7-entry `v` is `recipes::adx`'s own
+/// `tail_inputs` — the first 6 entries are the same `Di`/`Dx` chains (dm's two
+/// COMPOSITE Wilders accumulators, prev_high/prev_low mirrors, the shared
+/// MEAN atr chain, prev_close mirror), rebuilt the same way `Di`'s restorer
+/// builds its `di::State` (`DMState::new` + `AtrState{..}`), wrapped in
+/// `dx::State(..)`. The 7th entry is this node's OWN `adx` Wilders carry.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Adx {
+    const KIND: &'static str = "adx";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, Wilders};
+        let (
+            dmup,
+            dmdown,
+            prev_high,
+            prev_low,
+            atr_mean,
+            atr_period,
+            prev_close,
+            adx_value,
+            adx_period,
+        ) = match v.as_slice() {
+            [Wilders {
+                value: dmup,
+                period: _,
+            }, Wilders { value: dmdown, .. }, Mirror { value: prev_high }, Mirror { value: prev_low }, Wilders {
+                value: atr_mean,
+                period: atr_period,
+            }, Mirror { value: prev_close }, Wilders {
+                value: adx_value,
+                period: adx_period,
+            }] => (
+                *dmup,
+                *dmdown,
+                *prev_high,
+                *prev_low,
+                *atr_mean,
+                *atr_period,
+                *prev_close,
+                *adx_value,
+                *adx_period,
+            ),
+            _ => return None,
+        };
+        let di_state = crate::indicators::dm::State::new(
+            dmup,
+            dmdown,
+            prev_high,
+            prev_low,
+            crate::indicators::dm::multiplier(atr_period as usize),
+        )
+        .into_warm();
+        let atr_sum = atr_mean * atr_period as f64;
+        let atr_state = crate::indicators::atr::State {
+            wilders_state: crate::indicators::wilders::State::new(atr_sum, atr_period as usize)
+                .into_warm(),
+            tr_state: crate::indicators::tr::State::new(prev_close),
+        };
+        let dx_state = DxState(crate::indicators::di::State {
+            di_state,
+            atr_state,
+        });
+        Some(State {
+            dx_state,
+            wilders_state: WildersState::new(adx_value, adx_period as usize).into_warm(),
+        })
+    }
+}

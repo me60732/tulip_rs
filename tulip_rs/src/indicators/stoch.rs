@@ -366,3 +366,52 @@ impl crate::cse::Planable for Stoch {
         crate::cse::recipes::stoch(options)
     }
 }
+
+/// The hand `State` (rolling `prev_k`/`prev_d` buffers, min/max states, sums)
+/// is fully recomputable from raw `(high, low, close)` window tails of
+/// `min_data` bars via its own `init_state` — same full-recompute technique
+/// `md`/`cci`/`stochrsi` use. `k_period`/`k_slow`/`d_period` are recovered for
+/// free from the three existing nodes' own `ChainState` (`mx`'s `RollMax`,
+/// `k_line`'s and `d_line`'s `Sma`) since all three are already live
+/// ancestors of `stoch`'s output — `tail_inputs = vec![mx, k_line, d_line]`
+/// adds no new liveness root.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Stoch {
+    const KIND: &'static str = "stoch";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollMax {
+            period: k_period, ..
+        }, crate::cse::ChainState::Sma { period: k_slow, .. }, crate::cse::ChainState::Sma {
+            period: d_period, ..
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let (k_period, k_slow, d_period) =
+            (*k_period as usize, *k_slow as usize, *d_period as usize);
+        let min_len = k_period + k_slow + d_period + 1;
+        if windows.len() < 3
+            || windows[0].len() < min_len
+            || windows[1].len() < min_len
+            || windows[2].len() < min_len
+        {
+            return None;
+        }
+        // The init loop runs `k_slow + d_period - 1` iterations; `k_line` is
+        // only written once `prev_k` (capacity `k_slow`) is full, which
+        // happens on exactly the last `d_period` of those iterations — so
+        // `d_period` entries is the exact (not merely generous) bound.
+        let mut k_scratch = vec![0.0_f64; d_period];
+        let (state, _k_count, _start) = State::init_state(
+            (windows[0], windows[1], windows[2]),
+            k_period,
+            k_slow,
+            d_period,
+            &mut k_scratch,
+        );
+        Some(IndicatorState::new(state, windows[0], windows[1], k_period))
+    }
+}

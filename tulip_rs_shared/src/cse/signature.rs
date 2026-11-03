@@ -21,7 +21,7 @@
 //! design).
 
 use crate::cse::merge::{Merged, Resolved};
-use crate::cse::recipe::{Id, Node, SinkSrc};
+use crate::cse::recipe::{AlphaShape, Id, Node, SinkSrc};
 
 pub const MAX: usize = 64;
 pub const MAX_SINKS: usize = 32;
@@ -112,6 +112,75 @@ pub const K_WHERELE: u8 = 32;
 /// `K_IIR` (which double-rounds the product) and from `K_FMA` (whose third
 /// operand is a node, not this node's own carry).
 pub const K_ACCUM: u8 = 33;
+/// Negative Volume Index recurrence (`Node::NviRecur` doc): a gated
+/// multiplicative prefix product, scalar-only (unpackable).
+pub const K_NVI: u8 = 34;
+/// Positive Volume Index recurrence (`Node::PviRecur` doc) — the mirror gate.
+pub const K_PVI: u8 = 35;
+/// Ring-backed age roll (K_ROLLAGE): publish src delayed by n bars, backed
+/// by a ring of capacity n. The published value is the raw evicted/age-read
+/// from the ring (no running sum accumulation). Same group protocol as RollSum.
+pub const K_ROLLAGE: u8 = 36;
+/// Mean Absolute Deviation rescan: `sum(|x - sma|) / period` over the window
+/// ending at this bar (`md`/`cci`'s shared source). `b` names the explicit
+/// shared `sma` operand (a `RollSum{mean:true}` node) so the mean-of-window
+/// math is read off ONE carried sum, not an internally recomputed copy.
+pub const K_MEANABSDEV: u8 = 37;
+/// KvoFlow uses tag 38 (must match `Kind::tag()` in planner.rs).
+pub const K_KVOFLOW: u8 = 38;
+/// Custom-seeded EMA (`Node::SeededEma` doc): `a`=seed node, `b`=fold
+/// (src) node. `feeds[k]` = the SEED's own lead or explicit feed override;
+/// `t == feed` seeds `st[k]` from the SEED's value, every later bar folds
+/// the FOLD node's value with the ordinary `K_EMA` step
+/// (`st.mul_add(invms, s*mults)`). `trvi`'s `ema`: seed=`high-low` (bar 0),
+/// fold=`tr` (bar 1 on). `zlema` seeds from `real[lag-1]` via an explicit
+/// feed override where the raw input's own lead is 0.
+pub const K_SEEDEDEMA: u8 = 39;
+/// One-pole HighPass recurrence (`Node::HighPass`): `a`=input, own 2-field
+/// carry (`y1`, `prev_real`) lives in the kernel's dedicated `hp_acc` array
+/// (NOT `st`/`consts` - a fresh parallel array, same shape as `kvacc`).
+/// Coefficients `(a1, a2)` ride `mults`/`invms` (constant per `period`, the
+/// same storage convention `K_IIR`'s explicit weights use). No feed gate:
+/// the hand recurrence runs unconditionally from bar 0 with a zero carry.
+pub const K_HIGHPASS: u8 = 40;
+/// Two-pole SuperSmoother recurrence (`Node::SuperSmoother`): `a`=src, own
+/// 3-field carry (`y1`, `y2`, `prev_real`) lives in the kernel's dedicated
+/// `ss_acc` array. Coefficients `(a1, a2, b0)` ride `mults`/`invms`/`st_step`
+/// (reusing SuperTrend's step slot - shape match, not identity). No feed
+/// gate, same unconditional-from-bar-0 rule as `K_HIGHPASS`.
+pub const K_SUPERSMOOTHER: u8 = 41;
+/// Hilbert in-phase tap (`Node::HtInPhase`): `a`=src (the roofing/SuperSmoother
+/// node). Shares a physical 7-tap ring with any `K_HTQUADRATURE` over the SAME
+/// `src` (lowering's `ring_src`/`member_class` group them, `RCLASS_BESPOKE`).
+/// `feeds[k]` = `leads[src]` - the ring is fed only from the bar the roofing
+/// chain itself first defines (hand `init_state` never pushes into the ring
+/// before that). Published value = ring age 3 (the centre tap).
+pub const K_HTINPHASE: u8 = 42;
+/// Hilbert quadrature FIR sum (`Node::HtQuadrature`) over the SAME shared ring
+/// `K_HTINPHASE` feeds. `C0..C3` are kind-intrinsic literals (ht_kernel), not
+/// `Values` data - both kinds are structurally identical graph leaves, only
+/// the published read differs.
+pub const K_HTQUADRATURE: u8 = 43;
+/// `linreg`'s sliding-moment carry (`Node::LinregFlow` doc). Steady is three
+/// ops with NO branch — `pub = st + src·mults[k]`, publish `pub`,
+/// `st = pub − v[sub]` — with the publish BEFORE the evict, which no `RollSum`
+/// region spells. `mults[k]` is the fold weight: `period` on the weighted line,
+/// `1.0` on the plain sum (`x * 1.0` is bit-identical to `x`, so ONE emitted
+/// shape serves both — the same trick `K_WILDERS`' composite uses). That makes
+/// the weighted/plain choice a VALUES fact like any other period, NOT
+/// structure: the two instances already differ in `b`, and `intern` keys on the
+/// whole `Node`. `feeds[k]` is the first published bar AND the seam — below it
+/// the fold runs with a bar-index weight and no eviction; because the sink lead
+/// equals the seam and the steady loop starts at `max_gate + 1`, every fold bar
+/// is a warm bar, so the JIT body never tests it. Scalar-only: one instance's
+/// `sub` is a per-lane `Lag` load.
+pub const K_LINREGFLOW: u8 = 44;
+/// Variable-alpha blend recurrence (`Node::VariableAlpha` doc): `a`=seed,
+/// `b`=src (value), `c`=mult (per-bar live blend-weight read). `feeds[k]` =
+/// the SEED's own lead or explicit feed override, same convention as
+/// `K_SEEDEDEMA`. `shape` (Ema vs Vidya fold spelling) rides structure, not
+/// VALUES, so the two spellings never collide in one signature bucket.
+pub const K_VARIABLEALPHA: u8 = 45;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -364,6 +433,25 @@ pub fn erase(
                 };
                 (K_EMA, src, 0, 0)
             }
+            Node::SeededEma {
+                seed,
+                src,
+                period,
+                feed,
+            } => {
+                let (m, i) = super::multipliers::ema_multiplier(period as usize);
+                vals.mults[k] = m;
+                vals.invms[k] = i;
+                vals.periods[k] = period;
+                vals.feeds[k] = feed.unwrap_or_else(|| {
+                    if matches!(arena.nodes[seed as usize], Node::Input { .. }) {
+                        0
+                    } else {
+                        leads[seed as usize]
+                    }
+                });
+                (K_SEEDEDEMA, seed, src, 0)
+            }
             Node::Wilders {
                 src,
                 period,
@@ -395,6 +483,31 @@ pub fn erase(
                 vals.feeds[k] = if feed { leads[src as usize] } else { 0 };
                 // mean-vs-composite changes emitted values → structure (E12 rule)
                 (K_WILDERS, src, composite as u32, 0)
+            }
+            Node::HighPass { input, period } => {
+                let (a1, a2) = super::multipliers::highpass_multiplier(period as usize);
+                vals.mults[k] = a1;
+                vals.invms[k] = a2;
+                vals.periods[k] = period;
+                (K_HIGHPASS, input, 0, 0)
+            }
+            Node::SuperSmoother { src, period } => {
+                let (a1, a2, b0) = super::multipliers::supersmoother_multiplier(period as usize);
+                vals.mults[k] = a1;
+                vals.invms[k] = a2;
+                vals.st_step[k] = b0;
+                vals.periods[k] = period;
+                (K_SUPERSMOOTHER, src, 0, 0)
+            }
+            Node::HtInPhase { src } => {
+                vals.feeds[k] = leads[src as usize];
+                vals.periods[k] = 7;
+                (K_HTINPHASE, src, 0, 0)
+            }
+            Node::HtQuadrature { src } => {
+                vals.feeds[k] = leads[src as usize];
+                vals.periods[k] = 7;
+                (K_HTQUADRATURE, src, 0, 0)
             }
             Node::Sub { a: x, b: y } => (K_SUB, x, y, 0),
             Node::Add { a: x, b: y } => (K_ADD, x, y, 0),
@@ -558,6 +671,14 @@ pub fn erase(
                 vals.feeds[k] = leads[src as usize];
                 (K_PREV, src, 0, 0)
             }
+            Node::RollAge { src, n } => {
+                // Ring-backed age roll: no carry needed (pure age-read), just
+                // the group coords for feed/evict. The ring is shared per src
+                // via the published plan; cap = period (ring capacity). No mult.
+                vals.periods[k] = n as u32;
+                vals.feeds[k] = leads[src as usize];
+                (K_ROLLAGE, src, 0, 0)
+            }
             Node::SuperTrend {
                 atr,
                 med,
@@ -601,7 +722,96 @@ pub fn erase(
                 vals.feeds[k] = leads[src as usize];
                 (K_ROLLSUM, src, 0, 0)
             }
-            _ => return None, // bespoke/rolling/feedback: later milestones
+            Node::MeanAbsDev { src, period, sma } => {
+                vals.periods[k] = period;
+                vals.feeds[k] = leads[sma as usize] + 1;
+                (K_MEANABSDEV, src, sma, 0)
+            }
+            Node::LinregFlow {
+                src,
+                sub,
+                period,
+                weighted,
+            } => {
+                // ONE emitted shape serves both of the hand's sums: the plain
+                // `sum_y` folds with weight 1.0, the weighted `sum_xy` with
+                // weight `period`, and `x * 1.0` is bit-identical to `x` for
+                // every f64 — so the difference rides `mults` and never splits
+                // the kind (same argument `K_WILDERS`' composite makes).
+                vals.periods[k] = period;
+                vals.mults[k] = if weighted { period as f64 } else { 1.0 };
+                // Seam == lead. The hand slices `real[1..]` and its first
+                // published bar is `period`, so every earlier bar only feeds
+                // the seed fold — and because the steady loop starts at
+                // `max_gate + 1`, above this seam, the emitted arm needs no
+                // warm branch at all.
+                vals.feeds[k] = leads[src as usize] + period;
+                (K_LINREGFLOW, src, sub, 0)
+            }
+            Node::NviRecur {
+                src,
+                prev_close,
+                volume,
+                prev_volume,
+            } => {
+                vals.feeds[k] = leads[src as usize]
+                    .max(leads[prev_close as usize])
+                    .max(leads[volume as usize])
+                    .max(leads[prev_volume as usize]);
+                dd = prev_volume;
+                (K_NVI, src, prev_close, volume)
+            }
+            Node::PviRecur {
+                src,
+                prev_close,
+                volume,
+                prev_volume,
+            } => {
+                vals.feeds[k] = leads[src as usize]
+                    .max(leads[prev_close as usize])
+                    .max(leads[volume as usize])
+                    .max(leads[prev_volume as usize]);
+                dd = prev_volume;
+                (K_PVI, src, prev_close, volume)
+            }
+            Node::KvoFlow {
+                high,
+                low,
+                close,
+                volume,
+            } => {
+                // Hand `init_state` loop starts at i=1, never calling
+                // `calc_vf` at i=0 (needs a "previous" hlc/hl to compare
+                // against, even though the arithmetic itself would run at
+                // bar 0) -- first valid vf bar is one past the inputs' lead.
+                vals.feeds[k] = leads[high as usize]
+                    .max(leads[low as usize])
+                    .max(leads[close as usize])
+                    .max(leads[volume as usize])
+                    + 1;
+                dd = volume;
+                (K_KVOFLOW, high, low, close)
+            }
+            Node::VariableAlpha {
+                seed,
+                src,
+                mult,
+                feed,
+                shape,
+            } => {
+                vals.feeds[k] = feed.unwrap_or_else(|| {
+                    if matches!(arena.nodes[seed as usize], Node::Input { .. }) {
+                        0
+                    } else {
+                        leads[seed as usize]
+                    }
+                });
+                dd = match shape {
+                    AlphaShape::Ema => 0,
+                    AlphaShape::Vidya => 1,
+                };
+                (K_VARIABLEALPHA, seed, src, mult)
+            }
         };
         sig.kinds[k] = kind;
         sig.a[k] = a;

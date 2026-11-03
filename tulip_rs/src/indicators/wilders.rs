@@ -87,11 +87,18 @@ impl crate::cse::Planable for Wilders {
 
 /// Rebuild the hand `wilders::State<Warm>` from the carried decayed-average
 /// value (`get_states`).
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::Wilders { value, period }] = v.as_slice() else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::Wilders(State::new(*value, *period as usize).into_warm())
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Wilders {
+    const KIND: &'static str = "wilders";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Wilders { value, period }] = v.as_slice() else {
+            return None;
+        };
+        Some(State::new(*value, *period as usize).into_warm())
+    }
 }
 
 impl TState for State<Warm> {

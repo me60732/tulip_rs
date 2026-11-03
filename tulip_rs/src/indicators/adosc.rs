@@ -311,3 +311,35 @@ impl crate::cse::Planable for Adosc {
         crate::cse::recipes::adosc(options)
     }
 }
+
+/// Rebuild `adosc::State<Warm>`: two `Ema` chains (short, long) packed into
+/// one `EmaSimdState<2>`, plus the `AdState` carried by the recipe's
+/// `Mirror{src: Node::Accum}` wrapping the shared AD total.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Adosc {
+    const KIND: &'static str = "adosc";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Ema, Mirror};
+        let (short, short_p, long, long_p, ad) = match v.as_slice() {
+            [Ema {
+                value: short,
+                period: short_p,
+            }, Ema {
+                value: long,
+                period: long_p,
+            }, Mirror { value: ad }] => (*short, *short_p, *long, *long_p, *ad),
+            _ => return None,
+        };
+        Some(State {
+            ema_state: EmaSimdState::new(
+                Simd::from_array([short, long]),
+                multiplier_simd([short_p as usize, long_p as usize]),
+            ),
+            ad_state: AdState::new(ad),
+            state: std::marker::PhantomData,
+        })
+    }
+}

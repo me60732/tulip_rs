@@ -34,9 +34,17 @@ mod tests {
     }
 
     /// Partition primitive: `apo`+`macd` share `ema12/ema24`; `natr`+`supertrend`
-    /// share the mean-`Wilders(tr)`/`tr` chain; `adx` (its `dx`/`dm` chain over
-    /// high/low) shares no *computed* node with the others when its optional
-    /// `atr`/`tr` mirrors are OFF → three disjoint groups → three sub-plans.
+    /// share the mean-`Wilders(tr)`/`tr` chain. `adx`'s own `dx`/`dm` chain over
+    /// high/low shares no *computed* node with the others, but **since the
+    /// 2026-10-26/-30 restorability work, `adx`'s recipe unconditionally grafts
+    /// the shared mean-`Wilders(tr)` chain into `tail_inputs`** (so `dx::State`/
+    /// `adx::State`, which embed the full `atr_state`, can be restored even when
+    /// the `atr`/`tr` optional outputs are off) — `tail_inputs` are liveness
+    /// roots the same as enabled sinks (`merge.rs`), so `adx` now ALWAYS joins
+    /// the `natr`/`supertrend` group, regardless of its optional-output mask.
+    /// This is the documented standalone-cost tradeoff from that work: a
+    /// request for `adx` alone now always computes the shared ATR chain, where
+    /// it previously only did so when `atr`/`tr` were explicitly requested.
     #[test]
     fn sharing_groups_splits_disjoint_panels() {
         let recipes = [
@@ -46,7 +54,9 @@ mod tests {
             Natr::recipe(&[12.0]),
             SuperTrend::recipe(&[12.0, 3.0]),
         ];
-        // primary-only: adx's atr/tr mirrors disabled ⇒ disjoint.
+        // primary-only: adx's atr/tr optional OUTPUTS are disabled, but its
+        // tail_inputs still reach the shared mean-ATR chain unconditionally
+        // (restorability graft) ⇒ it still joins the natr/supertrend group.
         let primary = groups_of(
             &recipes,
             &[
@@ -59,11 +69,13 @@ mod tests {
         );
         assert_eq!(
             primary,
-            vec![vec![0, 1], vec![2], vec![3, 4]],
-            "ema-pair / adx / mean-ATR pair are three sharing groups"
+            vec![vec![0, 1], vec![2, 3, 4]],
+            "ema-pair stays disjoint; adx's tail_inputs always reach the shared mean-ATR chain, merging it with natr/supertrend regardless of its optional-output mask"
         );
-        // With adx's optional atr/tr mirror ON, it now reaches the shared
-        // mean-`Wilders(tr)` node → joins the natr/supertrend group (2 groups).
+        // With adx's optional atr/tr mirror ON too, the group shape is
+        // unchanged (it was already merged via tail_inputs) — kept as a
+        // second assertion to document that toggling the optional mask no
+        // longer changes this particular grouping.
         let with_atr = groups_of(
             &recipes,
             &[
@@ -77,7 +89,7 @@ mod tests {
         assert_eq!(
             with_atr,
             vec![vec![0, 1], vec![2, 3, 4]],
-            "adx sharing the ATR mirror merges into the mean-ATR group"
+            "adx sharing the ATR mirror merges into the mean-ATR group (unchanged by the optional-output toggle now)"
         );
     }
 

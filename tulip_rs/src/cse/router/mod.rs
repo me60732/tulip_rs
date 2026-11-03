@@ -15,9 +15,11 @@
 //!   restorers use to hand back concrete indicator states.
 
 pub mod query;
+mod restorable;
 mod route;
 mod state_ext;
 
 pub use query::{restorer_for, IndicatorStateBox, Request, Results, RowRef, StateRestorer};
+pub use restorable::Restorable;
 pub use route::{erase_request, run_assets_registered, run_registered, AssetsOutcome, Outcome};
 pub use state_ext::ChainStateEma;

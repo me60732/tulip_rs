@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -285,5 +286,15 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Trima {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Trima {
+    /// The graph is leaf data — `crate::cse::recipes::trima`: `Sma(m1)`
+    /// over the raw price (the only src `Node::Sma` accepts) feeding a
+    /// `RollSum{mean:true}` of width `m2` over that derived sma1 line —
+    /// the SMA-of-SMA formulation, telescoping sums both ways.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::trima(options)
     }
 }

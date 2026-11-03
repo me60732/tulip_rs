@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -292,5 +293,32 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Linreg {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Linreg {
+    /// The hand keeps TWO running moments and updates them in an order no roll
+    /// can reproduce: `sum_y += value` … PUBLISH … `sum_y -= prev_value`, so
+    /// the evict lands on the CARRY and never on the printed value. `RollSum`'s
+    /// steady fold is `st += x − leave` and its init fold `(st + x) − leave`;
+    /// both evict inside what they print, and a reused roll measured 697/698
+    /// bars wrong (flat series hide it entirely — hence a non-flat gate).
+    ///
+    /// `Node::LinregFlow` is that publish-before-evict carry, instantiated
+    /// twice: `sum_y` at weight 1.0 evicting `Lag(real, period − 1)` — the
+    /// hand's `prev_value` is `real[t − period + 1]` because it runs
+    /// `cycle_linreg(&real[1..])`, and that same slice is why bar 0 is never
+    /// read — and `sum_xy` at weight `period` evicting the `sum_y` node's
+    /// same-bar output.
+    ///
+    /// The engine always takes the `calc` path (user decision 2026-10-31). That
+    /// is bit-identical to the hand called with BOTH optional flags set, and
+    /// within 9e-16 relative of the hand's default `partial_calc` path —
+    /// `partial_calc` collapses the same two moments through pre-multiplied
+    /// `xy_coef`/`y_coef`, so it is a different expression, not less work.
+    /// `tsf`'s re-published linreg row agrees with THIS path exactly
+    /// (0/595, maxabs 0.0), which is what lets the two requests intern a chain.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::linreg(options)
     }
 }

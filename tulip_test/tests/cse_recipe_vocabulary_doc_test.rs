@@ -206,6 +206,10 @@ fn every_registered_pattern_is_named_in_an_engine_gate() {
         "tulip_test/tests/cse_kernel_registry_test.rs",
         "tulip_test/tests/cse_merge_test.rs",
         "tulip_test/tests/cse_assets_test.rs",
+        // B4a probe: a synthetic, non-indicator recipe with no hand oracle
+        // (ENGINE_CHECKLIST.md). Gated against an independent reference
+        // recurrence instead of a hand indicator — see the file's own doc.
+        "tulip_test/tests/wilders_mixed_probe_test.rs",
     ] {
         gated.push_str(&read(f));
     }

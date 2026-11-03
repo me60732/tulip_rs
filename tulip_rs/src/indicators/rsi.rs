@@ -218,30 +218,37 @@ impl crate::cse::Planable for Rsi {
 /// Rebuild the hand `rsi::State<Warm>`: the two mean chains as one 2-lane
 /// Wilder state plus `prev_real`. `multiplier_simd` is recomputed from the
 /// period, never stored.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    use crate::cse::ChainState::{Mirror, Wilders};
-    let (up_sum, period, down_sum, prev_real) = match v.as_slice() {
-        // One shape: two mean chains plus the mirrored close. Anything else is a
-        // layout mismatch and must fall to `Other` — rebuilding a state from
-        // misinterpreted words is the failure this whole seam exists to prevent.
-        [Wilders {
-            value: up_sum,
-            period,
-        }, Wilders {
-            value: down_sum, ..
-        }, Mirror { value: prev_real }] => (*up_sum, *period, *down_sum, *prev_real),
-        _ => return crate::cse::IndicatorStateBox::Other,
-    };
-    // The hand's `State::new` returns `State<Cold>`; `get_states` hands back the
-    // warm form, so build it with the same two derived multipliers its
-    // `init_state` uses (derivable, therefore never stored).
-    let period = period as usize;
-    crate::cse::IndicatorStateBox::Rsi(State::<Warm> {
-        wilders_state: WildersSimdState::new(
-            Simd::from_array([up_sum, down_sum]),
-            multiplier_simd([period, period]),
-        ),
-        prev_real,
-        state: std::marker::PhantomData,
-    })
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Rsi {
+    const KIND: &'static str = "rsi";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, Wilders};
+        let (up_sum, period, down_sum, prev_real) = match v.as_slice() {
+            // One shape: two mean chains plus the mirrored close. Anything else is a
+            // layout mismatch and must fall to `None` — rebuilding a state from
+            // misinterpreted words is the failure this whole seam exists to prevent.
+            [Wilders {
+                value: up_sum,
+                period,
+            }, Wilders {
+                value: down_sum, ..
+            }, Mirror { value: prev_real }] => (*up_sum, *period, *down_sum, *prev_real),
+            _ => return None,
+        };
+        // The hand's `State::new` returns `State<Cold>`; `get_states` hands back the
+        // warm form, so build it with the same two derived multipliers its
+        // `init_state` uses (derivable, therefore never stored).
+        let period = period as usize;
+        Some(State::<Warm> {
+            wilders_state: WildersSimdState::new(
+                Simd::from_array([up_sum, down_sum]),
+                multiplier_simd([period, period]),
+            ),
+            prev_real,
+            state: std::marker::PhantomData,
+        })
+    }
 }

@@ -258,14 +258,29 @@ impl crate::cse::Planable for Wma {
 /// Rebuild the hand `wma::State<Warm>` from the group's raw `sum` (the
 /// trick's input, resolved through the leader) + this op's weighted-sum
 /// line (`get_states`).
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::Wma {
-        sum,
-        weighted,
-        period,
-    }] = v.as_slice()
-    else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::Wma(State::new(*sum, *weighted, *period as usize).into_warm())
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Wma {
+    const KIND: &'static str = "wma";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Wma {
+            sum,
+            weighted,
+            period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State::new(*sum, *weighted, period).into_warm(),
+            period,
+        ))
+    }
 }

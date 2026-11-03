@@ -318,3 +318,51 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Kvo {
         )
     }
 }
+
+impl crate::cse::Planable for Kvo {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::kvo(options)
+    }
+}
+
+/// Rebuild `kvo::State<Warm>`: the two `Node::Ema{src: vf}` chains for
+/// `short_ema`/`long_ema` (trivial `ChainState::Ema` captures), plus the
+/// `Node::KvoFlow` node's own hidden 4-field feedback carry
+/// (`cm`/`prev_hlc`/`prev_hl`/`trend`) via the new dedicated
+/// `ChainState::KvoFlow` variant — same shape as `Supertrend`'s fix for the
+/// same underlying problem (a node that only publishes one scalar
+/// downstream, hiding the rest of its recurrence state).
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Kvo {
+    const KIND: &'static str = "kvo";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Ema, KvoFlow};
+        let (short_ema, short_period, long_ema, long_period, cm, prev_hlc, prev_hl, trend) =
+            match v.as_slice() {
+                [Ema {
+                    value: s,
+                    period: sp,
+                }, Ema {
+                    value: l,
+                    period: lp,
+                }, KvoFlow {
+                    cm,
+                    prev_hlc,
+                    prev_hl,
+                    trend,
+                }] => (*s, *sp, *l, *lp, *cm, *prev_hlc, *prev_hl, *trend),
+                _ => return None,
+            };
+        Some(State {
+            short_ema: EmaState::new(short_ema, short_period as usize).into_warm(),
+            long_ema: EmaState::new(long_ema, long_period as usize).into_warm(),
+            cm,
+            prev_hlc,
+            prev_hl,
+            trend,
+        })
+    }
+}

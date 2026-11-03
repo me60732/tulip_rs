@@ -337,9 +337,30 @@ impl crate::cse::Planable for Min {
 }
 
 /// Rebuild the hand `min::State<Warm>` (carried minimum + `trail`).
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::RollMin { value, trail, .. }] = v.as_slice() else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::Min(State::new(*value, *trail as usize).into_warm())
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Min {
+    const KIND: &'static str = "min";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollMin {
+            value,
+            trail,
+            period,
+            look_back,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let periods = (*period as usize, *look_back as usize);
+        if windows[0].len() < periods.1 {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State::new(*value, *trail as usize).into_warm(),
+            periods,
+        ))
+    }
 }

@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -281,5 +282,17 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for KeltnerChannel {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for KeltnerChannel {
+    /// The graph is leaf data — `crate::cse::recipes::keltnerchannel`:
+    /// `Ema{close, period}` as the middle, ± `Mul{atr, step}` for the bands,
+    /// with `atr` from the shared `atr_nodes` walk. Three PRIMARY rows
+    /// (lower, middle, upper) at lead `period`, plus the `atr` and `tr`
+    /// optionals. `ema_atr_keltner_shared_p` interns the whole ATR chain onto
+    /// `Atr` — legal only because the hand stores the band half uncorrected.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::keltnerchannel(options)
     }
 }

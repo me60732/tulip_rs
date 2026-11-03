@@ -263,3 +263,36 @@ impl crate::cse::Planable for Dm {
         crate::cse::recipes::dm(options)
     }
 }
+
+/// Rebuild `dm::State<Warm>`: the two COMPOSITE Wilders accumulators plus
+/// the recipe's dedicated `Mirror{src: high}`/`Mirror{src: low}` pair for
+/// `prev_high`/`prev_low`.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Dm {
+    const KIND: &'static str = "dm";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, Wilders};
+        let (dmup, dmdown, period, prev_high, prev_low) = match v.as_slice() {
+            [Wilders {
+                value: dmup,
+                period,
+            }, Wilders { value: dmdown, .. }, Mirror { value: prev_high }, Mirror { value: prev_low }] => {
+                (*dmup, *dmdown, *period, *prev_high, *prev_low)
+            }
+            _ => return None,
+        };
+        Some(
+            State::new(
+                dmup,
+                dmdown,
+                prev_high,
+                prev_low,
+                multiplier(period as usize),
+            )
+            .into_warm(),
+        )
+    }
+}

@@ -270,3 +270,34 @@ pub(crate) fn calc_md_simd<const N: usize>(slice: &[f64], sma: f64, multiplier: 
 pub fn calc_md(real: &[f64], sma: f64, multiplier: f64) -> f64 {
     real.iter().map(|&x| (x - sma).abs()).sum::<f64>() * multiplier
 }
+
+impl crate::cse::Planable for Md {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::md(options)
+    }
+}
+
+/// Rebuild `md::State<S>(SmaState<S>)` from the `sma` node's own chain
+/// (`ChainState::Sma{sum, period}`) — `md`'s output node is a non-
+/// incremental rescan, never a chain to restore from.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Md {
+    const KIND: &'static str = "md";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State(SmaState::new(*sum, period).into_warm()),
+            period,
+        ))
+    }
+}

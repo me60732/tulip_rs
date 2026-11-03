@@ -283,3 +283,49 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Adxr {
         )
     }
 }
+
+impl crate::cse::Planable for Adxr {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::adxr(options)
+    }
+}
+
+/// Rebuild `adxr::State<Warm>`: the first 7 entries of `v` are
+/// `recipes::adxr`'s own copy of `adx::State`'s `tail_inputs` shape (same
+/// order `recipes::adx` emits), so they delegate straight to `Adx`'s own
+/// restorer. The 8th entry is the `Node::RollAge` ring of past published ADX
+/// values `adxr`'s `buffer` field rolls over (`period - 1` deep) --
+/// reconstructed directly from the ring's slot order + cursor, the same
+/// pattern `Hma`'s restorer uses for its own ring (see `hma.rs`).
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Adxr {
+    const KIND: &'static str = "adxr";
+
+    fn restore_state(
+        mut v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        if v.len() != 8 {
+            return None;
+        }
+        let buffer_state = v.pop()?;
+        let adx_state = <Adx as crate::cse::Restorable<3, 1>>::restore_state(v, windows)?;
+        let crate::cse::ChainState::RollAge { ring, cursor, n } = buffer_state else {
+            return None;
+        };
+        let capacity = n as usize;
+        if ring.len() != capacity {
+            return None;
+        }
+        let index = (cursor / 8) as usize;
+        let prev_idx = (index + capacity - 1) % capacity;
+        let buffer = Buffer::<Warm, f64> {
+            vals: ring,
+            index,
+            capacity,
+            count: capacity,
+            prev_idx,
+            state: std::marker::PhantomData,
+        };
+        Some(State { adx_state, buffer })
+    }
+}

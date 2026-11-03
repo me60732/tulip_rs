@@ -293,3 +293,32 @@ impl crate::cse::Planable for StochRsi {
         crate::cse::recipes::stochrsi(options)
     }
 }
+
+/// `stochrsi`'s `MirrorBuffer` holds a `period`-deep ring of PAST RSI VALUES
+/// — a derived series, not a raw input — so no existing `ChainState` shape
+/// can export it. Recomputing the entire warm `State` via `State::init_state`
+/// over a sufficiently long raw `real` tail is bit-exact: it's literally the
+/// same cold-start code path, run again. The only scalar we actually need out
+/// of the engine's captured chains is `period`, read off the `mn` node (an
+/// existing `Node::RollMin` already live in the recipe's graph — adding it to
+/// `tail_inputs` costs nothing new).
+impl crate::cse::Restorable<INPUTS, OPTIONS> for StochRsi {
+    const KIND: &'static str = "stochrsi";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollMin { period, .. }] = v.as_slice() else {
+            return None;
+        };
+        let period = *period as usize;
+        let real = windows[0];
+        if real.len() < StochRsi::min_data(&[period as f64]) {
+            return None;
+        }
+        let mut rsi_scratch = vec![0.0; real.len()];
+        let state = State::init_state(real, period, &mut rsi_scratch);
+        Some(IndicatorState::new(state, period))
+    }
+}

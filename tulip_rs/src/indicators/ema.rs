@@ -90,11 +90,16 @@ impl Planable for Ema {
     }
 }
 
-/// Rebuild the hand `ema::State` from its single chain slot (`get_states`).
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    match v.len() {
-        1 => crate::cse::IndicatorStateBox::Ema(v[0].as_ema()),
-        _ => crate::cse::IndicatorStateBox::Other,
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Ema {
+    const KIND: &'static str = "ema";
+
+    /// Rebuild the hand `ema::State` from its single chain slot (`get_states`).
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [chain] = v.as_slice() else { return None };
+        Some(chain.as_ema())
     }
 }
 

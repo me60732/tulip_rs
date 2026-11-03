@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -104,5 +105,17 @@ impl Indicator<INPUTS, OPTIONS> for Marketfi {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Marketfi {
+    /// The graph is leaf data — `crate::cse::recipes::marketfi`:
+    /// `Sub{high, low} / Max{volume, EPSILON}`, over `hlvol()` =
+    /// [High, Low, Volume], stateless. Shares its `Sub{high, low}` numerator
+    /// and the `EPSILON` constant with `bop`'s denominator once the column
+    /// remap binds both close-free — the first pair to intern ACROSS different
+    /// node kinds (`bop_marketfi_shared`).
+    fn recipe(_options: &[f64]) -> Recipe {
+        crate::cse::recipes::marketfi(_options)
     }
 }

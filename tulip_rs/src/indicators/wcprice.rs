@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -116,5 +117,13 @@ impl Indicator<INPUTS, OPTIONS> for WcPrice {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for WcPrice {
+    /// The graph is leaf data — `crate::cse::recipes::wcprice`:
+    /// `close.mul_add(2.0, high + low) * 0.25` as one `Fma`.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::wcprice(options)
     }
 }

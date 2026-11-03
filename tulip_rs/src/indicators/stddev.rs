@@ -260,14 +260,29 @@ impl crate::cse::Planable for StdDev {
 /// Rebuild the hand `stddev::State<Warm>` from the group sum + this op's
 /// `sum_sq` aux line (`get_states`). Like every rolling kind, the price
 /// window the `IndicatorState` also holds lives in `JitState.window`.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::Stddev {
-        sum,
-        sum_sq,
-        period,
-    }] = v.as_slice()
-    else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::Stddev(State::new(*sum, *sum_sq, *period as usize).into_warm())
+impl crate::cse::Restorable<INPUTS, OPTIONS> for StdDev {
+    const KIND: &'static str = "stddev";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Stddev {
+            sum,
+            sum_sq,
+            period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State::new(*sum, *sum_sq, period).into_warm(),
+            period,
+        ))
+    }
 }

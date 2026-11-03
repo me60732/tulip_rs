@@ -28,6 +28,7 @@
 //! which is not directly tradeable but is essential for cycle-period estimation.
 
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -200,5 +201,13 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for HighPass {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for HighPass {
+    /// The graph is leaf data — `crate::cse::recipes::highpass`:
+    /// `HighPass{input, period}` over the price column.
+    fn recipe(_options: &[f64]) -> Recipe {
+        crate::cse::recipes::highpass(_options)
     }
 }

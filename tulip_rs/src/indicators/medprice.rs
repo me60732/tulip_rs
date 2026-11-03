@@ -117,3 +117,19 @@ impl crate::cse::Planable for Medprice {
         crate::cse::recipes::medprice(_options)
     }
 }
+
+/// Fully stateless — `medprice::IndicatorState` is a zero-field unit
+/// struct, and the recipe carries no `tail_inputs` chain.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Medprice {
+    const KIND: &'static str = "medprice";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        if !v.is_empty() {
+            return None;
+        }
+        Some(IndicatorState)
+    }
+}

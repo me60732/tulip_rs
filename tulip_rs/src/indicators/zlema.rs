@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+pub use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -122,6 +123,12 @@ impl Indicator<INPUTS, OPTIONS> for Zlema {
         ((options[0] as usize - 1) / 2) + 1
     }
 
+    fn output_length(data_len: usize, options: &[f64; OPTIONS]) -> usize {
+        let period = options[0] as usize;
+        let lag = ((period.saturating_sub(1)) / 2).max(1);
+        data_len - lag
+    }
+
     fn indicator(
         inputs: &[&[f64]; INPUTS],
         options: &[f64; OPTIONS],
@@ -172,5 +179,11 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Zlema {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Zlema {
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::zlema(options)
     }
 }

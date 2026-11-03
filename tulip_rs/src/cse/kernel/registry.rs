@@ -47,6 +47,39 @@ tulip_rs_macros::kernel! {
     // Six distinct EMA CHAINS on one close series — the PURE multi-options
     // shape (rival: `Ema::indicator_by_options::<6>`); the packed twin
     // steps six recurrences as `Simd<f64,4>` + `Simd<f64,2>`.
+
+    // CVI = ring-backed age roll over EMA of (high-low).max(EPSILON), capacity period.
+    cvi_n: Cvi(p);
+
+    // ELDERRAY = ema(close, p) plus two Sub nodes (bull = high-ema, bear = low-ema).
+    elderray_n: Elderray(p);
+
+    // EF = ring-backed RollSum of |real[i]-real[i-1]| over a period window,
+    // guarded ratio |real[i]-real[i-p]| / sum.
+    ef_n: Ef(p);
+
+    // CHANDELIEREXIT = atr()'s mean-Wilders(tr) chain plus willr/donchian's own
+    // (p, p-1) RollMax/RollMin pair over high/low, combined with two Fma nodes.
+    chandelierexit_n: ChandelierExit(period, step);
+
+    // KVO = bespoke KvoFlow machine (4-state trend flip-flop + cm accumulator)
+    // feeding two EMA chains and a Sub. First vf seeds both EMAs directly at i==1.
+    kvo_n: Kvo(short_period, long_period);
+
+    // TRVI = SeededEma(seed: high-low range, fold: tr) + RollAge, same ring
+    // shape as cvi, but the EMA's seed and fold formulas differ (custom-seeded).
+    trvi_n: Trvi(period);
+
+    // B4a PROBE (ENGINE_CHECKLIST.md): mean-Wilders(tr) + composite-Wilders(tr),
+    // SAME source, SAME period — the one shape `classify_packed` would bucket
+    // into ONE lane group (`(Kind::Wilders, tr)`). Not a real indicator: no
+    // hand oracle, bit-exact test uses an independent reference recurrence.
+    // This is the exact shape the 2026-10-16 emitter defect was measured on
+    // (`di`'s doc, `hub_packed_twin_builds_no_lane_group`) — registering BOTH
+    // the unpacked AND packed row here is the first real exercise of it since.
+    wilders_mixed_probe_n: WildersMixedProbe(p);
+    wilders_mixed_probe_n_p: packed WildersMixedProbe(p);
+
     ema_chains: Ema(p1), Ema(p2), Ema(p3), Ema(p4), Ema(p5), Ema(p6);
     ema_chains_p: packed Ema(p1), Ema(p2), Ema(p3), Ema(p4), Ema(p5), Ema(p6);
 
@@ -88,6 +121,21 @@ tulip_rs_macros::kernel! {
     // until the vec-ring wave gives it lanes + the packed twin (ROADMAP
     // "M3-rings step C+"). Parity law: 1e-12 RELATIVE vs the hand.
     fisher_n: Fisher(p);
+    // HighPass standalone forwarder — same recurrence as used inside
+    // hilberttransform. Proven bit-exact via the existing hilbert_n test.
+    highpass_n: HighPass(period);
+    // SuperSmoother standalone forwarder — same recurrence as used inside
+    // hilberttransform (after HighPass). Proven bit-exact via the existing
+    // hilbert_n test.
+    supersmoother_n: SuperSmoother(period);
+    // RoofingFilter = HighPass(hp) -> SuperSmoother(ss) — cascades two
+    // proven nodes. Proven bit-exact via the existing hilbert_n test (the
+    // first two stages of hilberttransform).
+    roofingfilter_n: RoofingFilter(ss, hp);
+    // Hilbert Transform: HighPass(hp) -> SuperSmoother(ss) -> 7-tap Hilbert
+    // kernel. Registered alone (no sharing graph yet) to prove the new node
+    // kinds execute and restore bit-exact against the hand.
+    hilbert_n: HilbertTransform(ss, hp);
     // THE sharing showcase the old JIT failed at: AO and Fisher over ONE
     // interned medprice - co-requesting adds zero arithmetic nodes at the
     // merge (canary in cse_merge_test); one med compute and one ring feed
@@ -147,6 +195,11 @@ tulip_rs_macros::kernel! {
     // `Accum` — one running total over `clv·volume` with the hand's
     // early-return guard (`Node::WhereLe`) and a lead-0 sink. No options.
     ad: Ad();
+    // NVI/PVI: volume-gated multiplicative prefix products (negative gate:
+    // `volume < prev_volume`, positive gate: `volume > prev_volume`). Seeded
+    // 1000.0 at the bar all operands are defined, one per bar when gate fires.
+    nvi_n: Nvi();
+    pvi_n: Pvi();
     // ADOSC: the first indicator whose RECURRENCE reads a derived source
     // rather than a column — two `Ema`s chained onto the AD accumulator.
     // This is the shape the old JIT was tried with (`adosc + apo + ppo`) and
@@ -281,6 +334,10 @@ tulip_rs_macros::kernel! {
     di_n: Di(p);
     dx_n: Dx(p);
     adx_n: Adx(p);
+    // adxr = 0.5 * (adx + buffer.push_with_info(adx)): ring-backed age roll
+    // over the derived ADX line, capacity `period - 1`. The adx subgraph is
+    // shared with dm/di/dx, so one request computes directional movement ONCE.
+    adxr_n: Adxr(p);
     // THE ATR RUNG — added specifically to make `di_n`'s cost DECOMPOSABLE.
     // Measured floor (one isolated run): dm 6.09, dx 9.65, adx 11.63, DI 17.20
     // µs, where the hand runs DI in 8.48 — DI is the one shape 2x BEHIND, and it
@@ -319,6 +376,7 @@ tulip_rs_macros::kernel! {
     // four DISTINCT columns per slot, so a ranking slip moves every bar, plus a
     // flat-bar block that forces `high == low` into the `Max(_, EPSILON)` floor.
     bop_n: Bop();
+    emv_n: Emv();
     roc_n: Roc(p);
     rocr_n: Rocr(p);
     typprice_n: Typprice();
@@ -395,6 +453,8 @@ tulip_rs_macros::kernel! {
     // the acceptance half, and it is the half that has to keep working for pairings like
     // `adosc + apo` to be legal at all.
     obv_n: Obv();
+    wad_n: Wad();
+    mfi_n: Mfi(p);
     tr_obv_shared: Tr(), Obv();
     // KELTNER IS THE STRONGEST HUB IN THE REGISTRY, because what it shares is the part the
     // ATR ablation measured as expensive. Its bands hang off `atr_nodes` -- the SAME
@@ -409,6 +469,41 @@ tulip_rs_macros::kernel! {
     // AtrState), unlike adxr, whose ATR runs composite and must be scaled.
     keltnerchannel_n: KeltnerChannel(p, m);
     ema_atr_keltner_shared_p: Ema(p), Atr(p), KeltnerChannel(p, m);
+    // LINREG is the first consumer of `Node::LinregFlow`, the publish-before-
+    // evict moment carry no `RollSum` region can spell (its steady and init
+    // folds both land the leave INSIDE the published value; the hand evicts
+    // AFTER publishing). Two instances of the one kind share the arena:
+    // `sum_y` (weight 1.0, evicting `Lag(price, period-1)` — a column lag, so
+    // `Lag` applies) and `sum_xy` (weight `period`, evicting the `sum_y` NODE
+    // published the same bar). Bit-exact vs the hand on 24 series×period cells.
+    // The lane kernel carries it too (`try_run_assets` reads `st` per asset),
+    // though `lane_formula` counts it 0 so it never packs with a neighbour.
+    linreg_n: Linreg(p);
+    // TSF = the same moments, the same lead, the same evict -- its
+    // `State::init_state` seeds through `LinregState::init_state` and
+    // `cycle_tsf` calls `calc` unconditionally (its `has_optional` gates only
+    // the STORES), so the `linreg` row tsf re-publishes is the value linreg
+    // publishes. That makes this pair the one the LinregFlow node was built
+    // for: ONE chain, not two.
+    tsf_n: Tsf(p);
+    linreg_tsf_shared_p: Linreg(p), Tsf(p);
+    // FOSC = the tsf chain + `RollAge{tsf,1}` + Sub/Mul/Div. Its one published
+    // lag is the class `Lag` cannot spell (a `Lag` resolves its source to a
+    // STREAM slot, so it lags a column, never a node) -- `RollAge` is the ring
+    // kind for exactly that, proven by `trix`'s `RollAge{ema3,1}`.
+    //
+    // The hand's own structure says the chain is shared, not rebuilt:
+    // fosc's `State::init_state` seeds through `TsfState::init_state(&real[1..period],
+    // period)` and `Fosc::indicator` cycles `&real[2..]`, so `value` is bar
+    // `period+1+j` while `prev` is bar `2+j` -- the SAME `Lag(price,
+    // period-1)` evict its parents use. Only fosc's published row moves, one
+    // bar later, which is why it overrides `Fosc::min_data` to
+    // `options[0] + 2` where linreg/tsf take the default.
+    fosc_n: Fosc(p);
+    tsf_fosc_shared_p: Tsf(p), Fosc(p);
+    // The whole regression family on one column: THREE requests, ONE moment
+    // chain. Sizes are pinned by `linreg_tsf_fosc_share_one_chain`, not here.
+    linreg_tsf_fosc_shared_p: Linreg(p), Tsf(p), Fosc(p);
     // VORTEx IS THE SECOND ATR-SHARING HUB, and it shares the OTHER half: its `tr` comes
     // from the same `tr_nodes` walk over the same `hlc()` streams (0,1,2) that `Atr` builds,
     // so `Atr(p) + Vortex(p)` should carry ONE 8-node tr walk instead of two. Derived: atr
@@ -436,26 +531,17 @@ tulip_rs_macros::kernel! {
     // dema = ema1*2 - ema2 (ONE `Fma`, matching the hand's single `mul_add`),
     // tema = ema1*3 + (ema2*-3 + ema3) (TWO nested `Fma`s).
     //
-    // ZLEMA IS NOT REGISTERED, AND IT IS NOT A LEAD PROBLEM -- MEASURED. Two
-    // separate discrepancies, one cause:
-    //  · LENGTH: the arena computes lead 12 for p=9 (its `adjusted` source is
-    //    defined-from at lag=4, and `Ema(9)` over it composes to 4 + 8 = 12), where
-    //    the hand publishes from bar `lag` = 4. That is 8 rows, explainable.
-    //  · VALUES: aligning the two rows bar-for-bar still differs from the FIRST
-    //    aligned bar -- 137 mismatched bars of 688 on `wiggle()`, 132 of 668 on a
-    //    ramp, and ZERO on a flat 100.0 series. Length alone cannot do that.
-    // The cause is the START STATE, not the lead: `zlema.rs:42` seeds the EMA with
-    // `real[lag - 1]`, while the engine warms the same recurrence through
-    // `[0, gate)`. An EMA carries its seed forever -- the error never decays to zero
-    // in f64 -- so a differing start means every later bar differs, and a flat series
-    // hides it precisely because there the seed equals the warmed value.
-    // So a gate on the aligned overlap would NOT be a fair test: it would compare an
-    // engine with the right recurrence and the wrong initial state against a hand
-    // with the right initial state, and call the residue "close enough". Registering
-    // it needs a seeded-start mechanism (an Ema whose carry is initialized from a
-    // node), which is a vocabulary decision, not a recipe fix.
+    // ZLEMA now seeds its EMA via `Node::SeededEma{feed: Some(lag-1)}`, reading
+    // the raw input at bar `lag-1` (the hand's seed point, `zlema.rs:42`) instead of
+    // its natural lead 0. Publish lead = lag (`Sink::iface_lead(line, lag)`),
+    // matching the hand's `cycle` loop starting at `i = lag`. Bit-exact gate:
+    // `zlema_planable_bit_exact` tests multiple periods and series shapes.
     dema_n: Dema(p);
+    zlema_n: Zlema(p);
     tema_n: Tema(p);
+    trima_n: Trima(p);
+    trix_n: Trix(p);
+
     // THE ATR ABLATION RUNGS -- see the `atr_n` note above for why they exist.
     // `tr_n` is the pure 3-term Max/Abs subgraph over (high, low, close) with a
     // Lag{close,1}, NO recurrence; `wilders_n` is the mean-Wilders recurrence alone
@@ -472,4 +558,13 @@ tulip_rs_macros::kernel! {
     // intern the whole two-chain subgraph and one dema Fma, with tema's `dema`
     // optional row publishing the same stored stream as dema's primary.
     dema_tema_shared_p: Dema(p), Tema(p);
+    // md(p) — Mean Absolute Deviation over one stream. The hand's `calc_md_simd` /
+    // `calc_md`: sum of |x - sma| times 1/period. This is NOT incrementally
+    // updatable (unlike RollSum) because |x - mean| isn't linear — every bar
+    // requires a full rescan of the window with the CURRENT bar's sma.
+    md_n: Md(p);
+    // cci(p) — Commodity Channel Index over HLC:
+    // `(typprice - sma) / (0.015 * md)` with guard `if md == 0.0 { return 0.0 }`.
+    // The md node is MeanAbsDev over typprice (derived source from the hlc subgraph).
+    cci_n: Cci(p);
 }

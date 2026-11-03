@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -214,5 +215,17 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for ChaikinMf {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for ChaikinMf {
+    /// The graph is leaf data — `crate::cse::recipes::chaikinmf`: CLV =
+    /// `((close - low) - (high - close)) / Max{high - low, EPSILON}`, times volume,
+    /// then two `RollSum`s divided. The range `Sub` and the `EPSILON` `Const`
+    /// intern onto `Ad`'s (`ad_chaikinmf_shared`); the two NUMERATORS stay separate
+    /// on purpose — `Ad` associates its numerator differently, and merging them
+    /// would be a fabrication.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::chaikinmf(options)
     }
 }

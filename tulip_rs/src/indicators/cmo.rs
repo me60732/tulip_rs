@@ -243,20 +243,38 @@ impl crate::cse::Planable for Cmo {
 
 /// Rebuild the hand `cmo::State<Warm>`: the two raw sums plus the two lagged
 /// closes its recurrence will need on the next bar.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    use crate::cse::ChainState::{Mirror, Sma};
-    let [Sma { sum: up_sum, .. }, Sma { sum: down_sum, .. }, Mirror { value: prev }, Mirror { value: drop_real }] =
-        v.as_slice()
-    else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::Cmo(State::<Warm> {
-        up_sum: *up_sum,
-        down_sum: *down_sum,
-        prev: *prev,
-        drop_real: *drop_real,
-        state: std::marker::PhantomData,
-    })
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Cmo {
+    const KIND: &'static str = "cmo";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, Sma};
+        let [Sma {
+            sum: up_sum,
+            period,
+        }, Sma { sum: down_sum, .. }, Mirror { value: prev }, Mirror { value: drop_real }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State::<Warm> {
+                up_sum: *up_sum,
+                down_sum: *down_sum,
+                prev: *prev,
+                drop_real: *drop_real,
+                state: std::marker::PhantomData,
+            },
+            period,
+        ))
+    }
 }
 
 #[cfg(test)]

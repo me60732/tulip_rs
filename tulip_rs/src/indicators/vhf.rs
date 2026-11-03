@@ -275,3 +275,29 @@ impl crate::cse::Planable for Vhf {
         crate::cse::recipes::vhf(options)
     }
 }
+
+/// The hand `State` is fully recomputable from a raw `real` window tail of
+/// `period + 1` bars via its own `init_state` — same full-recompute
+/// technique `md`/`cci`/`stochrsi` use. `period` is recovered for free from
+/// the `highest` node's own `ChainState::RollMax` — that node is already a
+/// live ancestor of `vhf`'s output, so `tail_inputs = vec![mx]` adds no new
+/// liveness root.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Vhf {
+    const KIND: &'static str = "vhf";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollMax { period, .. }] = v.as_slice() else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows.is_empty() || windows[0].len() < period + 1 {
+            return None;
+        }
+        let mut scratch = [0.0_f64];
+        let state = State::init_state(windows[0], period, &mut scratch);
+        Some(IndicatorState::new(state, windows[0], period))
+    }
+}

@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::ChainStateEma;
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -250,5 +251,62 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Trvi {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl crate::cse::Planable for Trvi {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::trvi(options)
+    }
+}
+
+/// Rebuild `trvi::State<Warm>`: `recipes::trvi`'s `tail_inputs` are
+/// `[old_ema, ema]`, matching `State`'s field order (`buffer` then
+/// `ema_state`). `v[0]` is the `Node::RollAge` ring of past published EMA
+/// values `buffer` rolls over (`period` deep) -- reconstructed directly from
+/// the ring's slot order + cursor, the same pattern `Adxr`'s restorer uses
+/// for its own ring (see `adxr.rs`). `v[1]` is the `ChainState::Ema` carry
+/// for `ema_state`. `tr_state` doesn't need its own chain entry: the TR
+/// subgraph here uses `Node::Lag{src: close, n: 1}` for `prev_close` (not a
+/// `Mirror`), so it's cheaper to rebuild straight from the raw `close`
+/// host window (`windows[2]`, the last bar) than to export it.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Trvi {
+    const KIND: &'static str = "trvi";
+
+    fn restore_state(
+        mut v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        if v.len() != 2 {
+            return None;
+        }
+        let ema_state = v.pop()?.as_ema();
+        let buffer_state = v.pop()?;
+        let crate::cse::ChainState::RollAge { ring, cursor, n } = buffer_state else {
+            return None;
+        };
+        let capacity = n as usize;
+        if ring.len() != capacity {
+            return None;
+        }
+        let index = (cursor / 8) as usize;
+        let prev_idx = (index + capacity - 1) % capacity;
+        let buffer = Buffer::<Warm> {
+            vals: ring,
+            index,
+            capacity,
+            count: capacity,
+            prev_idx,
+            state: std::marker::PhantomData,
+        };
+        if windows[2].is_empty() {
+            return None;
+        }
+        let prev_close = windows[2][windows[2].len() - 1];
+        Some(State {
+            buffer,
+            ema_state,
+            tr_state: TrState::new(prev_close),
+        })
     }
 }

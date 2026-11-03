@@ -209,3 +209,36 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Ef {
         )
     }
 }
+
+impl crate::cse::Planable for Ef {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::ef(options)
+    }
+}
+
+/// Rebuild `ef::State<Warm>`: the `RollSum` chain for `sum`, plus the two
+/// fresh `Mirror` nodes the recipe wraps around its existing `prev`/`old`
+/// `Lag` nodes for the hand's `prev`/`drop` scalar retentions.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Ef {
+    const KIND: &'static str = "ef";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, Sma};
+        let [Sma { sum, period }, Mirror { value: prev }, Mirror { value: drop }] = v.as_slice()
+        else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State::new(*sum, *prev, *drop).into_warm(),
+            period,
+        ))
+    }
+}

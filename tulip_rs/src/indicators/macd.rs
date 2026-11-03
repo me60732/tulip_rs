@@ -189,15 +189,22 @@ impl Planable for Macd {
 
 /// Rebuild `macd::State` from the arena chains — `tail_inputs` order is the
 /// `TState` field order, so the signal chain arrives as `signal_state`.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    if v.len() != 3 {
-        return crate::cse::IndicatorStateBox::Other;
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Macd {
+    const KIND: &'static str = "macd";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [short, long, signal] = v.as_slice() else {
+            return None;
+        };
+        Some(State {
+            short_ema: short.as_ema(),
+            long_ema: long.as_ema(),
+            signal_state: signal.as_ema(),
+        })
     }
-    crate::cse::IndicatorStateBox::Macd(State {
-        short_ema: v[0].as_ema(),
-        long_ema: v[1].as_ema(),
-        signal_state: v[2].as_ema(),
-    })
 }
 
 impl Indicator<INPUTS, OPTIONS> for Macd {

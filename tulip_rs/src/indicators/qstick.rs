@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -207,5 +208,14 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for QStick {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for QStick {
+    /// The graph is leaf data — `crate::cse::recipes::qstick`: a single
+    /// `RollSum{mean:true}` over `Sub{close, open}`, over the `oc()` columns
+    /// [Open, Close]. One node, one roll, publish lead `period`.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::qstick(options)
     }
 }

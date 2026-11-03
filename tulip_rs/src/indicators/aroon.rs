@@ -263,17 +263,26 @@ impl crate::cse::Planable for Aroon {
 /// `multiplier` is recomputed from the period (derivable, never stored — same
 /// convention as the `Ema` restorers). The `high`/`low` tails the hand
 /// `IndicatorState` keeps are the engine's host anchor window (`period` bars
-/// each, since `look_back = period`).
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    match restore_lines(&v) {
-        Some(state) => crate::cse::IndicatorStateBox::Aroon(state),
-        None => crate::cse::IndicatorStateBox::Other,
+/// each, since `look_back = period`); `windows[0] = high`, `windows[1] = low`.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Aroon {
+    const KIND: &'static str = "aroon";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let (state, period) = restore_lines(&v)?;
+        if windows[0].len() < period || windows[1].len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(windows[0], windows[1], state, period))
     }
 }
 
-/// The two roll chains → the hand aroon `State<Warm>`. Shared with
-/// `aroonosc::restore_state`, whose state IS a wrapped aroon state.
-pub(crate) fn restore_lines(v: &[crate::cse::ChainState]) -> Option<State<Warm>> {
+/// The two roll chains → the hand aroon `State<Warm>` plus its `period`.
+/// Shared with `aroonosc::restore_state`, whose state IS a wrapped aroon
+/// state and which also needs the period to rebuild its own `IndicatorState`.
+pub(crate) fn restore_lines(v: &[crate::cse::ChainState]) -> Option<(State<Warm>, usize)> {
     let [crate::cse::ChainState::RollMin {
         value: min,
         trail: min_t,
@@ -287,9 +296,13 @@ pub(crate) fn restore_lines(v: &[crate::cse::ChainState]) -> Option<State<Warm>>
     else {
         return None;
     };
-    Some(State {
-        min_state: MinState::new(*min, *min_t as usize).into_warm(),
-        max_state: MaxState::new(*max, *max_t as usize).into_warm(),
-        multiplier: multiplier(*period as usize),
-    })
+    let period = *period as usize;
+    Some((
+        State {
+            min_state: MinState::new(*min, *min_t as usize).into_warm(),
+            max_state: MaxState::new(*max, *max_t as usize).into_warm(),
+            multiplier: multiplier(period),
+        },
+        period,
+    ))
 }

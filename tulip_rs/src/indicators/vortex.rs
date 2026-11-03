@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -284,5 +285,17 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Vortex {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Vortex {
+    /// The graph is leaf data — `crate::cse::recipes::vortex`: the shared
+    /// `tr_nodes` walk, plus `Abs{high - Lag{low,1}}` and
+    /// `Abs{low - Lag{high,1}}`, each into its own `RollSum`, both divided by
+    /// a THIRD `RollSum` over the same `tr`. `tail_inputs` is those three
+    /// sums; both rows publish at `period + 1`, `tr`'s optional at 1.
+    /// `atr_vortex_shared_p` interns this `tr` onto `Atr`'s own walk.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::vortex(options)
     }
 }

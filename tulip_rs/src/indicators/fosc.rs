@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -315,5 +316,33 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Fosc {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Fosc {
+    /// `fosc` is the tsf chain plus a ONE-BAR PUBLISHED LAG of the forecast.
+    /// This file's `State<Warm>::calc` computes `fosc` from `self.tsf` BEFORE
+    /// its trailing `self.tsf = tsf` overwrites it, so bar `t` divides by the
+    /// forecast printed at `t−1`.
+    ///
+    /// That is the published-lag class, so `Lag` is unavailable: `Kind::Lag`
+    /// resolves `p.nodes[node.a].a` into a stream slot and lags a COLUMN, never
+    /// a node (`trix` hit the same wall and crossed it with `RollAge{ema3,1}`).
+    /// Hence `Node::RollAge { src: tsf, n: 1 }`, whose ring is fed from the
+    /// forecast's own lead so the first published lag IS the hand's
+    /// `State::init_state` value at bar `period`.
+    ///
+    /// Steady cost over `tsf`: one ring age-read + `Sub` + `Mul` + `Div` per
+    /// bar, and nothing else -- the 14-node moment chain is interned, not
+    /// rebuilt (`State::init_state` seeds through `TsfState::init_state`, and
+    /// `Fosc::indicator`'s `&real[2..]` keeps the same `Lag(price, period-1)`
+    /// evict).
+    ///
+    /// The divide is left UNGUARDED because the hand guards nothing --
+    /// `.max(f64::EPSILON)` is commented out on its own `fosc` line -- so the
+    /// recipe adds no `Max` node, and a zero price yields the same +/-inf or
+    /// NaN the hand produces.
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::fosc(options)
     }
 }

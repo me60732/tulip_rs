@@ -339,6 +339,64 @@ impl Indicator<INPUTS, OPTIONS> for ChandelierExit {
     }
 }
 
+impl crate::cse::Planable for ChandelierExit {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::chandelierexit(options)
+    }
+}
+
+/// Rebuild `chandelierexit::State<Warm>`: the mean `Wilders(tr)` chain +
+/// `Mirror{src: close}` for `atr_state.tr_state`'s `prev_close` (same shape
+/// `atr`'s own restorer uses), the `mn`/`mx` roll chains for `min_state`/
+/// `max_state`, and the recipe's `Mirror{src: pos_step}` wrapping the
+/// `step` constant node (same Mirror-of-Const technique `bbands`' `std_dev`
+/// uses — no new `ChainState` variant needed). `windows[0] = high`,
+/// `windows[1] = low`.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for ChandelierExit {
+    const KIND: &'static str = "chandelierexit";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::{Mirror, RollMax, RollMin, Wilders};
+        let [Wilders {
+            value: atr_val,
+            period,
+        }, Mirror { value: prev_close }, RollMin {
+            value: mn_val,
+            trail: mn_trail,
+            ..
+        }, RollMax {
+            value: mx_val,
+            trail: mx_trail,
+            ..
+        }, Mirror { value: step }] = v.as_slice()
+        else {
+            return None;
+        };
+        let period = *period as usize;
+        if windows[0].len() < period || windows[1].len() < period {
+            return None;
+        }
+        let atr_state = AtrState {
+            wilders_state: crate::indicators::wilders::State::new(*atr_val, period).into_warm(),
+            tr_state: crate::indicators::tr::State::new(*prev_close),
+        };
+        Some(IndicatorState::new(
+            windows[0],
+            windows[1],
+            State {
+                atr_state,
+                min_state: MinState::new(*mn_val, *mn_trail as usize).into_warm(),
+                max_state: MaxState::new(*mx_val, *mx_trail as usize).into_warm(),
+                step: *step,
+            },
+            (period, period - 1),
+        ))
+    }
+}
+
 #[cfg(feature = "simd_options")]
 impl IndicatorByOptions<INPUTS, OPTIONS> for ChandelierExit {
     fn indicator_by_options<const N: usize>(

@@ -336,9 +336,30 @@ impl crate::cse::Planable for Max {
 /// Rebuild the hand `max::State<Warm>` from the roll's chain (the carried
 /// maximum and its `trail`). The rescan window lives in `JitState.window`,
 /// exactly like the hand `IndicatorState`'s `real` tail.
-pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::RollMax { value, trail, .. }] = v.as_slice() else {
-        return crate::cse::IndicatorStateBox::Other;
-    };
-    crate::cse::IndicatorStateBox::Max(State::new(*value, *trail as usize).into_warm())
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Max {
+    const KIND: &'static str = "max";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollMax {
+            value,
+            trail,
+            period,
+            look_back,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        let periods = (*period as usize, *look_back as usize);
+        if windows[0].len() < periods.1 {
+            return None;
+        }
+        Some(IndicatorState::new(
+            windows[0],
+            State::new(*value, *trail as usize).into_warm(),
+            periods,
+        ))
+    }
 }

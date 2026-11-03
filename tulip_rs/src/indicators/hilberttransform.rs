@@ -313,3 +313,64 @@ impl Planable for HilbertTransform {
         crate::cse::recipes::hilberttransform(options)
     }
 }
+
+/// Rebuild `hilberttransform::State<Warm>` from the engine's own chains:
+/// `HighPass`'s hidden 2-field carry, `SuperSmoother`'s hidden 3-field carry
+/// (both ride dedicated kernel-side parallel arrays, `hp_acc`/`ss_acc`, NOT
+/// `st[k]` — see `ChainState::HighPass`/`SuperSmoother` doc), and the shared
+/// 7-tap Hilbert ring `HtInPhase`/`HtQuadrature` co-own. Each coefficient set
+/// (`a1,a2` / `a1,a2,b0`) is NOT carried state — it is a pure function of
+/// `period`, recomputed here via the hand's own `multiplier()`, the same way
+/// `Ema`/`Wilders` restorers recompute their step pair from a carried
+/// `period` rather than storing the derived constant twice.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for HilbertTransform {
+    const KIND: &'static str = "hilberttransform";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::HighPass {
+            y1: hp_y1,
+            prev_real: hp_prev,
+            period: hp_period,
+        }, crate::cse::ChainState::SuperSmoother {
+            y1: ss_y1,
+            y2: ss_y2,
+            prev_real: ss_prev,
+            period: ss_period,
+        }, crate::cse::ChainState::HtRing { ring }] = v.as_slice()
+        else {
+            return None;
+        };
+        if ring.len() != 7 {
+            return None;
+        }
+        let (hp_a1, hp_a2) = crate::indicators::highpass::multiplier(*hp_period as usize);
+        let hp_state = crate::indicators::highpass::State {
+            y1: *hp_y1,
+            prev_real: *hp_prev,
+            a1: hp_a1,
+            a2: hp_a2,
+        };
+        let (ss_a1, ss_a2, ss_b0) =
+            crate::indicators::supersmoother::multiplier(*ss_period as usize);
+        let ss_state = crate::indicators::supersmoother::State {
+            y1: *ss_y1,
+            y2: *ss_y2,
+            prev_real: *ss_prev,
+            a1: ss_a1,
+            a2: ss_a2,
+            b0: ss_b0,
+        };
+        let rf_state = RfSate { hp_state, ss_state };
+        let mut buffer: FixedRingBuffer<f64, 7, Cold> = FixedRingBuffer::new();
+        for &x in ring {
+            buffer.push(x);
+        }
+        Some(State {
+            rf_state,
+            buffer: buffer.into_full(),
+        })
+    }
+}

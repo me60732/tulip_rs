@@ -23,7 +23,10 @@
 //! `Values::ring_cap` at the group's leader slot. This module owns the
 //! partition, the class, and the laws that follow from the class.
 
-use super::signature::{K_CONST, K_HMA, K_INPUT, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_UNUSED, MAX};
+use super::signature::{
+    K_CONST, K_HMA, K_HTINPHASE, K_HTQUADRATURE, K_INPUT, K_MEANABSDEV, K_ROLLMAX, K_ROLLMIN,
+    K_ROLLSUM, K_UNUSED, MAX,
+};
 
 /// The slot is not ring-backed (not a roll at all, or a price-sourced
 /// extremum, whose window is a stream slice — the hand's `max.rs` pointer
@@ -53,24 +56,28 @@ pub const RCLASS_BESPOKE: u8 = 3;
 const fn ring_src(kinds: &[u8; MAX], a: &[u32; MAX], k: usize) -> usize {
     match kinds[k] {
         K_ROLLSUM => a[k] as usize,
-        K_ROLLMAX | K_ROLLMIN => {
+        K_ROLLMAX | K_ROLLMIN | K_MEANABSDEV => {
             if kinds[a[k] as usize] == K_INPUT {
                 usize::MAX
             } else {
                 a[k] as usize
             }
         }
-        K_HMA => k,
+        K_HMA | crate::cse::signature::K_ROLLAGE | crate::cse::signature::K_KVOFLOW => k,
+        K_HTINPHASE | K_HTQUADRATURE => a[k] as usize,
         _ => usize::MAX,
     }
 }
 
 /// A member's own class contribution: a rescan-capable extremum lifts its
-/// whole group; the HMA machine is bespoke (and alone in its group).
+/// whole group; the HMA and RollAge machines are bespoke (and alone in their groups).
 const fn member_class(kinds: &[u8; MAX], k: usize) -> u8 {
     match kinds[k] {
-        K_ROLLMAX | K_ROLLMIN => RCLASS_RESCAN,
-        K_HMA => RCLASS_BESPOKE,
+        K_ROLLMAX | K_ROLLMIN | K_MEANABSDEV => RCLASS_RESCAN,
+        K_HMA | crate::cse::signature::K_ROLLAGE | crate::cse::signature::K_KVOFLOW => {
+            RCLASS_BESPOKE
+        }
+        K_HTINPHASE | K_HTQUADRATURE => RCLASS_BESPOKE,
         _ => RCLASS_SUM,
     }
 }

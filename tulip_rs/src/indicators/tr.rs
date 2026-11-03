@@ -157,3 +157,19 @@ impl crate::cse::Planable for Tr {
         crate::cse::recipes::tr(_options)
     }
 }
+
+/// Rebuild `tr::State`: `prev_close` is the recipe's one `Mirror{src: close}`.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Tr {
+    const KIND: &'static str = "tr";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::Mirror;
+        match v.as_slice() {
+            [Mirror { value }] => Some(State::new(*value)),
+            _ => None,
+        }
+    }
+}

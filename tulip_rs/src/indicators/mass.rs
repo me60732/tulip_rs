@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::ChainStateEma;
 use crate::indicators::ema::{calc as calc_ema, State as EmaState};
 
 #[cfg(feature = "simd_options")]
@@ -228,5 +229,64 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Mass {
 impl crate::cse::Planable for Mass {
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         crate::cse::recipes::mass(options)
+    }
+}
+
+/// Rebuild the hand mass::State<Warm> from the three tail chains, in
+/// recipes::mass's tail_inputs order (ema, ema_signal, sum): ema_state comes
+/// straight off the ema node's ChainState::Ema via the shared as_ema()
+/// helper (same technique ema/apo/macd already use); ema_signal is a bare
+/// f64 read off the ema_signal node's OWN ChainState::Ema::value (mass's
+/// hand state stores it as a plain f64, not a whole EmaState); sum's ring is
+/// read through the new ChainState::RollSumRing -- the ring's raw slot
+/// order + cursor rebuild buffer: Buffer<Warm> directly, the same cursor / 8
+/// convention Hma/Adxr's restorers use (all Buffer fields are pub(crate),
+/// so the same-crate module rebuilds it exactly).
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Mass {
+    const KIND: &'static str = "mass";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [ema_chain, ema_signal_chain, sum_chain] = v.as_slice() else {
+            return None;
+        };
+        let ema_state = ema_chain.as_ema();
+        let crate::cse::ChainState::Ema {
+            value: ema_signal, ..
+        } = ema_signal_chain
+        else {
+            return None;
+        };
+        let crate::cse::ChainState::RollSumRing {
+            sum,
+            ring,
+            cursor,
+            period,
+        } = sum_chain
+        else {
+            return None;
+        };
+        let capacity = *period as usize;
+        if ring.len() != capacity || capacity == 0 {
+            return None;
+        }
+        let index = (*cursor / 8) as usize;
+        let prev_idx = (index + capacity - 1) % capacity;
+        let buffer = Buffer::<Warm> {
+            vals: ring.clone(),
+            index,
+            capacity,
+            count: capacity,
+            prev_idx,
+            state: std::marker::PhantomData,
+        };
+        Some(State {
+            buffer,
+            ema_state,
+            ema_signal: *ema_signal,
+            sum: *sum,
+        })
     }
 }

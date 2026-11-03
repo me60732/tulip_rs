@@ -149,3 +149,27 @@ impl crate::cse::Planable for Mom {
         crate::cse::recipes::mom(options)
     }
 }
+
+/// `mom::IndicatorState` carries no engine chain at all — its hand state is
+/// a raw window of the last `p` `real` values (see the recipe's own doc:
+/// `tail_inputs` stays empty). `period` isn't recoverable from `v` (there's
+/// nothing to destructure), but the host-side window IS exactly `period`
+/// bars long by construction (`IndicatorState::new` stores
+/// `real[real.len() - period..]`), so `windows[0].len()` IS `period`.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Mom {
+    const KIND: &'static str = "mom";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        if !v.is_empty() {
+            return None;
+        }
+        let period = windows[0].len();
+        if period == 0 {
+            return None;
+        }
+        Some(IndicatorState::new(windows[0], period))
+    }
+}

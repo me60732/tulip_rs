@@ -155,3 +155,29 @@ impl Indicator<INPUTS, OPTIONS> for Nvi {
         )
     }
 }
+
+impl crate::cse::Planable for Nvi {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::nvi(options)
+    }
+}
+
+/// Rebuild `nvi::State`: the recipe's three `Mirror` nodes (`nvi`, `close`,
+/// `volume`), each a scalar retention. `nvi`'s own `Node::NviRecur` has no
+/// `ChainState` mapping, so it's captured through a `Mirror` wrapper too.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Nvi {
+    const KIND: &'static str = "nvi";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::Mirror;
+        match v.as_slice() {
+            [Mirror { value: nvi }, Mirror { value: close }, Mirror { value: volume }] => {
+                Some(State::new(*nvi, *close, *volume))
+            }
+            _ => None,
+        }
+    }
+}

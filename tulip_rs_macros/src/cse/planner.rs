@@ -94,14 +94,42 @@ pub enum Kind {
     /// Ring-backed rolling sum over any source (derived included) — the
     /// emitter's `K_ROLLSUM` arm; group/capacity ride `Values` at runtime.
     RollSum,
+    /// Ring-backed age roll (publish src delayed by n bars, backed by a ring
+    /// of capacity n). The published value is the raw evicted/age-read from
+    /// the ring. Same group protocol as RollSum — `K_ROLLAGE`.
+    RollAge,
     /// The bespoke Hull MA machine (two inner WMA engines + diff ring) —
     /// `K_HMA`; everything it needs rides `Values` per the erase arm.
     Hma,
+    /// Bespoke KVO flow machine: 4-state recurrence (trend flip-flop, cm
+    /// accumulator). Output is vf; EMAs and diff are separate nodes.
+    KvoFlow,
+    /// Negative Volume Index recurrence, scalar-only -- K_NVI (34).
+    NviRecur,
+    /// Positive Volume Index recurrence, the mirror gate -- K_PVI (35).
+    PviRecur,
+    /// Mean Absolute Deviation rescan over a shared sma operand -- K_MEANABSDEV (37).
+    MeanAbsDev,
     /// Zero-op identity copy of its source — `K_MIRROR` (12). The hand's
     /// state mirrors (rsi's `prev_real`, cmo's `prev`/`drop_real`): the
     /// value exists for the chunk-exit state store (`get_states`, M1), so
     /// the steady loop computes it and stores nothing.
     Mirror,
+    /// Custom-seeded EMA (`Node::SeededEma` doc): `a`=seed, `b`=fold src —
+    /// `K_SEEDEDEMA` (39).
+    SeededEma,
+    /// One-pole HighPass recurrence (`Node::HighPass` doc) — `K_HIGHPASS` (40).
+    HighPass,
+    /// Two-pole SuperSmoother recurrence (`Node::SuperSmoother` doc) —
+    /// `K_SUPERSMOOTHER` (41).
+    SuperSmoother,
+    /// Hilbert in-phase tap (centre of the shared 7-tap ring) — `K_HTINPHASE` (42).
+    HtInPhase,
+    /// Hilbert quadrature FIR sum over the shared 7-tap ring — `K_HTQUADRATURE` (43).
+    HtQuadrature,
+    /// linreg's sliding-moment carry — `K_LINREGFLOW` (44). Scalar-only: one
+    /// instance's `sub` is a per-lane `Lag` load and the fold owns a `st` cell.
+    LinregFlow,
 }
 
 impl Kind {
@@ -132,6 +160,7 @@ impl Kind {
             Kind::WhereGt => 31,
             Kind::WhereLe => 32,
             Kind::Accum => 33,
+            Kind::RollAge => 36,
             Kind::Fma => 14,
             Kind::Ln => 26,
             Kind::Iir => 27,
@@ -139,7 +168,17 @@ impl Kind {
             Kind::Prev => 29,
             Kind::RollSum => 24,
             Kind::Hma => 25,
+            Kind::KvoFlow => 38,
+            Kind::NviRecur => 34,
+            Kind::PviRecur => 35,
+            Kind::MeanAbsDev => 37,
             Kind::Mirror => 12,
+            Kind::SeededEma => 39,
+            Kind::HighPass => 40,
+            Kind::SuperSmoother => 41,
+            Kind::HtInPhase => 42,
+            Kind::HtQuadrature => 43,
+            Kind::LinregFlow => 44,
         }
     }
 }
@@ -308,6 +347,22 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Sma" => recipes::sma(&opts),
             "Stddev" => recipes::stddev(&opts),
             "Wma" => recipes::wma(&opts),
+            // linreg always runs the hand's `calc` path, never `partial_calc`
+            // (user decision 2026-10-31): the primary row is then bit-identical
+            // to `tsf`'s re-published linreg row (measured 0/595, maxabs 0.0),
+            // which is what lets `linreg + tsf` intern that chain. The hand's
+            // `partial_calc` spelling differs from `calc` by <=9e-16 relative,
+            // so the published bits move inside the authorised 1e-12 tolerance.
+            "Linreg" => recipes::linreg(&opts),
+            // TSF is the SAME sub-chain as LINREG plus one `Fma` (see
+            // `recipes::tsf`), so this pair is the sharing the LinregFlow node
+            // exists to enable -- both recipes build their moments through one
+            // helper, so the arena nodes intern rather than duplicate.
+            "Tsf" => recipes::tsf(&opts),
+            // FOSC is the tsf chain + one published-lag of the forecast
+            // (`RollAge{tsf,1}`) + three arithmetic nodes; it overrides
+            // `min_data` (lead `period + 1`), unlike its two parents.
+            "Fosc" => recipes::fosc(&opts),
             "Bbands" => recipes::bbands(&opts),
             "Max" => recipes::max(&opts),
             "Min" => recipes::min(&opts),
@@ -335,6 +390,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Roc" => recipes::roc(&opts),
             "Rocr" => recipes::rocr(&opts),
             "Bop" => recipes::bop(&opts),
+            "Emv" => recipes::emv(&opts),
             "Typprice" => recipes::typprice(&opts),
             "WcPrice" => recipes::wcprice(&opts),
             "AvgPrice" => recipes::avgprice(&opts),
@@ -348,21 +404,41 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             // arm and no row -- so `Vhf::recipe(...)` handed back a graph that could never
             // route to a kernel, which is worse than not implementing Planable at all.
             "Vhf" => recipes::vhf(&opts),
+            "Cvi" => recipes::cvi(&opts),
+            "Kvo" => recipes::kvo(&opts),
+            "Trvi" => recipes::trvi(&opts),
+            "WildersMixedProbe" => recipes::wilders_mixed_probe(&opts),
+            "Nvi" => recipes::nvi(&opts),
+            "Pvi" => recipes::pvi(&opts),
+            "Adxr" => recipes::adxr(&opts),
+            "ChandelierExit" => recipes::chandelierexit(&opts),
+            "Elderray" => recipes::elderray(&opts),
+            "Ef" => recipes::ef(&opts),
+            "Md" => recipes::md(&opts),
+            "Cci" => recipes::cci(&opts),
             "Vwap" => recipes::vwap(&opts),
             "SmaEnvelope" => recipes::smaenvelope(&opts),
             "Obv" => recipes::obv(&opts),
+            "Wad" => recipes::wad(&opts),
+            "Mfi" => recipes::mfi(&opts),
             "KeltnerChannel" => recipes::keltnerchannel(&opts),
             "Vortex" => recipes::vortex(&opts),
             "Marketfi" => recipes::marketfi(&opts),
             "Dema" => recipes::dema(&opts),
             "Tema" => recipes::tema(&opts),
             "Zlema" => recipes::zlema(&opts),
+            "Trima" => recipes::trima(&opts),
+            "Trix" => recipes::trix(&opts),
             // The two ATR ABLATION RUNGS. `recipes::tr` and `recipes::wilders` had
             // zero callers outside the grafts, so `atr_n`'s cost could never be
             // decomposed: atr = tr subgraph + mean-Wilders(tr), and until each half
             // can run alone, "why is atr 1.60x behind" has no denominator.
             "Tr" => recipes::tr(&opts),
             "Wilders" => recipes::wilders(&opts),
+            "HighPass" => recipes::highpass(&opts),
+            "SuperSmoother" => recipes::supersmoother(&opts),
+            "RoofingFilter" => recipes::roofingfilter(&opts),
+            "HilbertTransform" => recipes::hilberttransform(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
         built.push(r);
@@ -430,9 +506,55 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
                 ANode::new_simple(Kind::RollSum, src as usize, 0)
             }
             Node::Hma { src, .. } => ANode::new_simple(Kind::Hma, src as usize, 0),
+            Node::KvoFlow {
+                high,
+                low,
+                close,
+                volume,
+            } => ANode {
+                kind: Kind::KvoFlow,
+                a: high as usize,
+                b: low as usize,
+                c: Some(close as usize),
+                d: volume as usize,
+                e: 0,
+            },
             Node::Ln { src } => ANode::new_simple(Kind::Ln, src as usize, 0),
             Node::Iir { src, .. } => ANode::new_simple(Kind::Iir, src as usize, 0),
             Node::Prev { src } => ANode::new_simple(Kind::Prev, src as usize, 0),
+            Node::RollAge { src, n: _ } => ANode::new_simple(Kind::RollAge, src as usize, 0),
+            Node::NviRecur {
+                src,
+                prev_close,
+                volume,
+                prev_volume,
+            } => ANode {
+                kind: Kind::NviRecur,
+                a: src as usize,
+                b: prev_close as usize,
+                c: Some(volume as usize),
+                d: prev_volume as usize,
+                e: 0,
+            },
+            Node::PviRecur {
+                src,
+                prev_close,
+                volume,
+                prev_volume,
+            } => ANode {
+                kind: Kind::PviRecur,
+                a: src as usize,
+                b: prev_close as usize,
+                c: Some(volume as usize),
+                d: prev_volume as usize,
+                e: 0,
+            },
+            Node::MeanAbsDev { src, sma, .. } => {
+                ANode::new_simple(Kind::MeanAbsDev, src as usize, sma as usize)
+            }
+            Node::LinregFlow { src, sub, .. } => {
+                ANode::new_simple(Kind::LinregFlow, src as usize, sub as usize)
+            }
             Node::IirClamped {
                 src,
                 hi_t,
@@ -451,6 +573,15 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             Node::SuperTrend {
                 atr, med, close, ..
             } => ANode::new_three(Kind::SuperTrend, atr as usize, med as usize, close as usize),
+            Node::SeededEma { seed, src, .. } => {
+                ANode::new_simple(Kind::SeededEma, seed as usize, src as usize)
+            }
+            Node::HighPass { input, .. } => ANode::new_simple(Kind::HighPass, input as usize, 0),
+            Node::SuperSmoother { src, .. } => {
+                ANode::new_simple(Kind::SuperSmoother, src as usize, 0)
+            }
+            Node::HtInPhase { src } => ANode::new_simple(Kind::HtInPhase, src as usize, 0),
+            Node::HtQuadrature { src } => ANode::new_simple(Kind::HtQuadrature, src as usize, 0),
             other => {
                 panic!("kernel!: arena node `{other:?}` is not covered by the fused emitter yet")
             }

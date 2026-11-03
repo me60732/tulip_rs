@@ -31,6 +31,7 @@
 //! high-quality low-pass filter for any price series.
 
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -216,5 +217,13 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for SuperSmoother {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for SuperSmoother {
+    /// The graph is leaf data — `crate::cse::recipes::supersmoother`:
+    /// `SuperSmoother{src, period}` over the price column.
+    fn recipe(_options: &[f64]) -> Recipe {
+        crate::cse::recipes::supersmoother(_options)
     }
 }

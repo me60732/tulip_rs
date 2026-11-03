@@ -149,3 +149,19 @@ impl crate::cse::Planable for Ad {
         crate::cse::recipes::ad(options)
     }
 }
+
+/// Rebuild `ad::State`: the recipe's one `Mirror{src: Node::Accum}` wrapping
+/// the running AD total.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Ad {
+    const KIND: &'static str = "ad";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Mirror { value }] = v.as_slice() else {
+            return None;
+        };
+        Some(State::new(*value))
+    }
+}
