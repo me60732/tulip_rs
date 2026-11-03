@@ -837,6 +837,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let w = v[SIG.c[k] as usize]; // live weight from mult node
                         st[k] = if SIG.d[k] == 0 {
                             st[k].mul_add(1.0 - w, s * w)
+                        } else if t == feed + 1 {
+                            // hand `vidya.rs::init_state`'s FIRST published bar is
+                            // spelled with plain multiply/add, NOT `mul_add` --
+                            // every later bar (`cycle`'s steady `calc`) uses
+                            // `mul_add`. A genuine one-bar spelling asymmetry in
+                            // the hand itself, not a recipe choice.
+                            (s - st[k]) * w + st[k]
                         } else {
                             (s - st[k]).mul_add(w, st[k])
                         };
@@ -904,7 +911,20 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let s = src[t];
                         st[k] += s;
                         sumsq[k] = s.mul_add(s, sumsq[k]);
-                        0.0
+                        if t as u32 == vals.feeds[k] {
+                            // One-time naive stat (vidya's long_stddev feed
+                            // override): the accumulate step above already
+                            // completed this bar's addition, so st[k]/sumsq[k]
+                            // here equal the hand's naive sum/sum_sq over
+                            // `real[0..=t]`, exactly `vidya.rs`'s `init_state`.
+                            // hand init_state spelling exactly: plain
+                            // multiply/subtract, NOT mul_add, and no
+                            // epsilon floor at this one-time naive bar.
+                            let sma = st[k] * m;
+                            (sumsq[k] * m - sma * (st[k] * m)).sqrt()
+                        } else {
+                            0.0
+                        }
                     } else {
                         let s = src[t];
                         let prev = src[t - p];

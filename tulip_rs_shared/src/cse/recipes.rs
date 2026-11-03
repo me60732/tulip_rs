@@ -1571,20 +1571,32 @@ pub fn wma(options: &[f64]) -> Recipe {
 /// `sum_sq` carries, hand `calc` op for op); its optional SMA line is the
 /// SAME `Sma` node the standalone request builds, so CSE gives ONE
 /// recurrence with two mirrors. Lead = `period` for both rows.
-pub fn stddev(options: &[f64]) -> Recipe {
-    let period = options[0] as u32;
+/// Shared builder behind `stddev()` and `vidya()`'s two internal subgraphs --
+/// `feed`, when set, overrides the `Stddev` node's early-publish bar (see
+/// `Node::Stddev`'s doc); `stddev()` itself always passes `None`.
+fn stddev_recipe(period: u32, feed: Option<u32>) -> Recipe {
     let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
-    let sd = r.add(Node::Stddev { src: close, period });
+    let sd = r.add(Node::Stddev {
+        src: close,
+        period,
+        feed,
+    });
     r.tag(sd, "stddev");
     let m = r.add(Node::Sma { src: close, period });
     r.tag(m, "sma");
     r.kind = "stddev";
-    r.options = options.to_vec();
     r.tail_inputs = vec![sd];
-    r.outputs.push(Sink::iface_lead(sd, period));
+    r.outputs.push(Sink::iface_lead(sd, feed.unwrap_or(period)));
     r.optional_outputs.push(Sink::iface_lead(m, period));
+    r
+}
+
+pub fn stddev(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = stddev_recipe(period, None);
+    r.options = options.to_vec();
     r
 }
 
@@ -1602,7 +1614,11 @@ pub fn bbands(options: &[f64]) -> Recipe {
     r.tag(close, "price");
     let m = r.add(Node::Sma { src: close, period });
     r.tag(m, "middle");
-    let sd = r.add(Node::Stddev { src: close, period });
+    let sd = r.add(Node::Stddev {
+        src: close,
+        period,
+        feed: None,
+    });
     r.tag(sd, "stddev");
     let k = r.constant(range);
     r.tag(k, "range");
@@ -4250,11 +4266,11 @@ pub fn vidya(options: &[f64]) -> Recipe {
 
     // Build two Node::Stddev subgraphs (short_period, long_period) over `real`.
     // Copy the exact pattern from bbands recipe for stddev construction.
-    let short_stddev = stddev(&[short_period as f64]);
+    let short_stddev = stddev_recipe(short_period, None);
     let short_graph = r.sub_graph(short_stddev, &[0]);
     let short_sd_id = short_graph.outputs[0];
 
-    let long_stddev = stddev(&[long_period as f64]);
+    let long_stddev = stddev_recipe(long_period, Some(long_period - 1));
     let long_graph = r.sub_graph(long_stddev, &[0]);
     let long_sd_id = long_graph.outputs[0];
 
@@ -4312,10 +4328,14 @@ pub fn vidya(options: &[f64]) -> Recipe {
     // deliberately declares lead=period (one past the structural minimum,
     // `StdDev::min_data == period+1` in the hand), and `iface()` would silently
     // discard that +1 convention, publishing one bar too early.
-    r.optional_outputs.push(Sink::iface_lead(short_sma, short_period));
-    r.optional_outputs.push(Sink::iface_lead(long_sma, long_period));
-    r.optional_outputs.push(Sink::iface_lead(short_sd_id, short_period));
-    r.optional_outputs.push(Sink::iface_lead(long_sd_id, long_period));
+    r.optional_outputs
+        .push(Sink::iface_lead(short_sma, short_period));
+    r.optional_outputs
+        .push(Sink::iface_lead(long_sma, long_period));
+    r.optional_outputs
+        .push(Sink::iface_lead(short_sd_id, short_period));
+    r.optional_outputs
+        .push(Sink::iface_lead(long_sd_id, long_period));
 
     r
 }
@@ -4367,4 +4387,3 @@ pub fn ef(options: &[f64]) -> Recipe {
     r.outputs.push(Sink::iface_lead(ef, period));
     r
 }
-

@@ -326,6 +326,14 @@ pub enum Node {
     Stddev {
         src: Id,
         period: Id,
+        /// When `Some(bar)`, the node ALSO publishes a one-time "naive" two-moment
+        /// stat at that absolute bar index, computed from the accumulated
+        /// `sum`/`sum_sq` BEFORE any roll (evict/add) step has run -- used by
+        /// `vidya`, whose first published value needs the hand's naive stddev
+        /// over `real[0..=long_period-1]` one bar earlier than the ordinary
+        /// roll would otherwise become valid. `None` (every other caller)
+        /// preserves the original behavior exactly: 0.0 until bar `period`.
+        feed: Option<u32>,
     },
     RollSum {
         src: Id,

@@ -1688,22 +1688,31 @@ fn run_fn(p: &Pattern) -> TokenStream {
             }
             Kind::VariableAlpha => {
                 // EMA-style carry whose blend weight is a LIVE per-bar node
-                // value (node.c), not a recipe-time constant — so unlike
-                // Ema/SeededEma there is no `mults`/`invms` hoist, only the
-                // carry slot. No seed-bar branch is needed here: the steady
-                // loop only ever runs at t > feed (same proof as SeededEma —
-                // `gate` is strictly above the seed bar by construction), so
-                // this arm always emits the post-seed fold, matching
-                // `warmup.rs`'s `K_VARIABLEALPHA` `else` branch exactly.
+                // value (node.c), not a recipe-time constant -- so unlike
+                // Ema/SeededEma there is no mults/invms hoist, only the carry
+                // slot. No seed-bar branch is needed for validity (the steady
+                // loop only ever runs at t > feed), BUT the Vidya shape's
+                // hand (vidya.rs::init_state) spells its FIRST published bar
+                // with plain multiply/add, not mul_add -- every later bar
+                // (cycle's steady calc) uses mul_add. A genuine one-bar
+                // spelling asymmetry in the hand itself, not a recipe choice.
                 // SIG.d (node.d) selects the fold shape: 0=Ema, 1=Vidya.
                 let ident_k = idents[k].clone();
                 let ck = format_ident!("{}_carry", ident_k);
+                let ki = k;
                 let src = ev(node.b, &idents);
                 let w = ev(node.c.expect("VariableAlpha requires c (mult)"), &idents);
                 let step = if node.d == 0 {
                     quote! { #ck = #ck.mul_add(1.0 - #w, #src * #w); #ck }
                 } else {
-                    quote! { #ck = (#src - #ck).mul_add(#w, #ck); #ck }
+                    quote! {
+                        #ck = if gate + i == vals.feeds[#ki] as usize + 1 {
+                            (#src - #ck) * #w + #ck
+                        } else {
+                            (#src - #ck).mul_add(#w, #ck)
+                        };
+                        #ck
+                    }
                 };
                 body.push(quote! {
                     let #xk = { #step };
@@ -2854,14 +2863,24 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
             Kind::VariableAlpha => {
                 // Lane fold: src is `#eb` (node.b), live weight is node.c
                 // (not pre-bound above, read fresh here same as the scalar
-                // arm). No seed-bar branch — see the scalar arm's comment
-                // for the proof (gate is always strictly above feed).
+                // arm). No seed-bar branch for validity (gate is always
+                // strictly above feed). The Vidya shape's one-bar spelling
+                // asymmetry (see the scalar arm's comment) applies per-lane
+                // too, using the splatted first-fold-bar mask.
                 let ck = format_ident!("{}_carry", idents[k]);
                 let ec = ev(node.c.expect("VariableAlpha: mult operand"), &idents);
+                let ki = k;
                 let step = if node.d == 0 {
                     quote! { #ck = #ck.mul_add(Simd::<f64, L>::splat(1.0) - #ec, #eb * #ec); #ck }
                 } else {
-                    quote! { #ck = (#eb - #ck).mul_add(#ec, #ck); #ck }
+                    quote! {
+                        #ck = if gate + i == vals.feeds[#ki] as usize + 1 {
+                            (#eb - #ck) * #ec + #ck
+                        } else {
+                            (#eb - #ck).mul_add(#ec, #ck)
+                        };
+                        #ck
+                    }
                 };
                 body.push(quote! {
                     let #xk = { #step };

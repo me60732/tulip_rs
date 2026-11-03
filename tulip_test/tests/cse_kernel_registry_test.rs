@@ -5750,7 +5750,7 @@ mod tests {
     /// Un-ignore once one of those is built; see `ENGINE_CHECKLIST.md`'s F1
     /// vidya entry for the live status.
     #[test]
-    #[ignore = "vidya primary needs seed-bar-naive-then-roll stddev duality -- see ENGINE_CHECKLIST.md F1"]
+    #[ignore = "vidya PRIMARY row now bit-exact-close (long_stddev feed override + first-fold-bar plain-arith fixed 2026-11-03); SHORT_stddev over range (short_period, long_period) is still the blocker -- hand init_state spells its short-window roll with plain multiply/subtract (no mul_add), switching to the normal mul_add StddevState::calc only once cycle takes over at long_period. See ENGINE_CHECKLIST.md F1 vidya entry."]
     fn vidya_planable_bit_exact() {
         use tulip_rs::indicators::vidya::Vidya;
         const OPTS: [([f64; 3], &[&str]); 3] = [

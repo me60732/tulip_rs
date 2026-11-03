@@ -585,14 +585,19 @@ pub fn erase(
                 vals.periods[k] = period;
                 (K_SMA, src, 0, 0)
             }
-            Node::Stddev { src, period } => {
+            Node::Stddev { src, period, feed } => {
                 // Self-contained two-moment node (sum + sum-of-squares),
-                // same price-source rule as `Sma`.
+                // same price-source rule as `Sma`. `feeds[k]` was unused by
+                // K_STDDEV before this field existed -- repurposed here to
+                // carry the optional naive-stat early-publish bar; `None`
+                // defaults to `period`, a value `warmup.rs`'s `t < period`
+                // gate never reaches, so default behavior is unchanged.
                 if !matches!(arena.nodes[src as usize], Node::Input { .. }) {
                     return None;
                 }
                 vals.mults[k] = 1.0 / period as f64;
                 vals.periods[k] = period;
+                vals.feeds[k] = feed.unwrap_or(period);
                 (K_STDDEV, src, 0, 0)
             }
             Node::Wma { src, period } => {
