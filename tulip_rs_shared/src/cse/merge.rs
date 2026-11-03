@@ -100,6 +100,13 @@ impl Merged {
                 } => leads[atr as usize]
                     .max(leads[med as usize])
                     .max(leads[close as usize]),
+                // Bar 1 is always the seed (the hand's `State::new` reads bar
+                // 0 and bar 1 unconditionally), regardless of high/low's own
+                // lead -- both are raw streams with lead 0 in practice, but
+                // `max(1)` keeps this correct even if that ever changes.
+                Node::Psar { high, low, .. } => {
+                    leads[high as usize].max(leads[low as usize]).max(1)
+                }
                 Node::Sma { src, period } | Node::Wma { src, period } => {
                     leads[src as usize] + period.saturating_sub(1)
                 }
@@ -617,6 +624,9 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         // is no SIMD form -- same as the hand.
         NviRecur { .. } => (0, 0),
         PviRecur { .. } => (0, 0),
+        // Scalar-only, same standing as NviRecur -- the per-bar branch on
+        // high/low vs. the carried psar/extream cannot be lane-packed.
+        Psar { .. } => (0, 0),
         // Window rescan over the shared sma operand: one state value, no
         // arithmetic shared with RollSum's own formula (its `sum` is NOT
         // what this walks -- it rescans |x - sma| fresh every bar).
@@ -808,6 +818,17 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             close: g(close),
             period,
             step_bits,
+        },
+        Psar {
+            high,
+            low,
+            af_step_bits,
+            max_af_bits,
+        } => Psar {
+            high: g(high),
+            low: g(low),
+            af_step_bits,
+            max_af_bits,
         },
         Wma { src, period } => Wma {
             src: g(src),
@@ -1051,6 +1072,10 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
             visit(*atr);
             visit(*med);
             visit(*close);
+        }
+        Psar { high, low, .. } => {
+            visit(*high);
+            visit(*low);
         }
         NviRecur {
             src,

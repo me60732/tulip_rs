@@ -500,6 +500,8 @@ tulip_rs_macros::kernel! {
     // bar later, which is why it overrides `Fosc::min_data` to
     // `options[0] + 2` where linreg/tsf take the default.
     fosc_n: Fosc(p);
+    // Parabolic SAR -- standalone, no shared chain (reads high/low directly).
+    psar_n: Psar(af, maxaf);
     tsf_fosc_shared_p: Tsf(p), Fosc(p);
     // The whole regression family on one column: THREE requests, ONE moment
     // chain. Sizes are pinned by `linreg_tsf_fosc_share_one_chain`, not here.

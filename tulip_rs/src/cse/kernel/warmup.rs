@@ -18,7 +18,7 @@
 use crate::cse::signature::{
     Signature, Values, K_ABS, K_ACCUM, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HIGHPASS, K_HMA,
     K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED, K_INPUT, K_KVOFLOW, K_LAG, K_LINREGFLOW,
-    K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL, K_NVI, K_PREV, K_PVI, K_ROLLAGE, K_ROLLMAX,
+    K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL, K_NVI, K_PREV, K_PSAR, K_PVI, K_ROLLAGE, K_ROLLMAX,
     K_ROLLMIN, K_ROLLSUM, K_SEEDEDEMA, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERSMOOTHER,
     K_SUPERTREND, K_TRAIL, K_VARIABLEALPHA, K_WHEREGE, K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS,
     K_WMA, MAX, MAX_SINKS,
@@ -1510,6 +1510,104 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     let nn = vals.lag_n[k] as usize;
                     let src = SIG.a[SIG.a[k] as usize] as usize;
                     streams[src][if t >= nn { t - nn } else { 0 }]
+                }
+                K_PSAR => {
+                    // Parabolic SAR (`Node::Psar` doc): bar 1 is the seed
+                    // (hand `State::new`/`calc` at i=1, which skips the
+                    // lookback-2 clamp `calc_unchecked` applies from bar 2
+                    // on); every bar after uses the full clamp formula.
+                    let afs = vals.mults[k];
+                    let maxaf = vals.invms[k];
+                    let hs = SIG.a[SIG.a[k] as usize] as usize;
+                    let ls = SIG.a[SIG.b[k] as usize] as usize;
+                    if t < 1 {
+                        0.0
+                    } else if t == 1 {
+                        let (uptrend0, extream0, psar0) = if streams[hs][0] + streams[ls][0]
+                            <= streams[hs][1] + streams[ls][1]
+                        {
+                            (true, streams[hs][0], streams[ls][0])
+                        } else {
+                            (false, streams[ls][0], streams[hs][0])
+                        };
+                        let mut psar = afs.mul_add(extream0 - psar0, psar0);
+                        let mut extream = extream0;
+                        let mut accel = afs;
+                        let mut uptrend = uptrend0;
+                        if uptrend {
+                            if psar > streams[ls][0] {
+                                psar = streams[ls][0];
+                            }
+                            if streams[hs][1] > extream {
+                                extream = streams[hs][1];
+                                accel = (accel + afs).min(maxaf);
+                            }
+                        } else {
+                            if psar < streams[hs][0] {
+                                psar = streams[hs][0];
+                            }
+                            if streams[ls][1] < extream {
+                                extream = streams[ls][1];
+                                accel = (accel + afs).min(maxaf);
+                            }
+                        }
+                        if (uptrend && streams[ls][1] < psar) || (!uptrend && streams[hs][1] > psar)
+                        {
+                            uptrend = !uptrend;
+                            psar = extream;
+                            accel = afs;
+                            extream = if uptrend {
+                                streams[hs][1]
+                            } else {
+                                streams[ls][1]
+                            };
+                        }
+                        st[k] = if uptrend { 1.0 } else { 0.0 };
+                        kvacc[k] = [psar, extream, accel];
+                        psar
+                    } else {
+                        let [mut psar, mut extream, mut accel] = kvacc[k];
+                        let mut uptrend = st[k] != 0.0;
+                        let h = streams[hs][t];
+                        let ph = streams[hs][t - 1];
+                        let oh = streams[hs][t - 2];
+                        let l = streams[ls][t];
+                        let pl = streams[ls][t - 1];
+                        let ol = streams[ls][t - 2];
+                        psar = accel.mul_add(extream - psar, psar);
+                        if uptrend {
+                            if psar > ol {
+                                psar = ol;
+                            }
+                            if psar > pl {
+                                psar = pl;
+                            }
+                            if h > extream {
+                                extream = h;
+                                accel = (accel + afs).min(maxaf);
+                            }
+                        } else {
+                            if psar < oh {
+                                psar = oh;
+                            }
+                            if psar < ph {
+                                psar = ph;
+                            }
+                            if l < extream {
+                                extream = l;
+                                accel = (accel + afs).min(maxaf);
+                            }
+                        }
+                        if (uptrend && l < psar) || (!uptrend && h > psar) {
+                            uptrend = !uptrend;
+                            psar = extream;
+                            accel = afs;
+                            extream = if uptrend { h } else { l };
+                        }
+                        st[k] = if uptrend { 1.0 } else { 0.0 };
+                        kvacc[k] = [psar, extream, accel];
+                        psar
+                    }
                 }
                 _ => {
                     debug_assert!(false, "kernel: kind {} outside M0 vocabulary", SIG.kinds[k]);

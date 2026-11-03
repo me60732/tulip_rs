@@ -334,6 +334,31 @@ pub fn supertrend(options: &[f64]) -> Recipe {
     r.optional_outputs.push(Sink::iface(med));
     r
 }
+pub fn psar(options: &[f64]) -> Recipe {
+    let af_step = options[0];
+    let max_af = options[1];
+    let mut r = Recipe::hl();
+    let hi = r.add(Node::Input { stream: 0 });
+    r.tag(hi, "high");
+    let lo = r.add(Node::Input { stream: 1 });
+    r.tag(lo, "low");
+    let p = r.add(Node::Psar {
+        high: hi,
+        low: lo,
+        af_step_bits: af_step.to_bits(),
+        max_af_bits: max_af.to_bits(),
+    });
+    r.tag(p, "psar");
+
+    r.kind = "psar";
+    r.options = options.to_vec();
+    // hand State field order: psar/extream/accel/af_step/max_af/uptrend --
+    // the whole carry rides this one node's hidden [psar, extream, accel]
+    // + trend bool, nothing else to capture.
+    r.tail_inputs = vec![p];
+    r.outputs.push(Sink::iface_lead(p, 1));
+    r
+}
 
 /// `MEDPRICE = 0.5 · (high + low)` — stateless, every bar publishes
 /// (`Sink::iface`, lead 0). Streams: 0 = high, 1 = low.

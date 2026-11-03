@@ -181,6 +181,13 @@ pub const K_LINREGFLOW: u8 = 44;
 /// `K_SEEDEDEMA`. `shape` (Ema vs Vidya fold spelling) rides structure, not
 /// VALUES, so the two spellings never collide in one signature bucket.
 pub const K_VARIABLEALPHA: u8 = 45;
+/// Parabolic SAR (`Node::Psar` doc): `a`=high, `b`=low, raw streams only. Own
+/// 3-field carry `[psar, extream, accel]` in `kvacc[k]` (reused scratch, the
+/// same array `K_KVOFLOW` uses -- safe, no node is ever both), trend bool in
+/// `st[k]` (1.0/0.0, the `K_SUPERTREND` convention). `mults[k]`=af_step,
+/// `invms[k]`=max_af, `feeds[k]`=1 (bar 1 is always the seed, regardless of
+/// `high`/`low`'s own lead -- both are raw streams with lead 0).
+pub const K_PSAR: u8 = 46;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -827,6 +834,26 @@ pub fn erase(
                     AlphaShape::Vidya => 1,
                 };
                 (K_VARIABLEALPHA, seed, src, mult)
+            }
+            Node::Psar {
+                high,
+                low,
+                af_step_bits,
+                max_af_bits,
+            } => {
+                if !matches!(arena.nodes[high as usize], Node::Input { .. }) {
+                    panic!("Node::Psar: high must be a raw Node::Input stream");
+                }
+                if !matches!(arena.nodes[low as usize], Node::Input { .. }) {
+                    panic!("Node::Psar: low must be a raw Node::Input stream");
+                }
+                vals.mults[k] = f64::from_bits(af_step_bits);
+                vals.invms[k] = f64::from_bits(max_af_bits);
+                // Bar 1 is always the seed, regardless of high/low's own lead
+                // (both are raw streams with lead 0) -- the hand's State::new
+                // unconditionally reads bar 0 and bar 1.
+                vals.feeds[k] = 1;
+                (K_PSAR, high, low, 0)
             }
         };
         sig.kinds[k] = kind;

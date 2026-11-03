@@ -5778,4 +5778,29 @@ mod tests {
             }
         }
     }
+
+    /// `psar` = raw high/low directly feeding the bespoke `Node::Psar` carry
+    /// (no graft chain, unlike `SuperTrend`). Bar 1 is the seed (the hand's
+    /// `State::new`/`calc` at i=1 skip the lookback-2 clamp
+    /// `calc_unchecked` applies from bar 2 on) -- this gate is the proof
+    /// that seed-vs-steady split is wired correctly across BOTH the
+    /// `warmup.rs` interpreter (bar 1 only, standalone) and `codegen.rs`'s
+    /// steady loop (bar 2 on).
+    #[test]
+    fn psar_planable_bit_exact() {
+        use tulip_rs::indicators::psar::Psar;
+        for (af_step, max_af) in [(0.02, 0.2), (0.01, 0.1), (0.05, 0.3)] {
+            let opts: [f64; 2] = [af_step, max_af];
+            let req = Request::new().add(Psar::recipe(&opts), None);
+            for n in [3usize, 40, 700] {
+                let high = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+                let low = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 95.0);
+                let streams = [high.as_slice(), low.as_slice()];
+                let out = run_registered(&req, &streams).expect("psar via Planable registered");
+                let inp = [high.as_slice(), low.as_slice()];
+                let (h, _) = Psar::indicator(&inp, &opts, None).unwrap();
+                assert_bits(&out.rows[0], &h[0], "psar row [Planable]");
+            }
+        }
+    }
 }

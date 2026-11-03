@@ -311,3 +311,12 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Psar {
         )
     }
 }
+
+impl crate::cse::Planable for Psar {
+    /// The graph is leaf data — `crate::cse::recipes::psar`: two raw price
+    /// streams (high/low) feeding a bespoke `Node::Psar` carry (no
+    /// intermediate nodes, unlike `SuperTrend`'s ATR graft).
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::psar(options)
+    }
+}

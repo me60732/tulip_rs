@@ -2027,6 +2027,66 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     };
                 });
             }
+            Kind::Psar => {
+                // Parabolic SAR (`K_PSAR`): bespoke 3-field carry in
+                // kvacc[k] = [psar, extream, accel], trend bool in st[k]
+                // (1.0/0.0). Steady bars are all past the seed bar (bar 1
+                // -- exec's warm call already seeded kvacc[k]/st[k] and
+                // carried them to the seam). Transcribed verbatim from
+                // warmup.rs's K_PSAR steady arm (the hand's calc_unchecked).
+                let ki = k;
+                let stream_h = p.nodes[node.a].a;
+                let stream_l = p.nodes[node.b].a;
+                let sph = format_ident!("s{}", stream_h);
+                let spl = format_ident!("s{}", stream_l);
+                body.push(quote! {
+                    let #xk = {
+                        let afs = vals.mults[#ki];
+                        let maxaf = vals.invms[#ki];
+                        let h = unsafe { *#sph.add(i) };
+                        let ph = unsafe { *#sph.add(i).sub(1) };
+                        let oh = unsafe { *#sph.add(i).sub(2) };
+                        let l = unsafe { *#spl.add(i) };
+                        let pl = unsafe { *#spl.add(i).sub(1) };
+                        let ol = unsafe { *#spl.add(i).sub(2) };
+                        let [mut psar, mut extream, mut accel] = kvacc[#ki];
+                        let mut uptrend = st[#ki] != 0.0;
+                        psar = accel.mul_add(extream - psar, psar);
+                        if uptrend {
+                            if psar > ol {
+                                psar = ol;
+                            }
+                            if psar > pl {
+                                psar = pl;
+                            }
+                            if h > extream {
+                                extream = h;
+                                accel = (accel + afs).min(maxaf);
+                            }
+                        } else {
+                            if psar < oh {
+                                psar = oh;
+                            }
+                            if psar < ph {
+                                psar = ph;
+                            }
+                            if l < extream {
+                                extream = l;
+                                accel = (accel + afs).min(maxaf);
+                            }
+                        }
+                        if (uptrend && l < psar) || (!uptrend && h > psar) {
+                            uptrend = !uptrend;
+                            psar = extream;
+                            accel = afs;
+                            extream = if uptrend { h } else { l };
+                        }
+                        st[#ki] = if uptrend { 1.0 } else { 0.0 };
+                        kvacc[#ki] = [psar, extream, accel];
+                        psar
+                    };
+                });
+            }
         }
     }
     let mut const_hoists = Vec::new();
@@ -3532,6 +3592,68 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                             cm += dm.max(f64::EPSILON);
                             kvaccw[a][#ki] = [hlc, cm, dm];
                             (dm / cm).mul_add(2.0, -1.0).abs() * volume_arr[a] * 100.0 * sign
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::Psar => {
+                // Per-lane scalar transcription of the scalar K_PSAR arm --
+                // same standing as the other (0,0) scalar-only kinds (see
+                // `lane_formula`): this is required for `run_assets_fn` to
+                // stay exhaustive, not because real by-assets requests are
+                // expected to exercise it.
+                let ki = k;
+                let sh = stream_slot(node.a);
+                let sl = stream_slot(node.b);
+                let sfah = format_ident!("sp{}", sh);
+                let sfal = format_ident!("sp{}", sl);
+                body.push(quote! {
+                    let #xk = {
+                        let afs = vals.mults[#ki];
+                        let maxaf = vals.invms[#ki];
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            let h = unsafe { *#sfah[a].add(i) };
+                            let ph = unsafe { *#sfah[a].add(i).sub(1) };
+                            let oh = unsafe { *#sfah[a].add(i).sub(2) };
+                            let l = unsafe { *#sfal[a].add(i) };
+                            let pl = unsafe { *#sfal[a].add(i).sub(1) };
+                            let ol = unsafe { *#sfal[a].add(i).sub(2) };
+                            let [mut psar, mut extream, mut accel] = kvaccw[a][#ki];
+                            let mut uptrend = stw[a][#ki] != 0.0;
+                            psar = accel.mul_add(extream - psar, psar);
+                            if uptrend {
+                                if psar > ol {
+                                    psar = ol;
+                                }
+                                if psar > pl {
+                                    psar = pl;
+                                }
+                                if h > extream {
+                                    extream = h;
+                                    accel = (accel + afs).min(maxaf);
+                                }
+                            } else {
+                                if psar < oh {
+                                    psar = oh;
+                                }
+                                if psar < ph {
+                                    psar = ph;
+                                }
+                                if l < extream {
+                                    extream = l;
+                                    accel = (accel + afs).min(maxaf);
+                                }
+                            }
+                            if (uptrend && l < psar) || (!uptrend && h > psar) {
+                                uptrend = !uptrend;
+                                psar = extream;
+                                accel = afs;
+                                extream = if uptrend { h } else { l };
+                            }
+                            stw[a][#ki] = if uptrend { 1.0 } else { 0.0 };
+                            kvaccw[a][#ki] = [psar, extream, accel];
+                            psar
                         });
                         Simd::<f64, L>::from_array(out)
                     };

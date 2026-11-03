@@ -497,6 +497,21 @@ pub enum Node {
     HtQuadrature {
         src: Id,
     },
+    /// Parabolic SAR (`K_PSAR`): a bespoke 3-field carry (`psar`/`extream`/
+    /// `accel`) plus a trend flip-flop bool, keyed off two raw price streams
+    /// (`high`/`low`) with NO intermediate nodes -- unlike `SuperTrend`, which
+    /// grafts an ATR chain, `psar` reads `high`/`low` directly every bar. The
+    /// seed bar (absolute bar 1) uses a DIFFERENT formula than every bar after
+    /// it (the hand's `State::new`/`calc` at i=1 skip the lookback-2 clamp that
+    /// `calc_unchecked` applies from bar 2 on) -- see `warmup.rs`'s `K_PSAR` arm
+    /// for the full transcription. `af_step_bits`/`max_af_bits` are bits-encoded
+    /// f64 options, the same convention `SuperTrend::step_bits` uses.
+    Psar {
+        high: Id,
+        low: Id,
+        af_step_bits: u64,
+        max_af_bits: u64,
+    },
 }
 
 /// Where a sink's value comes from each bar.

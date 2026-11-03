@@ -134,6 +134,8 @@ pub enum Kind {
     /// (not a recipe-time constant) — `K_VARIABLEALPHA` (45). Used by
     /// kama/vidya. Scalar-only, same standing as `LinregFlow`/`NviRecur`.
     VariableAlpha,
+    /// Parabolic SAR -- `K_PSAR` (46). Scalar-only, a=high, b=low.
+    Psar,
 }
 
 impl Kind {
@@ -182,6 +184,7 @@ impl Kind {
             Kind::SuperSmoother => 41,
             Kind::HtInPhase => 42,
             Kind::HtQuadrature => 43,
+            Kind::Psar => 46,
             Kind::LinregFlow => 44,
             Kind::VariableAlpha => 45,
         }
@@ -349,6 +352,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Natr" => recipes::natr(&opts),
             "Medprice" => recipes::medprice(&opts),
             "Supertrend" => recipes::supertrend(&opts),
+            "Psar" => recipes::psar(&opts),
             "Sma" => recipes::sma(&opts),
             "Stddev" => recipes::stddev(&opts),
             "Wma" => recipes::wma(&opts),
@@ -558,6 +562,11 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             },
             Node::MeanAbsDev { src, sma, .. } => {
                 ANode::new_simple(Kind::MeanAbsDev, src as usize, sma as usize)
+            }
+            Node::Psar { high, low, .. } => {
+                // af_step/max_af ride VALUES (mults/invms) per signature.rs's
+                // erase(), not the arena structure.
+                ANode::new_simple(Kind::Psar, high as usize, low as usize)
             }
             Node::LinregFlow { src, sub, .. } => {
                 ANode::new_simple(Kind::LinregFlow, src as usize, sub as usize)
