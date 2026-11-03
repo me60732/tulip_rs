@@ -5684,12 +5684,7 @@ mod tests {
     /// KAMA(p) uses VariableAlphaEma with live w from efficiency_ratio^2.
     /// Seeds at bar period-1, output starts at bar period.
     ///
-    /// PARKED (2026-11-03): `Node::VariableAlpha` is leaf-vocabulary scaffolding only
-    /// (`recipe.rs`/`merge.rs`/`signature.rs`) -- `Kind::VariableAlpha` does not exist in
-    /// `planner.rs`, so no recipe reaches a kernel yet. See `ENGINE_CHECKLIST.md`'s F1 entry
-    /// and `RECIPE_VOCABULARY.md` section 5's `VariableAlpha` row. Un-ignore once wired.
     #[test]
-    #[ignore = "VariableAlpha not wired into planner.rs yet -- see ENGINE_CHECKLIST.md F1"]
     fn kama_planable_bit_exact() {
         use tulip_rs::indicators::kama::Kama;
         for p in [5.0, 10.0, 30.0] {
@@ -5713,9 +5708,49 @@ mod tests {
     /// VIDYA(short, long, alpha) uses VariableAlphaVidya with live w from (short_stddev/long_stddev)*alpha.
     /// Seeds at bar long_period-2, output starts at bar long_period-1.
     ///
-    /// PARKED (2026-11-03): same reason as `kama_planable_bit_exact` above.
+    /// PARKED (2026-11-03): `recipes::vidya`'s optional outputs (short_sma,
+    /// long_sma, short_stddev, long_stddev) are now bit-exact against the
+    /// hand (fixed this session: they need an explicit `Sink::iface_lead(_,
+    /// period)`, not plain `iface()` -- `iface()`'s lead=0 is a sentinel
+    /// meaning "use the node's bare *structural* lead", which for the shared
+    /// `Stddev` node's `K_STDDEV` exec arm is `period` already (its `t < p`
+    /// branch returns 0.0 for `t` in `0..period`, first real value at
+    /// `t == period`) -- so this part was never actually broken, `iface()`
+    /// just wasn't passing that lead through to the SINK's own trim.
+    ///
+    /// The PRIMARY row is still wrong and NOT a trim bug: VIDYA's hand
+    /// computes its first published value (absolute bar `long_period-1`)
+    /// from a ONE-TIME, non-rolling, "naive" stddev over the raw window
+    /// `real[0..=long_period-1]` (`State::init_state`'s `sum_long`/
+    /// `sum_sq_long` loop, accumulated unconditionally every iteration,
+    /// published once, outside any roll) -- *before* its rolling
+    /// `StddevState::calc` state exists at all. The shared `recipes::stddev`
+    /// node has no such naive-then-roll duality: structurally it is NOT
+    /// valid until `t == period` (confirmed by direct `erase_request`
+    /// inspection this session: `vals.feeds[k]` for the `VariableAlpha` node
+    /// is correctly `18` as recipe-specified, but `v[long_sd_id]` at
+    /// `t == 19` is still its pre-validity `0.0`, so the `WhereLt` guard
+    /// zeroes `w`, and the Vidya fold `(src-carry).mul_add(0, carry)`
+    /// degenerates to a no-op publish of the raw seed -- measured directly:
+    /// `out.rows[0][0] == real[long_period-2]` bit-for-bit, the UNFOLDED
+    /// seed, not the hand's folded value).
+    ///
+    /// Shifting `feed` to `long_period-1` (so the fold waits until both
+    /// stddevs are structurally valid at `t == long_period`) would fix the
+    /// mechanism but publish one bar LATER than the hand's actual first
+    /// value -- the hand's first bar is fundamentally a different formula
+    /// (naive window) from every subsequent bar (rolling window), and nothing
+    /// in the current `Node::Stddev`/`VariableAlpha` vocabulary can express
+    /// "naive on the seed bar, rolling from the next bar on" within ONE
+    /// shared node. Fixing this for real needs either a dedicated one-off
+    /// naive-stddev subgraph just for VIDYA's seed bar (duplicate, not
+    /// shared), or a new `Node::Stddev` variant/field carrying that
+    /// seed-vs-roll duality generally (closer in cost to `VariableAlpha`
+    /// itself than to the `SeededEma`-style `feed` override already built).
+    /// Un-ignore once one of those is built; see `ENGINE_CHECKLIST.md`'s F1
+    /// vidya entry for the live status.
     #[test]
-    #[ignore = "VariableAlpha not wired into planner.rs yet -- see ENGINE_CHECKLIST.md F1"]
+    #[ignore = "vidya primary needs seed-bar-naive-then-roll stddev duality -- see ENGINE_CHECKLIST.md F1"]
     fn vidya_planable_bit_exact() {
         use tulip_rs::indicators::vidya::Vidya;
         const OPTS: [([f64; 3], &[&str]); 3] = [

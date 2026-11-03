@@ -4258,15 +4258,27 @@ pub fn vidya(options: &[f64]) -> Recipe {
     let long_graph = r.sub_graph(long_stddev, &[0]);
     let long_sd_id = long_graph.outputs[0];
 
-    // w = (short_stddev / long_stddev) * alpha
+    // w = (short_stddev / long_stddev) * alpha, guarded the same way the
+    // hand does: `long_stddev.abs() < f64::EPSILON` (stddev is always >= 0,
+    // so abs() is a no-op) selects 0.0 instead of dividing -- WhereLt{a:
+    // long_sd, b: eps, t: ratio} is `if a < b {0.0} else {t}` (K_WHERELT),
+    // the exact polarity of the hand's `if long_stddev.abs() < EPS {0.0}
+    // else {ratio}`.
     let ratio = r.add(Node::Div {
         a: short_sd_id,
         b: long_sd_id,
     });
     r.tag(ratio, "ratio");
+    let eps = r.constant(f64::EPSILON);
+    let guarded_ratio = r.add(Node::WhereLt {
+        a: long_sd_id,
+        b: eps,
+        t: ratio,
+    });
+    r.tag(guarded_ratio, "guarded_ratio");
     let alpha_node = r.constant(alpha);
     let w = r.add(Node::Mul {
-        a: ratio,
+        a: guarded_ratio,
         b: alpha_node,
     });
     r.tag(w, "w");
@@ -4290,11 +4302,20 @@ pub fn vidya(options: &[f64]) -> Recipe {
     r.outputs
         .push(Sink::iface_lead(vidya_node, long_period - 1));
 
-    // Optional outputs: short_sma and long_sma from stddev subgraphs
+    // Optional outputs, in the hand's row order (`batch_indicator`'s
+    // `Ok(vec![vidya_line, short_sma_line, long_sma_line, short_sd_line,
+    // long_sd_line])`): short_sma, long_sma, short_stddev, long_stddev.
     let short_sma = short_graph.optional_at(0);
     let long_sma = long_graph.optional_at(0);
-    r.optional_outputs.push(Sink::iface(short_sma));
-    r.optional_outputs.push(Sink::iface(long_sma));
+    // Explicit `iface_lead` (not plain `iface`, whose lead=0 is a sentinel
+    // meaning "use the node's bare structural lead") -- the stddev recipe
+    // deliberately declares lead=period (one past the structural minimum,
+    // `StdDev::min_data == period+1` in the hand), and `iface()` would silently
+    // discard that +1 convention, publishing one bar too early.
+    r.optional_outputs.push(Sink::iface_lead(short_sma, short_period));
+    r.optional_outputs.push(Sink::iface_lead(long_sma, long_period));
+    r.optional_outputs.push(Sink::iface_lead(short_sd_id, short_period));
+    r.optional_outputs.push(Sink::iface_lead(long_sd_id, long_period));
 
     r
 }

@@ -542,6 +542,13 @@ tulip_rs_macros::kernel! {
     trima_n: Trima(p);
     trix_n: Trix(p);
 
+    // KAMA = VariableAlpha{Ema} over ef's efficiency-ratio^2 live weight.
+    // Seed real[period-1], output from bar `period`. See recipes::kama.
+    kama_n: Kama(p);
+    // VIDYA = VariableAlpha{Vidya} over (short_stddev/long_stddev)*alpha live
+    // weight. Seed real[long-2], output from bar `long-1`. See recipes::vidya.
+    vidya_n: Vidya(s, l, a);
+
     // THE ATR ABLATION RUNGS -- see the `atr_n` note above for why they exist.
     // `tr_n` is the pure 3-term Max/Abs subgraph over (high, low, close) with a
     // Lag{close,1}, NO recurrence; `wilders_n` is the mean-Wilders recurrence alone

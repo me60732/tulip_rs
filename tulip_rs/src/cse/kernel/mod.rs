@@ -33,5 +33,5 @@ pub use registry::{
     SIG_ichimoku_s_m, SIG_max_min_shared_p, SIG_natr_supertrend_shared_p, SIG_rsi_cmo_shared_p,
     SIG_rsi_n, SIG_rsi_stochrsi_shared_p, SIG_sma_six, SIG_sma_stddev_shared_p,
     SIG_sma_wma_shared_p, SIG_stoch_kd, SIG_stoch_willr_donchian_shared_p,
-    SIG_willr_donchian_shared_p,
+    SIG_willr_donchian_shared_p, SIG_kama_n, SIG_vidya_n,
 };

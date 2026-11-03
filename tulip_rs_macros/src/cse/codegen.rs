@@ -426,6 +426,7 @@ fn sig_const(p: &Pattern) -> TokenStream {
                     | Kind::KvoFlow
                     | Kind::NviRecur
                     | Kind::PviRecur
+                    | Kind::VariableAlpha
             ) {
                 x.c.unwrap_or(0) as u32
             } else {
@@ -981,7 +982,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
     for (k, node) in p.nodes.iter().enumerate() {
         if !matches!(
             node.kind,
-            Kind::Iir | Kind::IirClamped | Kind::Prev | Kind::Accum
+            Kind::Iir | Kind::IirClamped | Kind::Prev | Kind::Accum | Kind::VariableAlpha
         ) {
             continue;
         }
@@ -989,7 +990,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
         let ck = format_ident!("{}_carry", ident_k);
         let ki = k;
         roll_hoists.push(quote! { let mut #ck = st[#ki]; });
-        if matches!(node.kind, Kind::Prev | Kind::Accum) {
+        if matches!(node.kind, Kind::Prev | Kind::Accum | Kind::VariableAlpha) {
             continue;
         }
         let mk = format_ident!("{}_mult", ident_k);
@@ -1683,6 +1684,29 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 let (ea, eb) = (ev(node.a, &idents), ev(node.b, &idents));
                 body.push(quote! {
                     let #xk = { #ck = #ea.mul_add(#eb, #ck); #ck };
+                });
+            }
+            Kind::VariableAlpha => {
+                // EMA-style carry whose blend weight is a LIVE per-bar node
+                // value (node.c), not a recipe-time constant — so unlike
+                // Ema/SeededEma there is no `mults`/`invms` hoist, only the
+                // carry slot. No seed-bar branch is needed here: the steady
+                // loop only ever runs at t > feed (same proof as SeededEma —
+                // `gate` is strictly above the seed bar by construction), so
+                // this arm always emits the post-seed fold, matching
+                // `warmup.rs`'s `K_VARIABLEALPHA` `else` branch exactly.
+                // SIG.d (node.d) selects the fold shape: 0=Ema, 1=Vidya.
+                let ident_k = idents[k].clone();
+                let ck = format_ident!("{}_carry", ident_k);
+                let src = ev(node.b, &idents);
+                let w = ev(node.c.expect("VariableAlpha requires c (mult)"), &idents);
+                let step = if node.d == 0 {
+                    quote! { #ck = #ck.mul_add(1.0 - #w, #src * #w); #ck }
+                } else {
+                    quote! { #ck = (#src - #ck).mul_add(#w, #ck); #ck }
+                };
+                body.push(quote! {
+                    let #xk = { #step };
                 });
             }
             Kind::Wilders => {
@@ -2493,6 +2517,16 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                 });
             }
+            Kind::VariableAlpha => {
+                // Lane carry only — same standing as Accum: the blend
+                // weight is a live per-bar NODE value (node.c), not a
+                // `mults`/`invms` constant, so there is nothing to splat.
+                let ck = format_ident!("{}_carry", ident_k);
+                let ki = k;
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                });
+            }
             Kind::RollSum => {
                 // Lane ring roll: carry = the window SUM (exec's `st[k]`,
                 // seeded per asset exactly like the Sma-family lanes). The
@@ -2815,6 +2849,22 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let ck = format_ident!("{}_carry", idents[k]);
                 body.push(quote! {
                     let #xk = { #ck = #ea.mul_add(#eb, #ck); #ck };
+                });
+            }
+            Kind::VariableAlpha => {
+                // Lane fold: src is `#eb` (node.b), live weight is node.c
+                // (not pre-bound above, read fresh here same as the scalar
+                // arm). No seed-bar branch — see the scalar arm's comment
+                // for the proof (gate is always strictly above feed).
+                let ck = format_ident!("{}_carry", idents[k]);
+                let ec = ev(node.c.expect("VariableAlpha: mult operand"), &idents);
+                let step = if node.d == 0 {
+                    quote! { #ck = #ck.mul_add(Simd::<f64, L>::splat(1.0) - #ec, #eb * #ec); #ck }
+                } else {
+                    quote! { #ck = (#eb - #ck).mul_add(#ec, #ck); #ck }
+                };
+                body.push(quote! {
+                    let #xk = { #step };
                 });
             }
             Kind::RollSum => {

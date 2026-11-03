@@ -25,10 +25,10 @@
 use std::collections::HashMap;
 use tulip_rs_shared::cse::merge::merge;
 use tulip_rs_shared::cse::recipe::Node;
-use tulip_rs_shared::cse::recipes;
 use tulip_rs_shared::cse::Recipe;
 use tulip_rs_shared::cse::SinkSrc;
 use tulip_rs_shared::cse::{bundles, Bundle, Plan, MAX};
+use tulip_rs_shared::cse::{recipes, AlphaShape};
 
 /// A `kernel!` pattern argument: a NAME symbol (dedup identity only) or a
 /// literal value (participates in dedup by equality, like the runtime).
@@ -130,6 +130,10 @@ pub enum Kind {
     /// linreg's sliding-moment carry — `K_LINREGFLOW` (44). Scalar-only: one
     /// instance's `sub` is a per-lane `Lag` load and the fold owns a `st` cell.
     LinregFlow,
+    /// EMA-style carry whose blend weight is itself a live per-bar node value
+    /// (not a recipe-time constant) — `K_VARIABLEALPHA` (45). Used by
+    /// kama/vidya. Scalar-only, same standing as `LinregFlow`/`NviRecur`.
+    VariableAlpha,
 }
 
 impl Kind {
@@ -179,6 +183,7 @@ impl Kind {
             Kind::HtInPhase => 42,
             Kind::HtQuadrature => 43,
             Kind::LinregFlow => 44,
+            Kind::VariableAlpha => 45,
         }
     }
 }
@@ -363,6 +368,8 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             // (`RollAge{tsf,1}`) + three arithmetic nodes; it overrides
             // `min_data` (lead `period + 1`), unlike its two parents.
             "Fosc" => recipes::fosc(&opts),
+            "Kama" => recipes::kama(&opts),
+            "Vidya" => recipes::vidya(&opts),
             "Bbands" => recipes::bbands(&opts),
             "Max" => recipes::max(&opts),
             "Min" => recipes::min(&opts),
@@ -554,6 +561,25 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             }
             Node::LinregFlow { src, sub, .. } => {
                 ANode::new_simple(Kind::LinregFlow, src as usize, sub as usize)
+            }
+            Node::VariableAlpha {
+                seed,
+                src,
+                mult,
+                shape,
+                ..
+            } => {
+                let mut node = ANode::new_three(
+                    Kind::VariableAlpha,
+                    seed as usize,
+                    src as usize,
+                    mult as usize,
+                );
+                node.d = match shape {
+                    AlphaShape::Ema => 0,
+                    AlphaShape::Vidya => 1,
+                };
+                node
             }
             Node::IirClamped {
                 src,
