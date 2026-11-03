@@ -334,6 +334,15 @@ pub enum Node {
         /// roll would otherwise become valid. `None` (every other caller)
         /// preserves the original behavior exactly: 0.0 until bar `period`.
         feed: Option<u32>,
+        /// When `Some(bar)`, bars in `[period, bar)` use the hand's PLAIN
+        /// (non-`mul_add`, no epsilon floor) roll arithmetic instead of the
+        /// ordinary `StddevState::calc` association -- `vidya`'s `short_stddev`
+        /// stays in this "naive roll" shape from `short_period` through
+        /// `long_period - 1` because `vidya.rs::init_state`'s own loop (not
+        /// `StddevState::calc`) computes it, and only switches to the real
+        /// rolling association once `cycle()` takes over at `bar`. `None`
+        /// preserves the original behavior exactly (always `mul_add` + ε).
+        switch: Option<u32>,
     },
     RollSum {
         src: Id,

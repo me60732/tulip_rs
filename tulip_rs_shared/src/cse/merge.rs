@@ -106,9 +106,9 @@ impl Merged {
                 // `feed`, when set, is an explicit absolute-bar early-publish
                 // override (same convention as `SeededEma`'s `feed`) -- `None`
                 // reproduces the plain `Sma`/`Wma` formula exactly.
-                Node::Stddev { src, period, feed } => {
-                    feed.unwrap_or(leads[src as usize] + period.saturating_sub(1))
-                }
+                Node::Stddev {
+                    src, period, feed, ..
+                } => feed.unwrap_or(leads[src as usize] + period.saturating_sub(1)),
                 // E12: same boundary — the window is `period` wide, so the first
                 // full one ends at `lead(src) + period − 1`; E13's `skip` pushes
                 // it out further by the values the hand discards before folding.
@@ -830,10 +830,16 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             skip,
             steady_from,
         },
-        Stddev { src, period, feed } => Stddev {
+        Stddev {
+            src,
+            period,
+            feed,
+            switch,
+        } => Stddev {
             src: g(src),
             period,
             feed,
+            switch,
         },
         RollMax {
             src,

@@ -904,13 +904,26 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     // flat-bar floor `sqrt(var).max(ε)` — a negative var
                     // from rounding or a flat window is legal data, so the
                     // ε stays (per the `safe_inputs` retirement note).
+                    //
+                    // `vidya` mode (feed or switch set — the only callers
+                    // that use either field): `vidya.rs::init_state`'s own
+                    // loop, not `StddevState::calc`, computes every bar while
+                    // this node is warm, in PLAIN arithmetic (no `mul_add`,
+                    // no ε floor) — that applies to the t<p accumulate fold
+                    // too, not just the t>=p roll, so both branches below
+                    // check the same condition.
                     let p = vals.periods[k] as usize;
                     let m = vals.mults[k];
+                    let vidya_mode = vals.lag_n[k] != 0 || vals.feeds[k] != vals.periods[k];
                     let src = streams[SIG.a[SIG.a[k] as usize] as usize];
                     if t < p {
                         let s = src[t];
                         st[k] += s;
-                        sumsq[k] = s.mul_add(s, sumsq[k]);
+                        sumsq[k] = if vidya_mode {
+                            sumsq[k] + (s * s)
+                        } else {
+                            s.mul_add(s, sumsq[k])
+                        };
                         if t as u32 == vals.feeds[k] {
                             // One-time naive stat (vidya's long_stddev feed
                             // override): the accumulate step above already
@@ -930,9 +943,14 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let prev = src[t - p];
                         st[k] += s - prev;
                         let mean = st[k] * m;
-                        sumsq[k] += s.mul_add(s, -(prev * prev));
-                        let var = sumsq[k].mul_add(m, -(mean * mean));
-                        var.sqrt().max(f64::EPSILON)
+                        if vidya_mode && (t as u32) < vals.lag_n[k] {
+                            sumsq[k] += (s * s) - (prev * prev);
+                            (sumsq[k] * m - mean * (st[k] * m)).sqrt()
+                        } else {
+                            sumsq[k] += s.mul_add(s, -(prev * prev));
+                            let var = sumsq[k].mul_add(m, -(mean * mean));
+                            var.sqrt().max(f64::EPSILON)
+                        }
                     }
                 }
                 K_WMA => {

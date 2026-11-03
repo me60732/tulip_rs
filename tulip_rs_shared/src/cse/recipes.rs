@@ -1574,7 +1574,7 @@ pub fn wma(options: &[f64]) -> Recipe {
 /// Shared builder behind `stddev()` and `vidya()`'s two internal subgraphs --
 /// `feed`, when set, overrides the `Stddev` node's early-publish bar (see
 /// `Node::Stddev`'s doc); `stddev()` itself always passes `None`.
-fn stddev_recipe(period: u32, feed: Option<u32>) -> Recipe {
+fn stddev_recipe(period: u32, feed: Option<u32>, switch: Option<u32>) -> Recipe {
     let mut r = Recipe::price();
     let close = r.add(Node::Input { stream: 0 });
     r.tag(close, "price");
@@ -1582,6 +1582,7 @@ fn stddev_recipe(period: u32, feed: Option<u32>) -> Recipe {
         src: close,
         period,
         feed,
+        switch,
     });
     r.tag(sd, "stddev");
     let m = r.add(Node::Sma { src: close, period });
@@ -1595,7 +1596,7 @@ fn stddev_recipe(period: u32, feed: Option<u32>) -> Recipe {
 
 pub fn stddev(options: &[f64]) -> Recipe {
     let period = options[0] as u32;
-    let mut r = stddev_recipe(period, None);
+    let mut r = stddev_recipe(period, None, None);
     r.options = options.to_vec();
     r
 }
@@ -1618,6 +1619,7 @@ pub fn bbands(options: &[f64]) -> Recipe {
         src: close,
         period,
         feed: None,
+        switch: None,
     });
     r.tag(sd, "stddev");
     let k = r.constant(range);
@@ -4266,11 +4268,11 @@ pub fn vidya(options: &[f64]) -> Recipe {
 
     // Build two Node::Stddev subgraphs (short_period, long_period) over `real`.
     // Copy the exact pattern from bbands recipe for stddev construction.
-    let short_stddev = stddev_recipe(short_period, None);
+    let short_stddev = stddev_recipe(short_period, None, Some(long_period));
     let short_graph = r.sub_graph(short_stddev, &[0]);
     let short_sd_id = short_graph.outputs[0];
 
-    let long_stddev = stddev_recipe(long_period, Some(long_period - 1));
+    let long_stddev = stddev_recipe(long_period, Some(long_period - 1), None);
     let long_graph = r.sub_graph(long_stddev, &[0]);
     let long_sd_id = long_graph.outputs[0];
 
