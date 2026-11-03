@@ -112,6 +112,10 @@ impl Merged {
                 Node::SdftRotate { src, period } => leads[src as usize] + period,
                 // Cannot publish before its owner has a `kvacc` value to read.
                 Node::SdftLead { owner } => leads[owner as usize],
+                // Fixed, option-less pipeline (`Node::HomodyneDiscriminator`
+                // doc): four cascading ring-fill thresholds (3/9/15/21) plus
+                // a one-bar publish delay past the last one (22).
+                Node::HomodyneDiscriminator { src } => leads[src as usize] + 22,
                 Node::Sma { src, period } | Node::Wma { src, period } => {
                     leads[src as usize] + period.saturating_sub(1)
                 }
@@ -636,6 +640,9 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         SdftRotate { .. } => (0, 0),
         // Thin companion read, no arithmetic of its own, no lane form.
         SdftLead { .. } => (0, 0),
+        // Bespoke non-shared carry, scalar-only, same standing as
+        // SdftRotate/Psar.
+        HomodyneDiscriminator { .. } => (0, 0),
         // Window rescan over the shared sma operand: one state value, no
         // arithmetic shared with RollSum's own formula (its `sum` is NOT
         // what this walks -- it rescans |x - sma| fresh every bar).
@@ -844,6 +851,7 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             period,
         },
         SdftLead { owner } => SdftLead { owner: g(owner) },
+        HomodyneDiscriminator { src } => HomodyneDiscriminator { src: g(src) },
         Wma { src, period } => Wma {
             src: g(src),
             period,
@@ -1093,6 +1101,7 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         }
         SdftRotate { src, .. } => visit(*src),
         SdftLead { owner } => visit(*owner),
+        HomodyneDiscriminator { src } => visit(*src),
         NviRecur {
             src,
             prev_close,

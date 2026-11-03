@@ -201,6 +201,11 @@ pub const K_SDFTROTATE: u8 = 47;
 /// stream). `feeds[k]` mirrors the owner's `feeds` (cannot publish before its
 /// owner has a value to read).
 pub const K_SDFTLEAD: u8 = 48;
+/// Ehlers Homodyne Discriminator (`Node::HomodyneDiscriminator` doc): `a`=src
+/// (raw stream only). `feeds[k] = leads[src] + 22`. Bespoke, non-shared
+/// 38-slot `[f64; 38]` carry per node in `hdacc[k]` (five private rings plus
+/// six scalars) -- NOT the generic `ring_of`/`RingSet` mechanism.
+pub const K_HOMODYNEDISCRIMINATOR: u8 = 49;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -884,6 +889,13 @@ pub fn erase(
             Node::SdftLead { owner } => {
                 vals.feeds[k] = vals.feeds[owner as usize];
                 (K_SDFTLEAD, owner, 0, 0)
+            }
+            Node::HomodyneDiscriminator { src } => {
+                if !matches!(arena.nodes[src as usize], Node::Input { .. }) {
+                    panic!("Node::HomodyneDiscriminator: src must be a raw Node::Input stream");
+                }
+                vals.feeds[k] = leads[src as usize] + 22;
+                (K_HOMODYNEDISCRIMINATOR, src, 0, 0)
             }
         };
         sig.kinds[k] = kind;

@@ -17,11 +17,11 @@
 
 use crate::cse::signature::{
     Signature, Values, K_ABS, K_ACCUM, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HIGHPASS, K_HMA,
-    K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED, K_INPUT, K_KVOFLOW, K_LAG, K_LINREGFLOW,
-    K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL, K_NVI, K_PREV, K_PSAR, K_PVI, K_ROLLAGE,
-    K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SDFTLEAD, K_SDFTROTATE, K_SEEDEDEMA, K_SMA, K_SQRT,
-    K_STDDEV, K_SUB, K_SUPERSMOOTHER, K_SUPERTREND, K_TRAIL, K_VARIABLEALPHA, K_WHEREGE, K_WHEREGT,
-    K_WHERELE, K_WHERELT, K_WILDERS, K_WMA, MAX, MAX_SINKS,
+    K_HOMODYNEDISCRIMINATOR, K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED, K_INPUT, K_KVOFLOW,
+    K_LAG, K_LINREGFLOW, K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL, K_NVI, K_PREV, K_PSAR,
+    K_PVI, K_ROLLAGE, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SDFTLEAD, K_SDFTROTATE, K_SEEDEDEMA,
+    K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERSMOOTHER, K_SUPERTREND, K_TRAIL, K_VARIABLEALPHA,
+    K_WHEREGE, K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS, K_WMA, MAX, MAX_SINKS,
 };
 use crate::ring_buffer::buffer::BufferElement;
 use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
@@ -771,6 +771,10 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
     kvacc: &mut [[f64; 3]; MAX],
     hp_acc: &mut [[f64; 2]; MAX],
     ss_acc: &mut [[f64; 3]; MAX],
+    // K_HOMODYNEDISCRIMINATOR's bespoke, non-shared 38-slot cell (five
+    // private rings + six scalars -- see `homodynediscriminator.rs`'s
+    // `hd_ring_push`/`hd_kernel`/`hd_apply_discriminator`/`hd_step` doc).
+    hd_acc: &mut [[f64; 38]; MAX],
     v: &mut [f64; MAX],
     out: &mut [*mut f64; MAX_SINKS],
     leads: &[u32; MAX_SINKS],
@@ -1319,6 +1323,52 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let q1 = 0.0962_f64.mul_add(rings.at(g, 0), 0.5769 * rings.at(g, 2));
                         let q2 = (-0.5769_f64).mul_add(rings.at(g, 4), -0.0962 * rings.at(g, 6));
                         q1 + q2
+                    }
+                }
+                K_HOMODYNEDISCRIMINATOR => {
+                    use crate::indicators::homodynediscriminator::{
+                        hd_apply_discriminator, hd_kernel, hd_ring_at, hd_ring_push,
+                    };
+                    let x = v[SIG.a[k] as usize];
+                    let acc = &mut hd_acc[k];
+                    hd_ring_push(acc, 0, 4, x);
+                    if t < 3 {
+                        0.0
+                    } else {
+                        let ab =
+                            4.0_f64.mul_add(hd_ring_at(acc, 0, 0), 3.0 * hd_ring_at(acc, 0, 1));
+                        let cd = 2.0_f64.mul_add(hd_ring_at(acc, 0, 2), hd_ring_at(acc, 0, 3));
+                        let smooth = (ab + cd) * 0.1;
+                        let gain = 0.075_f64.mul_add(acc[36], 0.54);
+                        hd_ring_push(acc, 4, 7, smooth);
+                        if t < 9 {
+                            0.0
+                        } else {
+                            let detrender = hd_kernel(acc, 4, gain);
+                            hd_ring_push(acc, 11, 7, detrender);
+                            if t < 15 {
+                                0.0
+                            } else {
+                                let i1 = hd_ring_at(acc, 11, 3);
+                                let q1 = hd_kernel(acc, 11, gain);
+                                hd_ring_push(acc, 18, 7, i1);
+                                hd_ring_push(acc, 25, 7, q1);
+                                if t < 21 {
+                                    0.0
+                                } else {
+                                    let j_i = hd_kernel(acc, 18, gain);
+                                    let j_q = hd_kernel(acc, 25, gain);
+                                    let smooth_period =
+                                        hd_apply_discriminator(acc, i1, q1, j_i, j_q);
+                                    let f = vals.feeds[k] as usize;
+                                    if t < f {
+                                        0.0
+                                    } else {
+                                        smooth_period
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 K_TRAIL => trail[SIG.a[k] as usize] as f64,

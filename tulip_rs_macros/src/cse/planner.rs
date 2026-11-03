@@ -142,6 +142,9 @@ pub enum Kind {
     /// Companion read of a `SdftRotate`'s cached lead_sine -- `K_SDFTLEAD`
     /// (48). Scalar-only, a=owner (the SdftRotate node's arena id).
     SdftLead,
+    /// Ehlers Homodyne Discriminator -- `K_HOMODYNEDISCRIMINATOR` (49).
+    /// Scalar-only, bespoke non-shared carry, a=src (raw stream).
+    HomodyneDiscriminator,
 }
 
 impl Kind {
@@ -195,6 +198,7 @@ impl Kind {
             Kind::VariableAlpha => 45,
             Kind::SdftRotate => 47,
             Kind::SdftLead => 48,
+            Kind::HomodyneDiscriminator => 49,
         }
     }
 }
@@ -582,6 +586,9 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
                 ANode::new_simple(Kind::SdftRotate, src as usize, 0)
             }
             Node::SdftLead { owner } => ANode::new_simple(Kind::SdftLead, owner as usize, 0),
+            Node::HomodyneDiscriminator { src } => {
+                ANode::new_simple(Kind::HomodyneDiscriminator, src as usize, 0)
+            }
             Node::LinregFlow { src, sub, .. } => {
                 ANode::new_simple(Kind::LinregFlow, src as usize, sub as usize)
             }

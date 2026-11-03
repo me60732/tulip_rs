@@ -384,7 +384,24 @@ pub fn msw(options: &[f64]) -> Recipe {
     r
 }
 
-/// `MEDPRICE = 0.5 · (high + low)` — stateless, every bar publishes
+/// Ehlers Homodyne Discriminator -- a single bespoke carry node
+/// (`Node::HomodyneDiscriminator`, see its doc for the full per-bar
+/// algorithm). `OPTIONS=0`, nothing to key off; the lead is the fixed
+/// constant 22 (`leads[close] + 22`, `leads[close] == 0` for a raw input).
+pub fn homodynediscriminator(options: &[f64]) -> Recipe {
+    let mut r = Recipe::price();
+    let close = r.add(Node::Input { stream: 0 });
+    r.tag(close, "price");
+    let hd = r.add(Node::HomodyneDiscriminator { src: close });
+    r.tag(hd, "dc_period");
+    r.kind = "homodynediscriminator";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![hd];
+    r.outputs.push(Sink::iface_lead(hd, 22));
+    r
+}
+
+/// `MEDPRICE = 0.5 * (high + low)` -- stateless, every bar publishes
 /// (`Sink::iface`, lead 0). Streams: 0 = high, 1 = low.
 pub fn medprice(_options: &[f64]) -> Recipe {
     let mut r = Recipe::hl();

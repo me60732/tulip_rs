@@ -2123,6 +2123,23 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     let #xk = kvacc[#owner_ki][2];
                 });
             }
+            Kind::HomodyneDiscriminator => {
+                // Bespoke, non-shared 38-slot carry (K_HOMODYNEDISCRIMINATOR):
+                // steady bars are always past every stage threshold (warmup's
+                // interpreter already filled every ring and ran the
+                // discriminator update up to the seam), so this is pure
+                // unconditional recurrence -- `hd_step` transcribed verbatim
+                // from `State<Warm>::calc`, same standing as LinregFlow's and
+                // SdftRotate's steady arms.
+                let ki = k;
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = crate::indicators::homodynediscriminator::hd_step(
+                        &mut hdacc[#ki],
+                        #src,
+                    );
+                });
+            }
         }
     }
     let mut const_hoists = Vec::new();
@@ -2370,9 +2387,10 @@ fn run_fn(p: &Pattern) -> TokenStream {
             let mut kvacc = [[0.0f64; 3]; crate::cse::MAX]; // KvoFlow's [prev_hlc, cm, prev_hl]
             let mut hp_acc = [[0.0f64; 2]; crate::cse::MAX]; // HighPass's [y1, prev_real]
             let mut ss_acc = [[0.0f64; 3]; crate::cse::MAX]; // SuperSmoother's [y1, y2, prev_real]
+            let mut hdacc = [[0.0f64; 38]; crate::cse::MAX]; // HomodyneDiscriminator's bespoke cell
             let mut v = [0.0f64; crate::cse::MAX];
             // Warm-up bars: shared interpreter, cold path once per request.
-            crate::cse::kernel::exec::<#sig, true>(vals, streams, 0, gate, &mut st, &mut stb, &mut stc_ub, &mut stlb, &mut sumsq, &mut wsum, &mut trail, &mut rings, &mut hacc, &mut kvacc, &mut hp_acc, &mut ss_acc, &mut v, &mut ptrs, &vals.sink_lead);
+            crate::cse::kernel::exec::<#sig, true>(vals, streams, 0, gate, &mut st, &mut stb, &mut stc_ub, &mut stlb, &mut sumsq, &mut wsum, &mut trail, &mut rings, &mut hacc, &mut kvacc, &mut hp_acc, &mut ss_acc, &mut hdacc, &mut v, &mut ptrs, &vals.sink_lead);
             if gate >= n {
                 return vec![#(#row_refs),*];
             }
@@ -3732,6 +3750,27 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     };
                 });
             }
+            Kind::HomodyneDiscriminator => {
+                // Per-lane scalar transcription -- same standing as
+                // Kind::SdftRotate's run_assets_fn arm: required for
+                // exhaustiveness, not because by-assets requests are
+                // expected to exercise this (0,0) scalar-only kind.
+                let ki = k;
+                let ss = stream_slot(node.a);
+                let sfas = format_ident!("sp{}", ss);
+                body.push(quote! {
+                    let #xk = {
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            let x = unsafe { *#sfas[a].add(i) };
+                            crate::indicators::homodynediscriminator::hd_step(
+                                &mut hdaccw[a][#ki],
+                                x,
+                            )
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
         }
     }
 
@@ -3903,6 +3942,8 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 vec![[[0.0f64; 2]; crate::cse::MAX]; L];
             let mut ss_accw: Vec<[[f64; 3]; crate::cse::MAX]> =
                 vec![[[0.0f64; 3]; crate::cse::MAX]; L];
+            let mut hdaccw: Vec<[[f64; 38]; crate::cse::MAX]> =
+                vec![[[0.0f64; 38]; crate::cse::MAX]; L];
             if n > 0 {
                 for a in 0..L {
                     let mut ptrs: [*mut f64; crate::cse::MAX_SINKS] =
@@ -3926,6 +3967,7 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                         &mut kvaccw[a],
                         &mut hp_accw[a],
                         &mut ss_accw[a],
+                        &mut hdaccw[a],
                         &mut v,
                         &mut ptrs,
                         &vals.sink_lead,

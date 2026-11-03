@@ -544,6 +544,65 @@ pub enum Node {
     SdftLead {
         owner: Id,
     },
+    /// Ehlers Homodyne Discriminator (`homodynediscriminator.rs`), bespoke
+    /// non-shared carry (Option 1: dedicated node kind, no reuse of
+    /// `HtInPhase`/`HtQuadrature`'s shared-ring codegen — those always run
+    /// `gain=1.0`, this needs an adaptive per-bar gain fed back from its own
+    /// previous output). `src` must be a raw `Node::Input` stream.
+    ///
+    /// Per-bar algorithm (hardcoded thresholds, this indicator has
+    /// `OPTIONS=0`, nothing to key off):
+    /// - `t in [0, 3)`: push `src` into a private 4-cap price ring. Publish 0.
+    /// - `t in [3, 9)`: price ring full. `gain = 0.075*period + 0.54`
+    ///   (`period` starts at 0.0). `smooth = Hann(price ring ages 0..3)`
+    ///   (`(4*age0 + 3*age1 + 2*age2 + age3) * 0.1`, exact FMA grouping:
+    ///   `ab = 4.mul_add(age0, 3*age1); cd = 2.mul_add(age2, age3);
+    ///   smooth = (ab+cd)*0.1`). Push `smooth` into a private 7-cap smooth
+    ///   ring. Publish 0.
+    /// - `t in [9, 15)`: smooth ring full. `detrender = kernel(smooth ring,
+    ///   gain)` (Q-tap only, the hand discards the center tap here). Push
+    ///   into a private 7-cap detrender ring. Publish 0.
+    /// - `t in [15, 21)`: detrender ring full. `i1 = detrender ring age 3`
+    ///   (direct read, no gain). `q1 = kernel(detrender ring, gain)`. Push
+    ///   `i1`/`q1` each into their own private 7-cap ring. Publish 0.
+    /// - `t >= 21`: i1/q1 rings full. `j_i = kernel(i1 ring, gain)`,
+    ///   `j_q = kernel(q1 ring, gain)`. Run the homodyne discriminator (see
+    ///   `hd_apply_discriminator` in `homodynediscriminator.rs`): phase
+    ///   rotation (`i2_raw = i1 - j_q`, `q2_raw = q1 + j_i`), two IIR smooths
+    ///   (α=0.2) on i2/q2, a Re/Im dot/cross against the PRE-update i2/q2
+    ///   carry, two more IIR smooths (α=0.2) on Re/Im against the PRE-update
+    ///   Re/Im carry, then a period estimate (`TAU / atan_fast(im/re)`,
+    ///   held at the prior period if `im==0.0 || re==0.0`), a ±50%-per-bar
+    ///   rate-of-change clamp, an absolute `[6,50]` clamp, one more IIR
+    ///   smooth (α=0.2) producing `period`, and a final IIR (weight 0.33)
+    ///   producing `smooth_period` — the published value. **This full update
+    ///   runs starting at `t=21`, but its result is only PUBLISHED from
+    ///   `t=22` on** (`feeds[k] = leads[src] + 22`) — at `t=21` the hand's own
+    ///   `State::init_state` warmup loop computes and then discards it, yet
+    ///   the six scalar carries it updates still feed `t=22`'s computation,
+    ///   so the engine must run the SAME update at `t=21` and simply not
+    ///   expose it.
+    ///
+    /// The kernel formula (`C0=0.0962, C1=0.5769, C2=-0.5769, C3=-0.0962`,
+    /// `(C0.mul_add(at0, C1*at2) + C2.mul_add(at4, C3*at6)) * gain`) is
+    /// `hilberttransform.rs`'s own `ht_kernel` Q-tap, reused verbatim on this
+    /// node's own private rings (never the shared `HtInPhase`/`HtQuadrature`
+    /// ring group — those are always `gain=1.0`, structurally different).
+    ///
+    /// Carry storage is a bespoke, non-shared flat `[f64; 38]` scratch cell
+    /// per node (`hdacc[k]`, threaded through `exec`/codegen the same way
+    /// `kvacc`/`hacc` are) — NOT the generic `RingSet`/`ring_of` group
+    /// mechanism, because this node owns five independent private rings
+    /// plus six scalars that are never shared with any other node. See
+    /// `homodynediscriminator.rs`'s `hd_ring_push`/`hd_ring_at`/`hd_kernel`/
+    /// `hd_apply_discriminator`/`hd_step` for the exact shared primitives
+    /// both `warmup.rs`'s interpreter and `codegen.rs`'s steady loop call.
+    ///
+    /// Scalar-only: `lane_formula` is `(0, 0)`, same standing as
+    /// `NviRecur`/`KvoFlow`/`Psar`/`SdftRotate` — no SIMD lane form.
+    HomodyneDiscriminator {
+        src: Id,
+    },
 }
 
 /// Where a sink's value comes from each bar.

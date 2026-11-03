@@ -505,6 +505,9 @@ tulip_rs_macros::kernel! {
     // MSW: single raw `Node::SdftRotate` carry + one `Node::SdftLead`
     // companion reading its cached lead_sine. No shared chain with anything.
     msw_n: Msw(period);
+    // Ehlers Homodyne Discriminator -- bespoke single-node carry, no shared
+    // chain with anything, OPTIONS=0 (fixed 23-bar warmup, lead 22).
+    homodynediscriminator_n: HomodyneDiscriminator();
     tsf_fosc_shared_p: Tsf(p), Fosc(p);
     // The whole regression family on one column: THREE requests, ONE moment
     // chain. Sizes are pinned by `linreg_tsf_fosc_share_one_chain`, not here.

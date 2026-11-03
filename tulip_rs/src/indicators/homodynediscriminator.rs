@@ -43,6 +43,7 @@
 //! dominant cycle period in bars.
 
 use crate::common::validate_inputs;
+use crate::cse::{Planable, Recipe};
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
@@ -459,4 +460,142 @@ impl Indicator<INPUTS, OPTIONS> for HomodyneDiscriminator {
             optional_outputs,
         )
     }
+}
+
+impl Planable for HomodyneDiscriminator {
+    /// The graph is leaf data — `crate::cse::recipes::homodynediscriminator`: one
+    /// raw price stream feeding a single bespoke `Node::HomodyneDiscriminator`
+    /// carry node (see that variant's doc for the full algorithm derivation).
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::homodynediscriminator(options)
+    }
+}
+
+// ── CSE bespoke-carry helpers (K_HOMODYNEDISCRIMINATOR) ─────────────────────
+//
+// Private, non-shared carry: 4 rings (price cap 4, smooth/detrender/i1/q1
+// cap 7 each) packed into one flat `[f64; 38]` scratch cell (`hdacc[k]`),
+// plus 6 trailing scalars (i2_prev, q2_prev, re_prev, im_prev, period,
+// smooth_period). Offsets, fixed forever once a kernel ships:
+//   price:     [0, 4)    smooth:    [4, 11)   detrender: [11, 18)
+//   i1:        [18, 25)  q1:        [25, 32)  scalars:   [32, 38)
+// Age convention matches `FixedRingBuffer`'s own `buf[bars_ago]` exactly:
+// age 0 = newest push, age N-1 = oldest. Shared verbatim by both the
+// `warmup.rs` interpreter (gated, bar-by-bar) and `codegen.rs`'s steady loop
+// (unconditional, bars are always past every stage threshold) so the two
+// can never spell the recurrence two different ways.
+
+/// Total scratch cell size for one `HomodyneDiscriminator` node.
+pub const HD_ACC_LEN: usize = 38;
+
+#[inline(always)]
+pub(crate) fn hd_ring_push(acc: &mut [f64; HD_ACC_LEN], off: usize, cap: usize, x: f64) {
+    for i in (1..cap).rev() {
+        acc[off + i] = acc[off + i - 1];
+    }
+    acc[off] = x;
+}
+
+#[inline(always)]
+pub(crate) fn hd_ring_at(acc: &[f64; HD_ACC_LEN], off: usize, age: usize) -> f64 {
+    acc[off + age]
+}
+
+/// `hilberttransform.rs`'s `ht_kernel` Q-tap formula, applied to one of this
+/// node's own private 7-slot rings. Must stay byte-for-byte identical to
+/// `crate::indicators::hilberttransform::ht_kernel`'s FMA association.
+#[inline(always)]
+pub(crate) fn hd_kernel(acc: &[f64; HD_ACC_LEN], off: usize, gain: f64) -> f64 {
+    const C0: f64 = 0.0962;
+    const C1: f64 = 0.5769;
+    const C2: f64 = -0.5769;
+    const C3: f64 = -0.0962;
+    (C0.mul_add(hd_ring_at(acc, off, 0), C1 * hd_ring_at(acc, off, 2))
+        + C2.mul_add(hd_ring_at(acc, off, 4), C3 * hd_ring_at(acc, off, 6)))
+        * gain
+}
+
+/// `State::apply_discriminator`, transcribed verbatim onto the flat scratch
+/// cell's trailing 6 scalar slots (offsets 32..38). Returns the published
+/// value (`smooth_period`). Order matters: `re_raw`/`im_raw` read the OLD
+/// `i2_prev`/`q2_prev` before those are overwritten, and the `re`/`im` IIR
+/// reads the OLD `re_prev`/`im_prev` before THAT pair is overwritten too.
+#[inline(always)]
+pub(crate) fn hd_apply_discriminator(
+    acc: &mut [f64; HD_ACC_LEN],
+    i1: f64,
+    q1: f64,
+    j_i: f64,
+    j_q: f64,
+) -> f64 {
+    let i2_prev = acc[32];
+    let q2_prev = acc[33];
+    let re_prev = acc[34];
+    let im_prev = acc[35];
+    let period_prev = acc[36];
+    let smooth_period_prev = acc[37];
+
+    let i2_raw = i1 - j_q;
+    let q2_raw = q1 + j_i;
+
+    let i2 = 0.2_f64.mul_add(i2_raw, 0.8 * i2_prev);
+    let q2 = 0.2_f64.mul_add(q2_raw, 0.8 * q2_prev);
+
+    let re_raw = i2.mul_add(i2_prev, q2 * q2_prev);
+    let im_raw = i2.mul_add(q2_prev, -(q2 * i2_prev));
+
+    acc[32] = i2;
+    acc[33] = q2;
+
+    let re = 0.2_f64.mul_add(re_raw, 0.8 * re_prev);
+    let im = 0.2_f64.mul_add(im_raw, 0.8 * im_prev);
+
+    acc[34] = re;
+    acc[35] = im;
+
+    let mut period = if im != 0.0 && re != 0.0 {
+        std::f64::consts::TAU / atan_fast(im / re)
+    } else {
+        period_prev
+    };
+
+    period = period.min(1.5 * period_prev);
+    period = period.max(0.67 * period_prev);
+    period = period.clamp(6.0, 50.0);
+    period = 0.2_f64.mul_add(period, 0.8 * period_prev);
+    let smooth_period = 0.33_f64.mul_add(period, 0.67 * smooth_period_prev);
+
+    acc[36] = period;
+    acc[37] = smooth_period;
+
+    smooth_period
+}
+
+/// One full, UNCONDITIONAL bar step — caller guarantees every stage ring is
+/// already full (`t >= 21`), the same precondition `State<Warm>::calc` has.
+/// Used verbatim by `codegen.rs`'s steady loop; the `warmup.rs` interpreter
+/// calls the same ring/kernel primitives directly behind its own per-stage
+/// gates instead (it needs the early-return-0.0 branches this fn omits).
+#[inline(always)]
+pub(crate) fn hd_step(acc: &mut [f64; HD_ACC_LEN], price: f64) -> f64 {
+    hd_ring_push(acc, 0, 4, price);
+    let ab = 4.0_f64.mul_add(hd_ring_at(acc, 0, 0), 3.0 * hd_ring_at(acc, 0, 1));
+    let cd = 2.0_f64.mul_add(hd_ring_at(acc, 0, 2), hd_ring_at(acc, 0, 3));
+    let smooth = (ab + cd) * 0.1;
+
+    let gain = 0.075_f64.mul_add(acc[36], 0.54);
+
+    hd_ring_push(acc, 4, 7, smooth);
+    let detrender = hd_kernel(acc, 4, gain);
+
+    hd_ring_push(acc, 11, 7, detrender);
+    let i1 = hd_ring_at(acc, 11, 3);
+    let q1 = hd_kernel(acc, 11, gain);
+
+    hd_ring_push(acc, 18, 7, i1);
+    hd_ring_push(acc, 25, 7, q1);
+    let j_i = hd_kernel(acc, 18, gain);
+    let j_q = hd_kernel(acc, 25, gain);
+
+    hd_apply_discriminator(acc, i1, q1, j_i, j_q)
 }
