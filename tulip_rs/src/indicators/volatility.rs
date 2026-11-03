@@ -170,3 +170,77 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Volatility {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Volatility {
+    /// The graph: close → lag(1) → sub(diff) → div(roc), then two RollSum
+    /// moments over roc/roc² to form variance, then sqrt + annual scale,
+    /// with a close Mirror to capture `prev_real` for restoration.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::volatility(options)
+    }
+}
+
+/// Rebuild the hand `Volatility::State<Warm>` from the two RollSum chains
+/// (sum/sum_sq via roc_sum and roc_sq_sum) plus close_mirror (prev_real).
+/// The hand's init_state computes sum/sum_sq over ROC[1..=period]; the CSE
+/// captures these via two separate RollSum nodes which each export a ring.
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Volatility {
+    const KIND: &'static str = "volatility";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollSumRing {
+            sum: roc_sum,
+            ring: roc_ring,
+            cursor: roc_cursor,
+            period: p1,
+        }, crate::cse::ChainState::RollSumRing {
+            sum: roc_sq_sum,
+            ring: _roc_sq_ring,
+            cursor: _roc_sq_cursor,
+            period: p2,
+        }, crate::cse::ChainState::Mirror { value: prev_real }] = v.as_slice()
+        else {
+            return None;
+        };
+        // Both RollSums should use the same period
+        if p1 != p2 {
+            return None;
+        }
+        let period = *p1 as usize;
+        if windows[0].len() < period + 1 {
+            // Volatility needs period+1 bars to compute ROC values for init_state
+            return None;
+        }
+        // Rebuild the buffer from roc_ring (same cursor convention as Hma/Adxr:
+        // index = cursor / 8, count = capacity). The buffer holds past ROC values
+        // for stddev's prev_value handling.
+        let capacity = period;
+        if roc_ring.len() != capacity || capacity == 0 {
+            return None;
+        }
+        let index = (roc_cursor / 8) as usize;
+        let prev_idx = (index + capacity - 1) % capacity;
+        let buffer = crate::ring_buffer::single_buffer::generic_buffer::Buffer::<Warm> {
+            vals: roc_ring.clone(),
+            index,
+            capacity,
+            count: capacity,
+            prev_idx,
+            state: std::marker::PhantomData,
+        };
+        // The hand's stddev uses sum/sum_sq directly; the CSE's RollSum nodes
+        // capture these sums over ROC values. Rebuild State with same period and
+        // seed from mirror-captured prev_real.
+        Some(State::<Warm> {
+            buffer,
+            stddev_state: crate::indicators::stddev::State::new(*roc_sum, *roc_sq_sum, period)
+                .into_warm(),
+            prev_real: *prev_real,
+        })
+    }
+}

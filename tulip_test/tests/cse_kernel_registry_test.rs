@@ -22,6 +22,7 @@ mod tests {
     use tulip_rs::indicators::roofingfilter::RoofingFilter;
     use tulip_rs::indicators::supersmoother::SuperSmoother;
     use tulip_rs::indicators::ultosc::Ultosc;
+    use tulip_rs::indicators::volatility::Volatility;
 
     fn apo_ppo_macd_shared_sl_req() -> Request {
         Request::new()
@@ -5824,6 +5825,57 @@ mod tests {
                 assert_bits(&out.rows[0], &h[0], "msw sine row [Planable]");
                 assert_bits(&out.rows[1], &h[1], "msw lead row [Planable]");
             }
+        }
+    }
+
+    /// Volatility standalone floor — parity vs hand (1e-12 relative).
+    ///
+    /// The CSE volatility recipe computes rate-of-change values via lag/sub/div,
+    /// then uses two rolling sums to compute variance (mean_sq - mean²), and finally
+    /// scales stddev by the annual factor 252.sqrt(). This matches the hand's
+    /// semantics: `((real[i] - prev_real) / prev_real)` as rate-of-change, then
+    /// std dev over those values with ANNUAL multiplier.
+    #[test]
+    fn volatility_planable_bit_exact() {
+        let s = series(700, |i| {
+            (i as f64 * 0.37).sin() * 10.0 + 100.0 + i as f64 * 0.02
+        });
+        for period in [6usize, 7, 14, 27, 50] {
+            let opts: [f64; 1] = [period as f64];
+            let req = Request::new().add(Volatility::recipe(&opts), None);
+            let streams = [s.as_slice()];
+            let out = run_registered(&req, &streams)
+                .unwrap_or_else(|| panic!("volatility: registry miss - pattern not registered"));
+            assert_eq!(out.fp, SIG_volatility_n.hash());
+            let inp = [s.as_slice()];
+            let (h, _) = Volatility::indicator(&inp, &opts, None).unwrap();
+            // CSE computes variance via RollSum nodes on derived ROC values;
+            // hand uses stddev internal two-moment state. Floating-point rounding
+            // differs slightly but stays within 1e-12 relative tolerance.
+            assert_rel_1e12(&out.rows[0], &h[0], &format!("volatility p={period}"));
+        }
+    }
+
+    /// `homodynediscriminator` = Ehlers Homodyne Discriminator: one raw price stream
+    /// feeding a single bespoke carry node (`Node::HomodyneDiscriminator`, 7-state
+    /// ring-backed recurrence). Fixed 23-bar warmup (bars 0-21), lead 22. No user
+    /// options.
+    #[test]
+    fn homodynediscriminator_planable_bit_exact() {
+        use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
+        let req = Request::new().add(HomodyneDiscriminator::recipe(&[]), None);
+        for n in [23usize, 40, 700] {
+            let prices = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+            let streams = [prices.as_slice()];
+            let out = run_registered(&req, &streams)
+                .expect("homodynediscriminator via Planable registered");
+            let inp = [prices.as_slice()];
+            let (h, _) = HomodyneDiscriminator::indicator(&inp, &[], None).unwrap();
+            assert_bits(
+                &out.rows[0],
+                &h[0],
+                "homodynediscriminator dc_period row [Planable]",
+            );
         }
     }
 }

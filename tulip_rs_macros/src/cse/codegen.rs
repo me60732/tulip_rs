@@ -1393,6 +1393,13 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     };
                 });
             }
+            Kind::Sqrt => {
+                // Single-operand sqrt host call — `K_SQRT`. Used by recipes
+                // that need to compute std dev from variance manually (e.g.
+                // volatility over derived rate-of-change values).
+                let src = ev(node.a, &idents);
+                body.push(quote! { let #xk = #src.sqrt(); });
+            }
             Kind::Wma => {
                 // hand `wma::State::calc` order EXACTLY: weighted drops
                 // the PRE-update window sum, the sum steps, the entering
@@ -3293,6 +3300,10 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                         var.sqrt().simd_max(Simd::<f64, L>::splat(f64::EPSILON))
                     };
                 });
+            }
+            Kind::Sqrt => {
+                let src = ev(node.a, &idents);
+                body.push(quote! { let #xk = #src.sqrt(); });
             }
             Kind::Wma => {
                 let ck = format_ident!("{}_carry", idents[k]);

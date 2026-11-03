@@ -16,7 +16,7 @@
 //! is what makes `Apo`'s `ema12/ema26` and `Macd`'s literally the same arena
 //! nodes, the §4 identity falling out of CSE for free.
 
-use crate::cse::{AlphaShape, Column, Id, Node, Recipe, Sink, SinkSrc};
+use crate::cse::{Column, Id, Node, Recipe, Sink, SinkSrc};
 use std::collections::HashMap;
 
 /// Merged, node-deduplicated interface graph. Child `Id`s in `nodes` are
@@ -45,9 +45,7 @@ impl Merged {
                 // For zlema, `feed` specifies the seed bar (lag-1), and output
                 // starts at bar `base + 1 = lag`. For trvi, `feed` is leads[seed]
                 // (0 for range), but the recipe sets sink lead to override.
-                Node::SeededEma {
-                    seed, period, feed, ..
-                } => {
+                Node::SeededEma { seed, feed, .. } => {
                     let base = feed.unwrap_or(leads[seed as usize]);
                     // The output starts at bar `base + 1` (where we start folding
                     // the src node), not at bar `base` (where we seed). The recipe's

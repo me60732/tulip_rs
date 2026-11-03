@@ -295,7 +295,7 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Di {
         {
             [Wilders {
                 value: dmup,
-                period,
+                period: _,
             }, Wilders { value: dmdown, .. }, Mirror { value: prev_high }, Mirror { value: prev_low }, Wilders {
                 value: atr_mean,
                 period: atr_period,

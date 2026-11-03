@@ -251,6 +251,10 @@ pub enum IndicatorStateBox {
     /// the hand's full continuable `IndicatorState` (`{real, state, period}`);
     /// window-stitched the same way as the E3/E9 group above.
     Cmo(crate::indicators::cmo::IndicatorState),
+    /// Volatility: the Stddev chain (sum/sum_sq/period) plus close mirror
+    /// (prev_real). The hand's full continuable `IndicatorState` (`{buffer,
+    /// stddev_state, prev_real}`); window-stitched as with other rolling kinds.
+    Volatility(crate::indicators::volatility::IndicatorState),
     Other,
 }
 
@@ -307,6 +311,13 @@ pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
                 .map(IndicatorStateBox::Stddev)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
+        k if k == <crate::indicators::volatility::Volatility as Restorable<1, 1>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::volatility::Volatility as Restorable<1, 1>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Volatility)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
         k if k == <crate::indicators::wma::Wma as Restorable<1, 1>>::KIND => Some(|v, w| {
             <crate::indicators::wma::Wma as Restorable<1, 1>>::restore_state(v, w)
                 .map(IndicatorStateBox::Wma)

@@ -1667,6 +1667,117 @@ pub fn stddev(options: &[f64]) -> Recipe {
     r
 }
 
+/// `Volatility(p)` — the hand's volatility indicator: rate-of-change values
+/// with std dev scaled by annual multiplier (252.sqrt() ≈ 15.8745).
+///
+/// Graph structure:
+///   close → lag → sub → div → roc (rate of change)
+///   roc → RollSum(p) → mean (mean of ROC values)
+///   roc² → RollSum(p) → mean_sq (mean of squared ROC values)
+///   variance = mean_sq - mean²
+///   stddev = sqrt(variance.max(EPSILON))
+///   volatility = stddev * annual
+///
+/// Note: We cannot use Stddev node directly because it requires a price source.
+/// Instead, we compute std dev manually from two rolling sums over the derived
+/// ROC values. This matches the hand's semantics while being CSE-emittable.
+pub fn volatility(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::price();
+    let close = r.add(Node::Input { stream: 0 });
+    r.tag(close, "close");
+
+    // Lag by 1 bar to get prev_real for ROC computation and state restoration
+    let lag = r.add(Node::Lag { src: close, n: 1 });
+    r.tag(lag, "lag");
+
+    // Compute rate of change: (close - prev_close) / prev_close
+    // This is equivalent to close/prev_close - 1 but more numerically stable
+    let diff = r.add(Node::Sub { a: close, b: lag });
+    r.tag(diff, "diff");
+
+    let roc = r.add(Node::Div { a: diff, b: lag });
+    r.tag(roc, "rate_of_change");
+
+    // Compute ROC squared for variance calculation
+    let roc_sq = r.add(Node::Mul { a: roc, b: roc });
+    r.tag(roc_sq, "roc_squared");
+
+    // Use RollSum nodes on derived ROC values - these work via rings and can handle
+    // derived sources. The hand's stddev computes variance as mean_of_squares - mean^2.
+    // The hand's init_state folds bars 1..=period (ROC values from close[1]/close[0]-1 etc).
+    // To match, we skip bar 0 where ROC=0 (lag clamps), then fold period bars starting
+    // at bar 1. RollSum with skip=1 and steady_from=1 matches hand's init loop exactly.
+    let roc_sum = r.add(Node::RollSum {
+        src: roc,
+        period,
+        mean: true,     // This makes it a rolling MEAN (sum * 1/period)
+        skip: 1,        // Skip bar 0 where ROC=0 (lag clamps to same value)
+        steady_from: 1, // Start computing from bar 1 (after the skipped bar)
+    });
+    r.tag(roc_sum, "roc_mean");
+
+    let roc_sq_sum = r.add(Node::RollSum {
+        src: roc_sq,
+        period,
+        mean: true,
+        skip: 1,
+        steady_from: 1,
+    });
+    r.tag(roc_sq_sum, "roc_sq_mean");
+
+    // Compute variance = mean_of_squares - mean^2 (same as hand's stddev calc)
+    let mean_sq = r.add(Node::Mul {
+        a: roc_sum,
+        b: roc_sum,
+    });
+    r.tag(mean_sq, "mean_squared");
+    let variance = r.add(Node::Sub {
+        a: roc_sq_sum,
+        b: mean_sq,
+    });
+    r.tag(variance, "variance");
+
+    // Floor variance at EPSILON for numerical stability (hand does max() on sqrt result)
+    let eps = r.constant(f64::EPSILON);
+    r.tag(eps, "epsilon");
+    let var_floor = r.add(Node::Max {
+        a: variance,
+        b: eps,
+    });
+    r.tag(var_floor, "variance_floored");
+
+    // Compute stddev = sqrt(variance)
+    let sd = r.add(Node::Sqrt { src: var_floor });
+    r.tag(sd, "stddev");
+
+    // Annual multiplier constant (252.sqrt() = 15.874507866387544)
+    let annual = r.constant(15.874507866387544);
+    r.tag(annual, "annual");
+
+    // Scale stddev by annual factor (hand: sd * ANNUAL)
+    let vol = r.add(Node::Mul { a: sd, b: annual });
+    r.tag(vol, "volatility");
+
+    r.kind = "volatility";
+    r.options = options.to_vec();
+
+    // Hand State holds: buffer (for stddev's prev_value), stddev_state, prev_real
+    // The RollSum nodes capture sum/sum_sq via Values periods; we need close_mirror
+    // for prev_real restoration. Tail inputs match the Restorable implementation.
+    let close_mirror = r.add(Node::Mirror { src: close });
+    r.tag(close_mirror, "close_mirror");
+
+    r.tail_inputs = vec![roc_sum, roc_sq_sum, close_mirror];
+
+    // Lead is period + 1 - hand `init_state` consumes bars 0..=period (period+1 bars),
+    // computes sum/sum_sq over ROC[1..=period], then `cycle` starts at bar period+1.
+    // CSE must match: RollSum seams at bar period+1 (fold=skip=1, seam=1+p-1=p+1).
+    r.outputs.push(Sink::iface_lead(vol, period + 1));
+
+    r
+}
+
 /// `BBANDS(p, k)` — the rolling core shared with the standalone `Sma` and
 /// `Stddev` requests (middle IS the `Sma` node, spread comes from the
 /// `Stddev` node), plus the hand's single-rounded fmas:

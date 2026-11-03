@@ -1151,7 +1151,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     // - If trend=false (st[k] < 0.5) AND hlc > prev_hlc: flip to true, cm=prev_hl
                     // - If trend=true (st[k] >= 0.5) AND hlc < prev_hlc: flip to false, cm=prev_hl
                     // - Otherwise: sign from current trend, no cm update
-                    let mut sign;
+                    let sign;
                     let mut cm = cm;
                     if st[k] < 0.5 && hlc > prev_hlc {
                         st[k] = 1.0;
@@ -1377,7 +1377,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     if t < f {
                         0.0
                     } else {
-                        let n = vals.periods[k] as usize;
+                        let _n = vals.periods[k] as usize;
                         let g = vals.ring_of[k] as usize;
                         let cap = vals.ring_cap[g] as usize;
                         let x = v[SIG.a[k] as usize];

@@ -145,6 +145,10 @@ pub enum Kind {
     /// Ehlers Homodyne Discriminator -- `K_HOMODYNEDISCRIMINATOR` (49).
     /// Scalar-only, bespoke non-shared carry, a=src (raw stream).
     HomodyneDiscriminator,
+    /// Single-operand sqrt host call — `K_SQRT`. Used by recipes that need
+    /// to compute std dev from variance manually (e.g. volatility over derived
+    /// rate-of-change values). Scalar-only.
+    Sqrt,
 }
 
 impl Kind {
@@ -199,6 +203,7 @@ impl Kind {
             Kind::SdftRotate => 47,
             Kind::SdftLead => 48,
             Kind::HomodyneDiscriminator => 49,
+            Kind::Sqrt => 13,
         }
     }
 }
@@ -463,6 +468,8 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "SuperSmoother" => recipes::supersmoother(&opts),
             "RoofingFilter" => recipes::roofingfilter(&opts),
             "HilbertTransform" => recipes::hilberttransform(&opts),
+            "HomodyneDiscriminator" => recipes::homodynediscriminator(&opts),
+            "Volatility" => recipes::volatility(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
         built.push(r);
@@ -638,9 +645,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             }
             Node::HtInPhase { src } => ANode::new_simple(Kind::HtInPhase, src as usize, 0),
             Node::HtQuadrature { src } => ANode::new_simple(Kind::HtQuadrature, src as usize, 0),
-            other => {
-                panic!("kernel!: arena node `{other:?}` is not covered by the fused emitter yet")
-            }
+            Node::Sqrt { src } => ANode::new_simple(Kind::Sqrt, src as usize, 0),
         };
         nodes.push(a);
     }

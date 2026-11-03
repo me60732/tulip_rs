@@ -380,8 +380,14 @@ tulip_rs_macros::kernel! {
     roc_n: Roc(p);
     rocr_n: Rocr(p);
     typprice_n: Typprice();
-    wcprice_n: WcPrice();
+    // Volatility standalone floor — rate-of-change std dev scaled by annual factor.
+    // Input: close price, Option: period. Graph: close → lag(1) → sub(diff) → div(roc)
+    // → roc² → two RollSum(p) for mean/mean_sq → sqrt(variance) → mul(annual).
+    // The hand's State carries buffer/stddev_state/prev_real; CSE captures the
+    // sum/sum_sq pair via two RollSum nodes and prev_real via Mirror(close).
+    volatility_n: Volatility(p);
     // ── THE SECOND CALCULATED-INPUT / OSCILLATOR TRANCHE ─────────────────
+    wcprice_n: WcPrice();
     // Sma(p) + Dpo(p) on ONE period is the reason dpo's roll is spelled
     // `Node::Sma` and not `RollSum{mean:true}`: the two are DIFFERENT signature
     // kinds (K_SMA=16 vs K_ROLLSUM=24), so as a ring roll the arena would carry the
