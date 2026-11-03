@@ -5803,4 +5803,27 @@ mod tests {
             }
         }
     }
+
+    /// `msw` = MESA Sine Wave: a single raw price stream feeding a sliding-DFT
+    /// rotation carry (`Node::SdftRotate`, publishes `sine`) plus a companion
+    /// `Node::SdftLead` node (publishes the cached `lead_sine`). This gate
+    /// covers periods both <=7 and >7 (the hand's N=4 vs N=8 SIMD-width seed
+    /// dot-product split) and both the seed bar and steady bars.
+    #[test]
+    fn msw_planable_bit_exact() {
+        use tulip_rs::indicators::msw::Msw;
+        for period in [6usize, 7, 14, 27, 50] {
+            let opts: [f64; 1] = [period as f64];
+            let req = Request::new().add(Msw::recipe(&opts), None);
+            for n in [period + 5, period + 40, period + 700] {
+                let prices = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+                let streams = [prices.as_slice()];
+                let out = run_registered(&req, &streams).expect("msw via Planable registered");
+                let inp = [prices.as_slice()];
+                let (h, _) = Msw::indicator(&inp, &opts, None).unwrap();
+                assert_bits(&out.rows[0], &h[0], "msw sine row [Planable]");
+                assert_bits(&out.rows[1], &h[1], "msw lead row [Planable]");
+            }
+        }
+    }
 }

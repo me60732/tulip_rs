@@ -512,6 +512,38 @@ pub enum Node {
         af_step_bits: u64,
         max_af_bits: u64,
     },
+    /// Sliding DFT rotation carry for `msw`'s MESA Sine Wave (`K_SDFTROTATE`):
+    /// a coupled 2-state carry `[rp, ip]` in `kvacc[k]`, seeded by a weighted
+    /// dot-product over the first `period` bars of `src` against the hand's
+    /// own precomputed twiddle tables -- the seed calls
+    /// `crate::indicators::msw::calc_rp_ip` VERBATIM (same function the hand
+    /// itself calls), so the seed is bit-identical to the hand's
+    /// `cycle_msw_sdft` by construction, not by re-derivation. Every bar after
+    /// the seed advances by the hand's coupled rotation:
+    /// `rp' = wr*rp - wi*ip + (new - old)`, `ip' = wr*ip + wi*rp` (using the
+    /// OLD `rp`, a simultaneous-update fold, not sequential) where
+    /// `new = src[t]`, `old = src[t - period]` (a raw-stream lag, `src` MUST
+    /// be a raw `Node::Input`). `wr`/`wi` = cos/sin(2*PI/period), recipe-time
+    /// constants riding `mults`/`invms` (same convention `Psar`'s
+    /// `af_step`/`max_af` use). Publishes `sine` (via
+    /// `crate::indicators::msw::phase_from_rp_ip`, called verbatim for the
+    /// same bit-identical reason as the seed); `lead_sine` is cached in
+    /// `kvacc[k][2]` every bar for the companion `Node::SdftLead` to read.
+    /// Scalar-only (same standing as `NviRecur`/`Psar` -- the hand's SDFT
+    /// state has no SIMD lane form).
+    SdftRotate {
+        src: Id,
+        period: u32,
+    },
+    /// Companion read of a `Node::SdftRotate`'s cached `lead_sine` at
+    /// `kvacc[owner_k][2]`. This is a REAL graph edge to `owner` (not an
+    /// aliased arena slot), so topological order guarantees `owner` always
+    /// executes first in the same bar's node loop -- `owner`'s `kvacc[owner_k]`
+    /// is always freshly written before this reads it. Has no carry of its
+    /// own and performs no arithmetic.
+    SdftLead {
+        owner: Id,
+    },
 }
 
 /// Where a sink's value comes from each bar.

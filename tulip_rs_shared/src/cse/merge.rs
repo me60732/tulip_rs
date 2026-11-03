@@ -107,6 +107,11 @@ impl Merged {
                 Node::Psar { high, low, .. } => {
                     leads[high as usize].max(leads[low as usize]).max(1)
                 }
+                // Seed dot-product needs `period` samples before the first
+                // published bar (see `Node::SdftRotate` doc).
+                Node::SdftRotate { src, period } => leads[src as usize] + period,
+                // Cannot publish before its owner has a `kvacc` value to read.
+                Node::SdftLead { owner } => leads[owner as usize],
                 Node::Sma { src, period } | Node::Wma { src, period } => {
                     leads[src as usize] + period.saturating_sub(1)
                 }
@@ -627,6 +632,10 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         // Scalar-only, same standing as NviRecur -- the per-bar branch on
         // high/low vs. the carried psar/extream cannot be lane-packed.
         Psar { .. } => (0, 0),
+        // Coupled 2-state recurrence, same standing as Psar/NviRecur.
+        SdftRotate { .. } => (0, 0),
+        // Thin companion read, no arithmetic of its own, no lane form.
+        SdftLead { .. } => (0, 0),
         // Window rescan over the shared sma operand: one state value, no
         // arithmetic shared with RollSum's own formula (its `sum` is NOT
         // what this walks -- it rescans |x - sma| fresh every bar).
@@ -830,6 +839,11 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             af_step_bits,
             max_af_bits,
         },
+        SdftRotate { src, period } => SdftRotate {
+            src: g(src),
+            period,
+        },
+        SdftLead { owner } => SdftLead { owner: g(owner) },
         Wma { src, period } => Wma {
             src: g(src),
             period,
@@ -1077,6 +1091,8 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
             visit(*high);
             visit(*low);
         }
+        SdftRotate { src, .. } => visit(*src),
+        SdftLead { owner } => visit(*owner),
         NviRecur {
             src,
             prev_close,

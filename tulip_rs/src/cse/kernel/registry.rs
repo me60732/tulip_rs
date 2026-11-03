@@ -502,6 +502,9 @@ tulip_rs_macros::kernel! {
     fosc_n: Fosc(p);
     // Parabolic SAR -- standalone, no shared chain (reads high/low directly).
     psar_n: Psar(af, maxaf);
+    // MSW: single raw `Node::SdftRotate` carry + one `Node::SdftLead`
+    // companion reading its cached lead_sine. No shared chain with anything.
+    msw_n: Msw(period);
     tsf_fosc_shared_p: Tsf(p), Fosc(p);
     // The whole regression family on one column: THREE requests, ONE moment
     // chain. Sizes are pinned by `linreg_tsf_fosc_share_one_chain`, not here.

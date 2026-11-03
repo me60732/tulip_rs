@@ -188,6 +188,19 @@ pub const K_VARIABLEALPHA: u8 = 45;
 /// `invms[k]`=max_af, `feeds[k]`=1 (bar 1 is always the seed, regardless of
 /// `high`/`low`'s own lead -- both are raw streams with lead 0).
 pub const K_PSAR: u8 = 46;
+/// Sliding DFT rotation carry for `msw` (`Node::SdftRotate` doc): `a`=src
+/// (raw stream only). `mults[k]`=wr=cos(2*PI/period), `invms[k]`=wi=
+/// sin(2*PI/period), `periods[k]`=period, `feeds[k]`=`leads[src]+period`
+/// (the seed dot-product needs `period` samples before the first published
+/// bar). Own 2-field carry `[rp, ip]` plus a cached `lead_sine` in the
+/// otherwise-unused 3rd slot of `kvacc[k]` (the same scratch array
+/// `K_PSAR`/`K_KVOFLOW` use -- safe, no node is ever more than one kind).
+pub const K_SDFTROTATE: u8 = 47;
+/// Companion read of a `K_SDFTROTATE`'s cached `lead_sine` (`Node::SdftLead`
+/// doc): `a`=owner (the `K_SDFTROTATE` node's own arena id, NOT a raw
+/// stream). `feeds[k]` mirrors the owner's `feeds` (cannot publish before its
+/// owner has a value to read).
+pub const K_SDFTLEAD: u8 = 48;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -854,6 +867,23 @@ pub fn erase(
                 // unconditionally reads bar 0 and bar 1.
                 vals.feeds[k] = 1;
                 (K_PSAR, high, low, 0)
+            }
+            Node::SdftRotate { src, period } => {
+                if !matches!(arena.nodes[src as usize], Node::Input { .. }) {
+                    panic!("Node::SdftRotate: src must be a raw Node::Input stream");
+                }
+                let mult = 1.0 / period as f64;
+                let angle = 2.0 * std::f64::consts::PI * mult;
+                let (wi, wr) = angle.sin_cos();
+                vals.mults[k] = wr;
+                vals.invms[k] = wi;
+                vals.periods[k] = period;
+                vals.feeds[k] = leads[src as usize] + period;
+                (K_SDFTROTATE, src, 0, 0)
+            }
+            Node::SdftLead { owner } => {
+                vals.feeds[k] = vals.feeds[owner as usize];
+                (K_SDFTLEAD, owner, 0, 0)
             }
         };
         sig.kinds[k] = kind;

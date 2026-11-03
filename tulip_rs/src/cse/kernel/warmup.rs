@@ -18,10 +18,10 @@
 use crate::cse::signature::{
     Signature, Values, K_ABS, K_ACCUM, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HIGHPASS, K_HMA,
     K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED, K_INPUT, K_KVOFLOW, K_LAG, K_LINREGFLOW,
-    K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL, K_NVI, K_PREV, K_PSAR, K_PVI, K_ROLLAGE, K_ROLLMAX,
-    K_ROLLMIN, K_ROLLSUM, K_SEEDEDEMA, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERSMOOTHER,
-    K_SUPERTREND, K_TRAIL, K_VARIABLEALPHA, K_WHEREGE, K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS,
-    K_WMA, MAX, MAX_SINKS,
+    K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL, K_NVI, K_PREV, K_PSAR, K_PVI, K_ROLLAGE,
+    K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SDFTLEAD, K_SDFTROTATE, K_SEEDEDEMA, K_SMA, K_SQRT,
+    K_STDDEV, K_SUB, K_SUPERSMOOTHER, K_SUPERTREND, K_TRAIL, K_VARIABLEALPHA, K_WHEREGE, K_WHEREGT,
+    K_WHERELE, K_WHERELT, K_WILDERS, K_WMA, MAX, MAX_SINKS,
 };
 use crate::ring_buffer::buffer::BufferElement;
 use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
@@ -1523,13 +1523,12 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     if t < 1 {
                         0.0
                     } else if t == 1 {
-                        let (uptrend0, extream0, psar0) = if streams[hs][0] + streams[ls][0]
-                            <= streams[hs][1] + streams[ls][1]
-                        {
-                            (true, streams[hs][0], streams[ls][0])
-                        } else {
-                            (false, streams[ls][0], streams[hs][0])
-                        };
+                        let (uptrend0, extream0, psar0) =
+                            if streams[hs][0] + streams[ls][0] <= streams[hs][1] + streams[ls][1] {
+                                (true, streams[hs][0], streams[ls][0])
+                            } else {
+                                (false, streams[ls][0], streams[hs][0])
+                            };
                         let mut psar = afs.mul_add(extream0 - psar0, psar0);
                         let mut extream = extream0;
                         let mut accel = afs;
@@ -1607,6 +1606,60 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         st[k] = if uptrend { 1.0 } else { 0.0 };
                         kvacc[k] = [psar, extream, accel];
                         psar
+                    }
+                }
+                K_SDFTROTATE => {
+                    // Sliding DFT rotation carry for `msw` (`Node::SdftRotate`
+                    // doc). Seed: a full weighted dot-product over the first
+                    // `period` samples gives the PRE-fold state (rp0, ip0) --
+                    // calling the hand's OWN `calc_rp_ip` verbatim so this
+                    // part is bit-identical by construction. The hand's
+                    // `cycle_sdft` loop then applies ONE rotation step AT the
+                    // first output bar too (`state.calc((real[period],
+                    // real[0]))`) -- it never publishes the raw seed phase.
+                    // So every bar from `f` on (inclusive) runs the exact
+                    // same fold; only the PRIOR (rp, ip) differs: the seed
+                    // pair on bar `f`, `kvacc[k]` on every bar after.
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let s = SIG.a[SIG.a[k] as usize] as usize;
+                        let period = vals.periods[k] as usize;
+                        let (rp, ip) = if t == f {
+                            let window = &streams[s][f - period..f];
+                            let mult = 1.0 / period as f64;
+                            if period <= 7 {
+                                crate::indicators::msw::calc_rp_ip::<4>(window, mult)
+                            } else {
+                                crate::indicators::msw::calc_rp_ip::<8>(window, mult)
+                            }
+                        } else {
+                            let [rp, ip, _lead] = kvacc[k];
+                            (rp, ip)
+                        };
+                        let wr = vals.mults[k];
+                        let wi = vals.invms[k];
+                        let new = streams[s][t];
+                        let old = streams[s][t - period];
+                        let rp2 = wr.mul_add(rp, -(wi * ip)) + (new - old);
+                        let ip2 = wr.mul_add(ip, wi * rp);
+                        let (sine, lead) = crate::indicators::msw::phase_from_rp_ip(rp2, ip2);
+                        kvacc[k] = [rp2, ip2, lead];
+                        sine
+                    }
+                }
+                K_SDFTLEAD => {
+                    // Thin companion read of its owner's cached lead_sine
+                    // (`Node::SdftLead` doc). The owner always runs first in
+                    // this same bar's k-loop (a real graph edge), so
+                    // kvacc[owner_k] is always fresh by the time this reads it.
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let owner_k = SIG.a[k] as usize;
+                        kvacc[owner_k][2]
                     }
                 }
                 _ => {

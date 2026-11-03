@@ -136,6 +136,12 @@ pub enum Kind {
     VariableAlpha,
     /// Parabolic SAR -- `K_PSAR` (46). Scalar-only, a=high, b=low.
     Psar,
+    /// Sliding DFT rotation carry for `msw` -- `K_SDFTROTATE` (47).
+    /// Scalar-only, a=src (raw stream).
+    SdftRotate,
+    /// Companion read of a `SdftRotate`'s cached lead_sine -- `K_SDFTLEAD`
+    /// (48). Scalar-only, a=owner (the SdftRotate node's arena id).
+    SdftLead,
 }
 
 impl Kind {
@@ -187,6 +193,8 @@ impl Kind {
             Kind::Psar => 46,
             Kind::LinregFlow => 44,
             Kind::VariableAlpha => 45,
+            Kind::SdftRotate => 47,
+            Kind::SdftLead => 48,
         }
     }
 }
@@ -353,6 +361,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Medprice" => recipes::medprice(&opts),
             "Supertrend" => recipes::supertrend(&opts),
             "Psar" => recipes::psar(&opts),
+            "Msw" => recipes::msw(&opts),
             "Sma" => recipes::sma(&opts),
             "Stddev" => recipes::stddev(&opts),
             "Wma" => recipes::wma(&opts),
@@ -568,6 +577,11 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
                 // erase(), not the arena structure.
                 ANode::new_simple(Kind::Psar, high as usize, low as usize)
             }
+            Node::SdftRotate { src, .. } => {
+                // period rides VALUES (mults/invms/periods), not structure.
+                ANode::new_simple(Kind::SdftRotate, src as usize, 0)
+            }
+            Node::SdftLead { owner } => ANode::new_simple(Kind::SdftLead, owner as usize, 0),
             Node::LinregFlow { src, sub, .. } => {
                 ANode::new_simple(Kind::LinregFlow, src as usize, sub as usize)
             }

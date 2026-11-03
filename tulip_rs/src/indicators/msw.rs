@@ -34,6 +34,7 @@
 //!   *cached twiddles* (no trig — pure FMA) to prevent floating-point drift.
 
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -333,6 +334,15 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Msw {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for Msw {
+    /// The graph is leaf data — `crate::cse::recipes::msw`: one raw price
+    /// stream feeding a `Node::SdftRotate` carry (publishes `sine`) plus a
+    /// `Node::SdftLead` companion (publishes the cached `lead_sine`).
+    fn recipe(options: &[f64]) -> Recipe {
+        crate::cse::recipes::msw(options)
     }
 }
 

@@ -360,6 +360,30 @@ pub fn psar(options: &[f64]) -> Recipe {
     r
 }
 
+/// `msw` = MESA Sine Wave. Single input stream (close/real), one
+/// `Node::SdftRotate` node owning the sliding-DFT carry (publishes `sine`),
+/// one `Node::SdftLead` companion node reading the cached `lead_sine`. Hand
+/// `Info::outputs` order is `["msw_sine", "msw_lead"]`.
+pub fn msw(options: &[f64]) -> Recipe {
+    let period = options[0] as u32;
+    let mut r = Recipe::price();
+    let close = r.add(Node::Input { stream: 0 });
+    r.tag(close, "price");
+    let rot = r.add(Node::SdftRotate { src: close, period });
+    r.tag(rot, "sdft_rotate");
+    let lead = r.add(Node::SdftLead { owner: rot });
+    r.tag(lead, "sdft_lead");
+    r.kind = "msw";
+    r.options = options.to_vec();
+    // The SdftRotate node owns the only real carry state (rp, ip, cached
+    // lead_sine); SdftLead has no carry of its own.
+    r.tail_inputs = vec![rot];
+    let output_lead = period;
+    r.outputs.push(Sink::iface_lead(rot, output_lead));
+    r.outputs.push(Sink::iface_lead(lead, output_lead));
+    r
+}
+
 /// `MEDPRICE = 0.5 · (high + low)` — stateless, every bar publishes
 /// (`Sink::iface`, lead 0). Streams: 0 = high, 1 = low.
 pub fn medprice(_options: &[f64]) -> Recipe {

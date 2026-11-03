@@ -2087,6 +2087,42 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     };
                 });
             }
+            Kind::SdftRotate => {
+                // Sliding DFT rotation carry for `msw` (`K_SDFTROTATE`):
+                // coupled 2-state carry in kvacc[k] = [rp, ip, lead_sine].
+                // Steady bars are always past the seed (warmup.rs's K_SDFTROTATE
+                // arm already seeded kvacc[k] and carried it to the seam), so
+                // this is pure recurrence, no branch -- same standing as
+                // LinregFlow's steady arm.
+                let ki = k;
+                let stream_s = p.nodes[node.a].a;
+                let sps = format_ident!("s{}", stream_s);
+                body.push(quote! {
+                    let #xk = {
+                        let wr = vals.mults[#ki];
+                        let wi = vals.invms[#ki];
+                        let period = vals.periods[#ki] as usize;
+                        let new = unsafe { *#sps.add(i) };
+                        let old = unsafe { *#sps.add(i).sub(period) };
+                        let [rp, ip, _lead] = kvacc[#ki];
+                        let rp2 = wr.mul_add(rp, -(wi * ip)) + (new - old);
+                        let ip2 = wr.mul_add(ip, wi * rp);
+                        let (sine, lead) = crate::indicators::msw::phase_from_rp_ip(rp2, ip2);
+                        kvacc[#ki] = [rp2, ip2, lead];
+                        sine
+                    };
+                });
+            }
+            Kind::SdftLead => {
+                // Thin companion read of its owner's cached lead_sine -- the
+                // owner (node.a, an arena id) always has a FRESH kvacc value
+                // this same bar because topological order places it earlier
+                // in the k-loop (see `Node::SdftLead` doc).
+                let owner_ki = node.a;
+                body.push(quote! {
+                    let #xk = kvacc[#owner_ki][2];
+                });
+            }
         }
     }
     let mut const_hoists = Vec::new();
@@ -3655,6 +3691,43 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                             kvaccw[a][#ki] = [psar, extream, accel];
                             psar
                         });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::SdftRotate => {
+                // Per-lane scalar transcription of the scalar K_SDFTROTATE
+                // arm -- same standing as Kind::Psar's run_assets_fn arm:
+                // required for exhaustiveness, not because by-assets requests
+                // are expected to exercise a (0,0) scalar-only kind.
+                let ki = k;
+                let ss = stream_slot(node.a);
+                let sfas = format_ident!("sp{}", ss);
+                body.push(quote! {
+                    let #xk = {
+                        let wr = vals.mults[#ki];
+                        let wi = vals.invms[#ki];
+                        let period = vals.periods[#ki] as usize;
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            let new = unsafe { *#sfas[a].add(i) };
+                            let old = unsafe { *#sfas[a].add(i).sub(period) };
+                            let [rp, ip, _lead] = kvaccw[a][#ki];
+                            let rp2 = wr.mul_add(rp, -(wi * ip)) + (new - old);
+                            let ip2 = wr.mul_add(ip, wi * rp);
+                            let (sine, lead) =
+                                crate::indicators::msw::phase_from_rp_ip(rp2, ip2);
+                            kvaccw[a][#ki] = [rp2, ip2, lead];
+                            sine
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
+            Kind::SdftLead => {
+                let owner_ki = node.a;
+                body.push(quote! {
+                    let #xk = {
+                        let out: [f64; L] = std::array::from_fn(|a| kvaccw[a][#owner_ki][2]);
                         Simd::<f64, L>::from_array(out)
                     };
                 });
