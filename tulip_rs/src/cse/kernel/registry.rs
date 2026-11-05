@@ -514,6 +514,8 @@ tulip_rs_macros::kernel! {
     // Ehlers Homodyne Discriminator -- bespoke single-node carry, no shared
     // chain with anything, OPTIONS=0 (fixed 23-bar warmup, lead 22).
     homodynediscriminator_n: HomodyneDiscriminator();
+    // Cybercycle -- standalone, no shared chain (reads real directly).
+    cybercycle_n: Cybercycle(alpha);
     tsf_fosc_shared_p: Tsf(p), Fosc(p);
     // The whole regression family on one column: THREE requests, ONE moment
     // chain. Sizes are pinned by `linreg_tsf_fosc_share_one_chain`, not here.
@@ -588,4 +590,10 @@ tulip_rs_macros::kernel! {
     // `(typprice - sma) / (0.015 * md)` with guard `if md == 0.0 { return 0.0 }`.
     // The md node is MeanAbsDev over typprice (derived source from the hlc subgraph).
     cci_n: Cci(p);
+
+    // trendmode_n: TrendMode(alpha) — cybercycle + peak decay envelope + threshold logic.
+    trendmode_n: TrendMode(alpha);
+
+    // ccfisher_n: CcFisher(alpha) — cybercycle + peak decay envelope + Fisher transform.
+    ccfisher_n: CcFisher(alpha);
 }

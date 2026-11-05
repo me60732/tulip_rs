@@ -23,6 +23,23 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+fn build_verbose() -> bool {
+    matches!(
+        env::var("TULIP_RS_BUILD_VERBOSE"),
+        Ok(v)
+            if v.eq_ignore_ascii_case("1")
+                || v.eq_ignore_ascii_case("true")
+                || v.eq_ignore_ascii_case("yes")
+                || v.eq_ignore_ascii_case("on")
+    )
+}
+
+fn build_log(msg: impl AsRef<str>) {
+    if build_verbose() {
+        eprintln!("[tulip_rs build] {}", msg.as_ref());
+    }
+}
+
 /// Pattern metadata extracted from source files
 #[derive(Debug, Clone)]
 struct PatternInfo {
@@ -47,6 +64,7 @@ struct PatternInfo {
 
 fn main() {
     println!("cargo:rerun-if-changed=src/candle_indicators/candle_patterns");
+    println!("cargo:rerun-if-env-changed=TULIP_RS_BUILD_VERBOSE");
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let patterns_dir = Path::new("src/candle_indicators/candle_patterns");
@@ -58,13 +76,13 @@ fn main() {
     let dest_path = Path::new(&out_dir).join("generated_registry.rs");
     fs::write(&dest_path, registry_code).expect("Failed to write generated registry");
 
-    println!(
-        "cargo:warning=Generated pattern registry with {} patterns",
+    build_log(format!(
+        "Generated pattern registry with {} patterns",
         patterns.len()
-    );
+    ));
 
     generate_msw_twiddles(&out_dir);
-    println!("cargo:warning=Generated MSW twiddle tables for periods 6..=50");
+    build_log("Generated MSW twiddle tables for periods 6..=50");
 }
 
 fn generate_msw_twiddles(out_dir: &str) {
@@ -732,7 +750,7 @@ fn generate_registry_code(
     let total5 = entries5.len();
 
     // Diagnostic: report per-key counts for two_bar
-    {
+    if build_verbose() {
         let mut key_counts = [0usize; 32];
         for e in entries2 {
             key_counts[e.0 * 8 + e.1 * 4 + e.2 * 2 + e.3] += 1;
@@ -747,10 +765,10 @@ fn generate_registry_code(
                     for (f, fill_name) in fill_names.iter().enumerate() {
                         let k = g * 8 + t * 4 + c * 2 + f;
                         if key_counts[k] > 0 {
-                            println!(
-                                "cargo:warning=two_bar [{} {} {} {}] key={} count={}",
+                            build_log(format!(
+                                "two_bar [{} {} {} {}] key={} count={}",
                                 group_name, trend_name, colour_name, fill_name, k, key_counts[k]
-                            );
+                            ));
                         }
                     }
                 }

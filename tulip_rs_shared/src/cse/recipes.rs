@@ -4566,3 +4566,226 @@ pub fn ef(options: &[f64]) -> Recipe {
     r.outputs.push(Sink::iface_lead(ef, period));
     r
 }
+
+/// `Cybercycle(alpha)` — standalone forwarder onto `Node::Cybercycle`.
+/// Streams: 0=real. Options `[alpha]`. First published bar is 6 (`min_data=7`).
+pub fn cybercycle(options: &[f64]) -> Recipe {
+    let alpha_bits = options[0].to_bits();
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    let cc = r.add(Node::Cybercycle {
+        src: real,
+        alpha_bits,
+    });
+    r.tag(cc, "cybercycle");
+
+    r.kind = "cybercycle";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![cc];
+    // First published bar is 6 (min_data=7), so lead = 6.
+    r.outputs.push(Sink::iface_lead(cc, 6));
+    r
+}
+
+/// `TrendMode(alpha)` — uses cybercycle + peak decay envelope + threshold logic.
+/// Streams: 0=real. Options `[alpha]`. Fixed alpha only (>0).
+/// Graph: cycle = Cybercycle(real, alpha), abs_cycle = Abs(cycle),
+///        peak = PeakDecay(abs_cycle, 0.991)
+///        trend = WhereLe(Abs(cycle), Mul(peak, 0.2)) & WhereGt(peak, 0).
+/// First published bar is 55 (`min_data=56`).
+pub fn trendmode(options: &[f64]) -> Recipe {
+    let alpha_bits = options[0].to_bits();
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+
+    // Cybercycle with fixed alpha (alpha > 0)
+    let cc = r.add(Node::Cybercycle {
+        src: real,
+        alpha_bits,
+    });
+    r.tag(cc, "cybercycle");
+
+    // Absolute cycle
+    let abs_cycle = r.add(Node::Abs { src: cc });
+    r.tag(abs_cycle, "abs_cycle");
+
+    // Peak decay envelope with fixed decay 0.991
+    let decay_bits = 0.991_f64.to_bits();
+    let peak = r.add(Node::PeakDecay {
+        src: abs_cycle,
+        decay_bits,
+    });
+    r.tag(peak, "peak");
+
+    // Threshold logic: trend = 1 if peak > 0 AND abs_cycle < 0.2*peak else 0
+    let threshold = r.constant(0.2);
+    let scaled_peak = r.add(Node::Mul {
+        a: threshold,
+        b: peak,
+    });
+    r.tag(scaled_peak, "scaled_peak");
+    // Zero const for comparison
+    let zero_const = r.constant(0.0);
+    r.tag(zero_const, "zero_const");
+    // WhereGt(peak, 0, 1) → 1 if peak > 0, else 0
+    let one_const = r.constant(1.0);
+    let gt_peak = r.add(Node::WhereGt {
+        a: peak,
+        b: zero_const,
+        t: one_const,
+    });
+    r.tag(gt_peak, "gt_peak");
+    // WhereGt(scaled_peak, abs_cycle, 1) → 1 if scaled_peak > abs_cycle (i.e. abs_cycle < scaled_peak), else 0
+    let gt_scaled = r.add(Node::WhereGt {
+        a: scaled_peak,
+        b: abs_cycle,
+        t: one_const,
+    });
+    r.tag(gt_scaled, "gt_scaled");
+    // AND both conditions (Mul works as logical AND for 0/1 values)
+    let trend = r.add(Node::Mul {
+        a: gt_peak,
+        b: gt_scaled,
+    });
+    r.tag(trend, "trend");
+
+    r.kind = "trendmode";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![cc];
+    // First published bar is 55 (min_data=56), so lead = 55.
+    // Primary: trend with lead 55
+    r.outputs.push(Sink::iface_lead(trend, 55));
+    // Optional outputs: cycle and peak with lead 55
+    r.optional_outputs.push(Sink::iface_lead(cc, 55));
+    r.optional_outputs.push(Sink::iface_lead(peak, 55));
+    r
+}
+
+/// `CcFisher(alpha)` — uses cybercycle + peak decay envelope + Fisher transform.
+/// Streams: 0=real. Options `[alpha]`. Fixed alpha only (>0).
+/// Graph: cycle = Cybercycle(real, alpha), abs_cycle = Abs(cycle),
+///        peak = PeakDecay(abs_cycle, 0.991)
+///        value = IfThenElse(peak > 0, cycle / peak, 0)
+///        val1 = IirClamped(value, a=0.35, b=0.65, clamp ±0.999)
+///        fisher = 0.5 * ln((1+val1)/(1-val1))
+///        signal = Prev(fisher)
+/// First published bar is 55 (`min_data=56`).
+pub fn ccfisher(options: &[f64]) -> Recipe {
+    let alpha_bits = options[0].to_bits();
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+
+    // Cybercycle with fixed alpha (alpha > 0)
+    let cc = r.add(Node::Cybercycle {
+        src: real,
+        alpha_bits,
+    });
+    r.tag(cc, "cybercycle");
+
+    // Absolute cycle
+    let abs_cycle = r.add(Node::Abs { src: cc });
+    r.tag(abs_cycle, "abs_cycle");
+
+    // Peak decay envelope with fixed decay 0.991
+    let decay_bits = 0.991_f64.to_bits();
+    let peak = r.add(Node::PeakDecay {
+        src: abs_cycle,
+        decay_bits,
+    });
+    r.tag(peak, "peak");
+
+    // value = if peak > 0 then cycle / peak else 0
+    let zero_const = r.constant(0.0);
+    r.tag(zero_const, "zero_const");
+    let ratio = r.add(Node::Div { a: cc, b: peak });
+    r.tag(ratio, "ratio");
+    let value = r.add(Node::WhereGt {
+        a: peak,
+        b: zero_const,
+        t: ratio,
+    });
+    r.tag(value, "value");
+
+    // IirClamped: val1 = 0.65*val1 + 0.35*value, clamp ±0.999
+    // Using K_IIRCLAMPED with a=0.35, b=0.65 and clamps ±0.999
+    let hi_t = r.constant(0.999); // threshold (unused for IirClamped)
+    let hi_v = r.constant(0.999); // high clamp value
+    let lo_t = r.constant(-0.999); // threshold (unused for IirClamped)
+    let lo_v = r.constant(-0.999); // low clamp value
+    let val1 = r.add(Node::IirClampedPlain {
+        src: value,
+        a_bits: 0.35_f64.to_bits(),
+        b_bits: 0.65_f64.to_bits(),
+        hi_t,
+        hi_v,
+        lo_t,
+        lo_v,
+    });
+    r.tag(val1, "val1");
+
+    // Fisher transform: fisher = 0.5 * ln((1+val1)/(1-val1))
+    let one = r.constant(1.0);
+    let half = r.constant(0.5);
+    let one_plus_val1 = r.add(Node::Add { a: one, b: val1 });
+    r.tag(one_plus_val1, "one_plus_val1");
+    let one_minus_val1 = r.add(Node::Sub { a: one, b: val1 });
+    r.tag(one_minus_val1, "one_minus_val1");
+    let ratio_fisher = r.add(Node::Div {
+        a: one_plus_val1,
+        b: one_minus_val1,
+    });
+    r.tag(ratio_fisher, "ratio_fisher");
+    let fisher = r.add(Node::Ln { src: ratio_fisher });
+    r.tag(fisher, "fisher");
+    let fisher_scaled = r.add(Node::Mul { a: half, b: fisher });
+    r.tag(fisher_scaled, "fisher");
+
+    // Signal = Prev(fisher)
+    let signal = r.add(Node::Prev { src: fisher_scaled });
+    r.tag(signal, "signal");
+
+    r.kind = "ccfisher";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![cc];
+    // First published bar is 55 (min_data=56), so lead = 55.
+    // Primary outputs: fisher and signal with lead 55
+    r.outputs.push(Sink::iface_lead(fisher_scaled, 55));
+    r.outputs.push(Sink::iface_lead(signal, 55));
+    // Optional outputs: trendmode (computed from same nodes), cycle, peak with lead 55
+    // Reuse the threshold logic for trendmode optional output
+    let threshold = r.constant(0.2);
+    let scaled_peak_opt = r.add(Node::Mul {
+        a: threshold,
+        b: peak,
+    });
+    r.tag(scaled_peak_opt, "scaled_peak");
+    // Zero const for comparison
+    let zero_const_opt = r.constant(0.0);
+    r.tag(zero_const_opt, "zero_const");
+    let one_const_opt = r.constant(1.0);
+    let gt_peak_opt = r.add(Node::WhereGt {
+        a: peak,
+        b: zero_const_opt,
+        t: one_const_opt,
+    });
+    r.tag(gt_peak_opt, "gt_peak");
+    // WhereGt(scaled_peak, abs_cycle, 1) → 1 if scaled_peak > abs_cycle (i.e. abs_cycle < scaled_peak), else 0
+    let gt_scaled_opt = r.add(Node::WhereGt {
+        a: scaled_peak_opt,
+        b: abs_cycle,
+        t: one_const_opt,
+    });
+    r.tag(gt_scaled_opt, "gt_scaled");
+    let trendmode_opt = r.add(Node::Mul {
+        a: gt_peak_opt,
+        b: gt_scaled_opt,
+    });
+    r.tag(trendmode_opt, "trendmode");
+    r.optional_outputs.push(Sink::iface_lead(trendmode_opt, 55));
+    r.optional_outputs.push(Sink::iface_lead(cc, 55));
+    r.optional_outputs.push(Sink::iface_lead(peak, 55));
+    r
+}

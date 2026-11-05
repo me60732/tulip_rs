@@ -574,3 +574,10 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for CcFisher {
         )
     }
 }
+impl crate::cse::Planable for CcFisher {
+    /// The graph is leaf data — `crate::cse::recipes::ccfisher`:
+    /// Cybercycle + peak decay envelope + Fisher transform over the price column.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::ccfisher(options)
+    }
+}

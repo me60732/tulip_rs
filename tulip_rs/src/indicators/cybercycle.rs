@@ -436,3 +436,11 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Cybercycle {
         )
     }
 }
+
+impl crate::cse::Planable for Cybercycle {
+    /// The graph is leaf data — `crate::cse::recipes::cybercycle`:
+    /// `Cybercycle{src, alpha_bits}` over the price column.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::cybercycle(options)
+    }
+}

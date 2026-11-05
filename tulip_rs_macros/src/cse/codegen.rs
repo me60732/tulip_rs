@@ -423,6 +423,7 @@ fn sig_const(p: &Pattern) -> TokenStream {
                     | Kind::WhereGt
                     | Kind::WhereLe
                     | Kind::IirClamped
+                    | Kind::IirClampedPlain
                     | Kind::KvoFlow
                     | Kind::NviRecur
                     | Kind::PviRecur
@@ -778,6 +779,30 @@ fn run_fn(p: &Pattern) -> TokenStream {
             let #mk = vals.mults[#ki];
             let #ik = vals.invms[#ki];
         });
+    }
+    // IirClampedPlain clamp values: load from consts at expansion time.
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::IirClampedPlain {
+            let ident_k = idents[k].clone();
+            let ck = format_ident!("{}_carry", ident_k);
+            let mk = format_ident!("{}_mult", ident_k);
+            let ik = format_ident!("{}_inv", ident_k);
+            let ht = format_ident!("{}_hi_t", ident_k);
+            let hv = format_ident!("{}_hi_v", ident_k);
+            let lt = format_ident!("{}_lo_t", ident_k);
+            let lv = format_ident!("{}_lo_v", ident_k);
+            let (b, c, d, e) = (node.b, node.c.unwrap_or(0), node.d, node.e);
+            let ki = k;
+            scalar_hoists.push(quote! {
+                let mut #ck = st[#ki];
+                let #mk = vals.mults[#ki];
+                let #ik = vals.invms[#ki];
+                let #ht = vals.consts[#b];
+                let #hv = vals.consts[#c];
+                let #lt = vals.consts[#d];
+                let #lv = vals.consts[#e];
+            });
+        }
     }
     // SuperTrend band state hoists: prev_st=stb[k], prev_ub=stc_ub[k],
     // prev_lb=stlb[k], and the carried trend bool in the node's OWN st[k]
@@ -1670,6 +1695,30 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     });
                 }
             }
+            Kind::IirClampedPlain => {
+                // Plain IIR clamped: scalar plain multiply+add (NO mul_add fusion).
+                let ident_k = idents[k].clone();
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let ik = format_ident!("{}_inv", ident_k);
+                let src = ev(node.a, &idents);
+                let ht = format_ident!("{}_hi_t", ident_k);
+                let hv = format_ident!("{}_hi_v", ident_k);
+                let lt = format_ident!("{}_lo_t", ident_k);
+                let lv = format_ident!("{}_lo_v", ident_k);
+                body.push(quote! {
+                    let #xk = {
+                        let mut nv = #mk * #src + #ik * #ck;
+                        if nv > #ht {
+                            nv = #hv;
+                        } else if nv < #lt {
+                            nv = #lv;
+                        }
+                        #ck = nv;
+                        nv
+                    };
+                });
+            }
             Kind::Prev => {
                 // Delayed copy (K_PREV doc): emit the slot, then shadow this
                 // bar's src value into it for the NEXT bar. Arena order puts
@@ -2145,6 +2194,58 @@ fn run_fn(p: &Pattern) -> TokenStream {
                         &mut hdacc[#ki],
                         #src,
                     );
+                });
+            }
+            Kind::Cybercycle => {
+                // Scalar steady recurrence. `s*` pointers are gate-anchored, so at
+                // steady bar `i` (absolute `gate+i`) the past samples are `sub(1..5)`.
+                let ki = k;
+                let stream = p.nodes[node.a].a;
+                let sp = format_ident!("s{}", stream);
+                body.push(quote! {
+                    let #xk = {
+                        let coef = vals.mults[#ki];
+                        let d1 = vals.invms[#ki];
+                        let d2 = (d1 * 0.5) * (d1 * 0.5);
+                        let [cycle_prev, cycle_prev2, _] = kvacc[#ki];
+
+                        let price = unsafe { *#sp.add(i) };
+                        let price_1 = unsafe { *#sp.add(i).sub(1) };
+                        let p2 = unsafe { *#sp.add(i).sub(2) };
+                        let p3 = unsafe { *#sp.add(i).sub(3) };
+                        let p4 = unsafe { *#sp.add(i).sub(4) };
+                        let p5 = unsafe { *#sp.add(i).sub(5) };
+
+                        let smooth_ab = 2.0_f64.mul_add(price_1, price);
+                        let smooth_cd = 2.0_f64.mul_add(p2, p3);
+                        let smooth = (smooth_ab + smooth_cd) * (1.0 / 6.0);
+
+                        let smooth_1_ab = 2.0_f64.mul_add(p2, price_1);
+                        let smooth_1_cd = 2.0_f64.mul_add(p3, p4);
+                        let smooth_1 = (smooth_1_ab + smooth_1_cd) * (1.0 / 6.0);
+
+                        let smooth_2_ab = 2.0_f64.mul_add(p3, p2);
+                        let smooth_2_cd = 2.0_f64.mul_add(p4, p5);
+                        let smooth_2 = (smooth_2_ab + smooth_2_cd) * (1.0 / 6.0);
+
+                        let smooth_diff = (-2.0_f64).mul_add(smooth_1, smooth) + smooth_2;
+                        let cycle = coef.mul_add(smooth_diff, d1.mul_add(cycle_prev, -d2 * cycle_prev2));
+
+                        kvacc[#ki] = [cycle, cycle_prev, 0.0];
+                        cycle
+                    };
+                });
+            }
+            Kind::PeakDecay => {
+                // PeakDecay envelope (`K_PEAKDECAY`): `peak = max(prev*decay, src)`.
+                let ki = k;
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let decay = vals.mults[#ki];
+                        st[#ki] = (st[#ki] * decay).max(#src);
+                        st[#ki]
+                    };
                 });
             }
         }
@@ -2627,6 +2728,49 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     });
                 }
             }
+            Kind::Cybercycle => {
+                // Lane Cybercycle carry + coefficients.
+                let c1 = format_ident!("{}_cycle_prev", ident_k);
+                let c2 = format_ident!("{}_cycle_prev2", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let ik = format_ident!("{}_inv", ident_k);
+                carry_hoists.push(quote! {
+                    let mut #c1 = Simd::<f64, L>::from_array(std::array::from_fn(|a| kvaccw[a][#ki][0]));
+                    let mut #c2 = Simd::<f64, L>::from_array(std::array::from_fn(|a| kvaccw[a][#ki][1]));
+                    let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
+                    let #ik = Simd::<f64, L>::splat(vals.invms[#ki]);
+                });
+            }
+            Kind::PeakDecay => {
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                    let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
+                });
+            }
+            Kind::IirClampedPlain => {
+                // Plain IIR clamped: lane form with plain mul+add (NO mul_add fusion).
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let ik = format_ident!("{}_inv", ident_k);
+                let (ht, hv, lt, lv) = (
+                    format_ident!("{}_hi_t", ident_k),
+                    format_ident!("{}_hi_v", ident_k),
+                    format_ident!("{}_lo_t", ident_k),
+                    format_ident!("{}_lo_v", ident_k),
+                );
+                let (b, c, d, e) = (node.b, node.c.unwrap_or(0), node.d, node.e);
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                    let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
+                    let #ik = Simd::<f64, L>::splat(vals.invms[#ki]);
+                    let #ht = Simd::<f64, L>::splat(vals.consts[#b]);
+                    let #hv = Simd::<f64, L>::splat(vals.consts[#c]);
+                    let #lt = Simd::<f64, L>::splat(vals.consts[#d]);
+                    let #lv = Simd::<f64, L>::splat(vals.consts[#e]);
+                });
+            }
             Kind::Prev => {
                 // Lane delayed copy: `st[k]` after exec's warm holds the src
                 // chain's LAST warm bar — the same seeded slot the scalar
@@ -2979,6 +3123,90 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let ck = format_ident!("{}_carry", idents[k]);
                 body.push(quote! {
                     let #xk = { #ck = #ea.mul_add(#eb, #ck); #ck };
+                });
+            }
+            Kind::Cybercycle => {
+                // Lane Cybercycle steady recurrence.
+                let stream = p.nodes[node.a].a;
+                let sfa = format_ident!("sp{}", stream);
+                let c1 = format_ident!("{}_cycle_prev", idents[k]);
+                let c2 = format_ident!("{}_cycle_prev2", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let ik = format_ident!("{}_inv", idents[k]);
+                body.push(quote! {
+                    let #xk = {
+                        let half = Simd::<f64, L>::splat(0.5);
+                        let d2 = (#ik * half) * (#ik * half);
+
+                        let price = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#sfa[a].add(i) },
+                        ));
+                        let price_1 = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#sfa[a].add(i).sub(1) },
+                        ));
+                        let p2 = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#sfa[a].add(i).sub(2) },
+                        ));
+                        let p3 = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#sfa[a].add(i).sub(3) },
+                        ));
+                        let p4 = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#sfa[a].add(i).sub(4) },
+                        ));
+                        let p5 = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#sfa[a].add(i).sub(5) },
+                        ));
+
+                        let smooth =
+                            ((price_1 * Simd::<f64, L>::splat(2.0) + price)
+                                + (p2 * Simd::<f64, L>::splat(2.0) + p3))
+                                * Simd::<f64, L>::splat(1.0 / 6.0);
+                        let smooth_1 =
+                            ((p2 * Simd::<f64, L>::splat(2.0) + price_1)
+                                + (p3 * Simd::<f64, L>::splat(2.0) + p4))
+                                * Simd::<f64, L>::splat(1.0 / 6.0);
+                        let smooth_2 =
+                            ((p3 * Simd::<f64, L>::splat(2.0) + p2)
+                                + (p4 * Simd::<f64, L>::splat(2.0) + p5))
+                                * Simd::<f64, L>::splat(1.0 / 6.0);
+
+                        let smooth_diff = smooth - smooth_1 * Simd::<f64, L>::splat(2.0) + smooth_2;
+                        let cycle = #mk.mul_add(smooth_diff, #ik.mul_add(#c1, -(d2 * #c2)));
+                        #c2 = #c1;
+                        #c1 = cycle;
+                        cycle
+                    };
+                });
+            }
+            Kind::PeakDecay => {
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                body.push(quote! {
+                    let #xk = {
+                        #ck = (#ck * #mk).simd_max(#ea);
+                        #ck
+                    };
+                });
+            }
+            Kind::IirClampedPlain => {
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let ik = format_ident!("{}_inv", idents[k]);
+                let (ht, hv, lt, lv) = (
+                    format_ident!("{}_hi_t", idents[k]),
+                    format_ident!("{}_hi_v", idents[k]),
+                    format_ident!("{}_lo_t", idents[k]),
+                    format_ident!("{}_lo_v", idents[k]),
+                );
+                body.push(quote! {
+                    let #xk = {
+                        let nv = #mk * #ea + #ik * #ck;
+                        let v = nv
+                            .simd_gt(#ht)
+                            .select(#hv, nv.simd_lt(#lt).select(#lv, nv));
+                        #ck = v;
+                        v
+                    };
                 });
             }
             Kind::VariableAlpha => {

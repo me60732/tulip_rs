@@ -112,6 +112,10 @@ pub const K_WHERELE: u8 = 32;
 /// `K_IIR` (which double-rounds the product) and from `K_FMA` (whose third
 /// operand is a node, not this node's own carry).
 pub const K_ACCUM: u8 = 33;
+/// Plain IIR clamped recurrence — same semantics as `K_IIRCLAMPED` but uses
+/// plain multiply+add (NO fused mul_add) for the recurrence, then clamp with
+/// the same thresholds and values. Scalar-only, scalar-per-lane.
+pub const K_IIRCLAMPEDPLAIN: u8 = 52;
 /// Negative Volume Index recurrence (`Node::NviRecur` doc): a gated
 /// multiplicative prefix product, scalar-only (unpackable).
 pub const K_NVI: u8 = 34;
@@ -206,6 +210,15 @@ pub const K_SDFTLEAD: u8 = 48;
 /// 38-slot `[f64; 38]` carry per node in `hdacc[k]` (five private rings plus
 /// six scalars) -- NOT the generic `ring_of`/`RingSet` mechanism.
 pub const K_HOMODYNEDISCRIMINATOR: u8 = 49;
+/// Cybercycle recurrence (`Node::Cybercycle` doc): `a`=src (raw stream only).
+/// `mults[k]`=coef, `invms[k]`=d1, `periods[k]`=d2, all from `multiplier(alpha)`.
+/// Own 3-field carry `[cycle_prev, cycle_prev2, smooth[2]]` in `kvacc[k]`.
+/// `feeds[k] = leads[src] + 6` (first output bar is 6, min_data=7).
+pub const K_CYBERCYCLE: u8 = 50;
+/// PeakDecay envelope for trendmode/ccfisher (`K_PEAKDECAY`): `a`=src (raw stream).
+/// `mults[k]`=decay (f64, bits-encoded, fixed 0.991), carry in `st[k]`.
+/// No warmup bars; first output at bar 0 (lead = src_lead).
+pub const K_PEAKDECAY: u8 = 51;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -706,6 +719,22 @@ pub fn erase(
                 ee = lo_v;
                 (K_IIRCLAMPED, src, hi_t, hi_v)
             }
+            Node::IirClampedPlain {
+                src,
+                a_bits,
+                b_bits,
+                hi_t,
+                hi_v,
+                lo_t,
+                lo_v,
+            } => {
+                vals.mults[k] = f64::from_bits(a_bits);
+                vals.invms[k] = f64::from_bits(b_bits);
+                vals.feeds[k] = leads[src as usize];
+                dd = lo_t;
+                ee = lo_v;
+                (K_IIRCLAMPEDPLAIN, src, hi_t, hi_v)
+            }
             Node::Prev { src } => {
                 // Delayed-copy slot (see K_PREV doc): `feeds` gates the copy
                 // exactly like the chain it shadows.
@@ -896,6 +925,32 @@ pub fn erase(
                 }
                 vals.feeds[k] = leads[src as usize] + 22;
                 (K_HOMODYNEDISCRIMINATOR, src, 0, 0)
+            }
+            Node::Cybercycle { src, alpha_bits } => {
+                if !matches!(arena.nodes[src as usize], Node::Input { .. }) {
+                    panic!("Node::Cybercycle: src must be a raw Node::Input stream");
+                }
+                // Decode alpha from bits and compute multiplier coefficients directly:
+                // coef = (1 - α/2)², d1 = 2·(1 - α), d2 = (1 - α)²
+                let alpha = f64::from_bits(alpha_bits);
+                let c = 1.0 - 0.5 * alpha;
+                let b = 1.0 - alpha;
+                vals.mults[k] = c * c; // coef
+                vals.invms[k] = 2.0 * b; // d1 (store as f64, invms is available)
+                vals.periods[k] = 0; // periods unused for Cybercycle
+                                     // Store S3 in consts[k] which codegen can use as smooth_2 reference.
+                                     // At bar 5, we'll compute and store the actual S4.
+                vals.consts[k] = 0.0;
+                // First published bar is 6 (min_data=7), so feed = src_lead + 6
+                vals.feeds[k] = leads[src as usize] + 6;
+                (K_CYBERCYCLE, src, 0, 0)
+            }
+            Node::PeakDecay { src, decay_bits } => {
+                // Decode decay from bits (fixed 0.991)
+                vals.mults[k] = f64::from_bits(decay_bits);
+                // No warmup bars; first output at bar 0
+                vals.feeds[k] = leads[src as usize];
+                (K_PEAKDECAY, src, 0, 0)
             }
         };
         sig.kinds[k] = kind;

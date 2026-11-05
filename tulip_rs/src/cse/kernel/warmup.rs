@@ -17,11 +17,12 @@
 
 use crate::cse::signature::{
     Signature, Values, K_ABS, K_ACCUM, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HIGHPASS, K_HMA,
-    K_HOMODYNEDISCRIMINATOR, K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED, K_INPUT, K_KVOFLOW,
-    K_LAG, K_LINREGFLOW, K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL, K_NVI, K_PREV, K_PSAR,
-    K_PVI, K_ROLLAGE, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SDFTLEAD, K_SDFTROTATE, K_SEEDEDEMA,
-    K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERSMOOTHER, K_SUPERTREND, K_TRAIL, K_VARIABLEALPHA,
-    K_WHEREGE, K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS, K_WMA, MAX, MAX_SINKS,
+    K_HOMODYNEDISCRIMINATOR, K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED, K_IIRCLAMPEDPLAIN,
+    K_INPUT, K_KVOFLOW, K_LAG, K_LINREGFLOW, K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL,
+    K_NVI, K_PREV, K_PSAR, K_PVI, K_ROLLAGE, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SDFTLEAD,
+    K_SDFTROTATE, K_SEEDEDEMA, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERSMOOTHER, K_SUPERTREND,
+    K_TRAIL, K_VARIABLEALPHA, K_WHEREGE, K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS, K_WMA, MAX,
+    MAX_SINKS,
 };
 use crate::ring_buffer::buffer::BufferElement;
 use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
@@ -1269,6 +1270,25 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         nv
                     }
                 }
+                K_IIRCLAMPEDPLAIN => {
+                    // Plain IIR clamped recurrence: `nv = a * src + b * prev`
+                    // (separate mul/add, NO fused mul_add), then clamp with same
+                    // thresholds/values as IirClamped. Used by ccfisher val1.
+                    let s = v[SIG.a[k] as usize];
+                    let feed = vals.feeds[k] as usize;
+                    if t < feed {
+                        0.0
+                    } else {
+                        let mut nv = vals.mults[k] * s + vals.invms[k] * st[k];
+                        if nv > vals.consts[SIG.b[k] as usize] {
+                            nv = vals.consts[SIG.c[k] as usize];
+                        } else if nv < vals.consts[SIG.d[k] as usize] {
+                            nv = vals.consts[SIG.e[k] as usize];
+                        }
+                        st[k] = nv;
+                        nv
+                    }
+                }
                 K_PREV => {
                     // delayed copy (K_PREV doc): emit the slot, then shadow
                     // the src chain's THIS-bar value into it. Arena order
@@ -1710,6 +1730,116 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     } else {
                         let owner_k = SIG.a[k] as usize;
                         kvacc[owner_k][2]
+                    }
+                }
+                crate::cse::signature::K_CYBERCYCLE => {
+                    // Cybercycle recurrence (`Node::Cybercycle` doc).
+                    // Warmup: bars 0–5 follow the hand's init_state path exactly.
+                    // First published bar is 6 (min_data=7), so feed = lead = 6.
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        // Warmup bars 0-5: seed the cycles using second-difference formula.
+                        // After bar 5, kvacc = [Cycle[5], Cycle[4]].
+                        let s = SIG.a[SIG.a[k] as usize] as usize;
+
+                        if t == 0 {
+                            // Initialize to zero
+                            kvacc[k] = [0.0, 0.0, 0.0];
+                        } else if t >= 2 {
+                            // Second-difference seeding: (P[t-2] - 2*P[t-1] + P[t]) / 4
+                            let p_t = streams[s][t];
+                            let p_t_1 = if t >= 1 {
+                                streams[s][t - 1]
+                            } else {
+                                streams[s][0]
+                            };
+                            let p_t_2 = if t >= 2 {
+                                streams[s][t - 2]
+                            } else {
+                                streams[s][0]
+                            };
+                            let seed = (p_t_2 - 2.0 * p_t_1 + p_t) / 4.0;
+
+                            // Update carry: [Cycle[t], Cycle[t-1], 0.0]
+                            kvacc[k] = [seed, kvacc[k][0], 0.0];
+                        }
+                        0.0 // No output until bar 6
+                    } else {
+                        let s = SIG.a[SIG.a[k] as usize] as usize;
+                        let coef = vals.mults[k];
+                        // Store d1 in invms, compute d2 from it: d1=2b, d2=b², so b=d1/2, d2=(d1/2)²
+                        let d1 = vals.invms[k];
+                        let d2 = (d1 / 2.0) * (d1 / 2.0);
+                        // After warmup at bar 5, kvacc holds [Cycle[5], Cycle[4], 0.0].
+                        // Read carry values.
+                        let [cycle_prev, cycle_prev2, _smooth_temp] = kvacc[k];
+
+                        // Read current and previous prices for 6-tap weighted smooth.
+                        let price = streams[s][t];
+                        let p2 = if t >= 2 {
+                            streams[s][t - 2]
+                        } else {
+                            streams[s][0]
+                        };
+                        let p3 = if t >= 3 {
+                            streams[s][t - 3]
+                        } else {
+                            streams[s][0]
+                        };
+
+                        // Smooth(t) = (P[t] + 2*P[t-1] + 2*P[t-2] + P[t-3]) / 6
+                        let price_1 = if t >= 1 {
+                            streams[s][t - 1]
+                        } else {
+                            streams[s][0]
+                        };
+                        let smooth_ab = 2.0_f64.mul_add(price_1, price);
+                        let smooth_cd = 2.0_f64.mul_add(p2, p3);
+                        let smooth = (smooth_ab + smooth_cd) * (1.0 / 6.0);
+
+                        // Prices needed for smooth(t-1) and smooth(t-2):
+                        let p4 = if t >= 4 {
+                            streams[s][t - 4]
+                        } else {
+                            streams[s][0]
+                        };
+                        let p5 = if t >= 5 {
+                            streams[s][t - 5]
+                        } else {
+                            streams[s][0]
+                        };
+
+                        // Smooth(t-1) = (P[t-1] + 2*P[t-2] + 2*P[t-3] + P[t-4]) / 6
+                        let smooth_1_ab = 2.0_f64.mul_add(p2, price_1);
+                        let smooth_1_cd = 2.0_f64.mul_add(p3, p4);
+                        let smooth_1 = (smooth_1_ab + smooth_1_cd) * (1.0 / 6.0);
+
+                        // Smooth(t-2) = (P[t-2] + 2*P[t-3] + 2*P[t-4] + P[t-5]) / 6
+                        let smooth_2_ab = 2.0_f64.mul_add(p3, p2);
+                        let smooth_2_cd = 2.0_f64.mul_add(p4, p5);
+                        let smooth_2 = (smooth_2_ab + smooth_2_cd) * (1.0 / 6.0);
+
+                        let smooth_diff = (-2.0_f64).mul_add(smooth_1, smooth) + smooth_2;
+                        let cycle =
+                            coef.mul_add(smooth_diff, d1.mul_add(cycle_prev, -d2 * cycle_prev2));
+
+                        // Update carry: [Cycle[t], Cycle[t-1], 0.0]
+                        kvacc[k] = [cycle, cycle_prev, 0.0];
+                        cycle
+                    }
+                }
+                crate::cse::signature::K_PEAKDECAY => {
+                    // Peak decay envelope for trendmode/ccfisher.
+                    // `peak = max(prev_peak * decay, src)` with zero init.
+                    // No warmup bars; first output at bar 0 (feed = src_lead).
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let decay = vals.mults[k];
+                        let src = v[SIG.a[k] as usize]; // Use computed value (works for both Input and derived)
+                        st[k] = (st[k] * decay).max(src);
+                        st[k]
                     }
                 }
                 _ => {

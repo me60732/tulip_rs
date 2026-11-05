@@ -162,10 +162,11 @@ impl Merged {
                 }
                 Node::Sqrt { src } | Node::Ln { src } | Node::Mirror { src } => leads[src as usize],
                 // E15: recurrence defined once its source is (seam lead(src));
-                // IirClamped's Const children are lead 0; Prev shares its chain.
-                Node::Iir { src, .. } | Node::IirClamped { src, .. } | Node::Prev { src } => {
-                    leads[src as usize]
-                }
+                // IirClamped/IirClampedPlain's Const children are lead 0; Prev shares its chain.
+                Node::Iir { src, .. }
+                | Node::IirClamped { src, .. }
+                | Node::IirClampedPlain { src, .. }
+                | Node::Prev { src } => leads[src as usize],
                 Node::Fma { a, b, c } => leads[a as usize]
                     .max(leads[b as usize])
                     .max(leads[c as usize]),
@@ -236,6 +237,11 @@ impl Merged {
                         .max(leads[volume as usize])
                         + 1
                 }
+                // Cybercycle: warmup bars 0-5, first output at bar 6.
+                // Lead = src_lead + 6 (min_data=7).
+                Node::Cybercycle { src, .. } => leads[src as usize] + 6,
+                // PeakDecay: zero-init peak envelope, no warmup bars. Lead = src_lead.
+                Node::PeakDecay { src, .. } => leads[src as usize],
             };
             leads.push(id);
         }
@@ -619,9 +625,11 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         HtQuadrature { .. } => (29, 4),
         SuperTrend { .. } => (30, 6),
         // E15: Iir = Ema/mean-Wilders 2-op shape (id 3); IirClamped = +clamp (5);
+        // IirClampedPlain = plain mul/add + clamp (same as IirClamped, scalar-only).
         // Prev = slot read (0).
         Iir { .. } => (3, 2),
         IirClamped { .. } => (33, 5),
+        IirClampedPlain { .. } => (33, 5),
         Prev { .. } => (32, 0),
         // A running total is ONE fused instruction (`a.mul_add(b, st)`) — it is
         // not formula 3, whose second operand is a scaled `src`.
@@ -655,6 +663,12 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         // Per-bar stream-read blend weight: scalar-only, same standing as
         // NviRecur/LinregFlow/KvoFlow.
         VariableAlpha { .. } => (0, 0),
+        // Cybercycle recurrence: bespoke two-pole IIR over weighted smooth,
+        // scalar-only. No SIMD form in the hand module.
+        Cybercycle { .. } => (0, 0),
+        // PeakDecay envelope: simple max recurrence, scalar-only.
+        // No SIMD form.
+        PeakDecay { .. } => (0, 0),
     }
 }
 
@@ -684,6 +698,8 @@ fn lane_warmup(node: &Node) -> u8 {
         Wilders { feed, .. } => 1 | ((feed as u8) << 1),
         Sma { .. } | Stddev { .. } | Wma { .. } | RollSum { .. } => 2,
         RollMax { .. } | RollMin { .. } => 3,
+        Cybercycle { .. } => 0, // steady recurrence (no fold phase)
+        PeakDecay { .. } => 0,  // no warmup bars
         _ => 0,
     }
 }
@@ -934,6 +950,23 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             lo_t: g(lo_t),
             lo_v: g(lo_v),
         },
+        IirClampedPlain {
+            src,
+            a_bits,
+            b_bits,
+            hi_t,
+            hi_v,
+            lo_t,
+            lo_v,
+        } => IirClampedPlain {
+            src: g(src),
+            a_bits,
+            b_bits,
+            hi_t: g(hi_t),
+            hi_v: g(hi_v),
+            lo_t: g(lo_t),
+            lo_v: g(lo_v),
+        },
         Prev { src } => Prev { src: g(src) },
         Fma { a, b, c } => Fma {
             a: g(a),
@@ -998,6 +1031,14 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             low: g(low),
             close: g(close),
             volume: g(volume),
+        },
+        Cybercycle { src, alpha_bits } => Cybercycle {
+            src: g(src),
+            alpha_bits,
+        },
+        PeakDecay { src, decay_bits } => PeakDecay {
+            src: g(src),
+            decay_bits,
         },
     }
 }
@@ -1085,6 +1126,21 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
             visit(*lo_t);
             visit(*lo_v);
         }
+        // Same children as IirClamped: src plus four threshold/value Consts.
+        IirClampedPlain {
+            src,
+            hi_t,
+            hi_v,
+            lo_t,
+            lo_v,
+            ..
+        } => {
+            visit(*src);
+            visit(*hi_t);
+            visit(*hi_v);
+            visit(*lo_t);
+            visit(*lo_v);
+        }
         HighPass { input, .. } => visit(*input),
         SuperTrend {
             atr, med, close, ..
@@ -1147,6 +1203,8 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
             visit(*src);
             visit(*mult);
         }
+        Cybercycle { src, .. } => visit(*src),
+        PeakDecay { src, .. } => visit(*src),
     }
 }
 

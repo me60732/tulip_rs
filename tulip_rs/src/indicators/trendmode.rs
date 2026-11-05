@@ -414,6 +414,13 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for TrendMode {
         )
     }
 }
+impl crate::cse::Planable for TrendMode {
+    /// The graph is leaf data — `crate::cse::recipes::trendmode`:
+    /// Cybercycle + peak decay envelope + threshold logic over the price column.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::trendmode(options)
+    }
+}
 
 /// Validates `alpha`.
 ///

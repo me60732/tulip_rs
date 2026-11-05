@@ -392,6 +392,18 @@ pub enum Node {
         lo_t: Id,
         lo_v: Id,
     },
+    /// Plain IIR clamped recurrence: `nv = a * src + b * prev` (separate mul/add,
+    /// NO fused mul_add), then clamp with the same thresholds and values as
+    /// [`Node::IirClamped`]. Used by ccfisher val1 to match hand's plain math.
+    IirClampedPlain {
+        src: Id,
+        a_bits: u64,
+        b_bits: u64,
+        hi_t: Id,
+        hi_v: Id,
+        lo_t: Id,
+        lo_v: Id,
+    },
     Prev {
         src: Id,
     },
@@ -490,6 +502,27 @@ pub enum Node {
     SuperSmoother {
         src: Id,
         period: Id,
+    },
+    /// Cybercycle recurrence (`K_CYBERCYCLE`): a two-pole high-pass IIR over
+    /// a 6-tap weighted smooth. The hand's `State::init_state` seeds bars 0–5
+    /// with the second-difference formula for cycle_prev/cycle_prev2, and the
+    /// steady recurrence is:
+    ///   cycle = coef*(smooth - 2*smooth[1] + smooth[2]) + d1*cycle_prev - d2*cycle_prev2
+    /// where `coef,d1,d2` come from `multiplier(alpha)`.
+    ///
+    /// Warmup: bars 0–5 follow the hand's init_state path exactly (seeded cycle).
+    /// First published bar is 6 (`min_data=7`).
+    ///
+    /// Scalar-only: no SIMD form exists in the hand module.
+    Cybercycle {
+        src: Id,
+        alpha_bits: u64,
+    },
+    /// Peak decay envelope for trendmode/ccfisher: `peak = max(prev_peak * decay, src)` with zero init.
+    /// `decay` is encoded as bits from f64 0.991 (fixed). Scalar-only, a=src (raw stream), carry in st[k].
+    PeakDecay {
+        src: Id,
+        decay_bits: u64,
     },
     HtInPhase {
         src: Id,

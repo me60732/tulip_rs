@@ -5878,4 +5878,75 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn cybercycle_planable_bit_exact() {
+        use tulip_rs::indicators::cybercycle::Cybercycle;
+        for alpha in [0.2, 0.5, 0.8] {
+            let req = Request::new().add(Cybercycle::recipe(&[alpha]), None);
+            for n in [7usize, 40, 700] {
+                let prices = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+                let streams = [prices.as_slice()];
+                let out =
+                    run_registered(&req, &streams).expect("cybercycle via Planable registered");
+                let inp = [prices.as_slice()];
+                let (c, _) = Cybercycle::indicator(&inp, &[alpha], None).unwrap();
+                assert_bits(
+                    &out.rows[0],
+                    &c[0],
+                    &format!("cybercycle row [Planable] alpha={}", alpha),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn trendmode_planable_bit_exact() {
+        use tulip_rs::indicators::trendmode::TrendMode;
+        for alpha in [0.07, 0.2] {
+            let req = Request::new().add(TrendMode::recipe(&[alpha]), None);
+            for n in [56usize, 100, 700] {
+                let prices = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+                let streams = [prices.as_slice()];
+                let out =
+                    run_registered(&req, &streams).expect("trendmode via Planable registered");
+                let inp = [prices.as_slice()];
+                // trendmode has primary output (trend) and optionals (cycle, peak)
+                let (results, _state) =
+                    TrendMode::indicator(&inp, &[alpha], Some(&[true, true])).unwrap();
+                assert_bits(
+                    &out.rows[0],
+                    &results[0],
+                    &format!("trendmode row [Planable] alpha={} n={}", alpha, n),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ccfisher_planable_bit_exact() {
+        use tulip_rs::indicators::ccfisher::CcFisher;
+        for alpha in [0.07, 0.2] {
+            let req = Request::new().add(CcFisher::recipe(&[alpha]), None);
+            for n in [56usize, 100, 700] {
+                let prices = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+                let streams = [prices.as_slice()];
+                let out = run_registered(&req, &streams).expect("ccfisher via Planable registered");
+                let inp = [prices.as_slice()];
+                // ccfisher has primary outputs (fisher, signal) and optionals (trendmode, cycle, peak)
+                let (results, _state) =
+                    CcFisher::indicator(&inp, &[alpha], Some(&[true, true, true])).unwrap();
+                assert_bits(
+                    &out.rows[0],
+                    &results[0],
+                    &format!("ccfisher fisher row [Planable] alpha={} n={}", alpha, n),
+                );
+                assert_bits(
+                    &out.rows[1],
+                    &results[1],
+                    &format!("ccfisher signal row [Planable] alpha={} n={}", alpha, n),
+                );
+            }
+        }
+    }
 }

@@ -145,6 +145,16 @@ pub enum Kind {
     /// Ehlers Homodyne Discriminator -- `K_HOMODYNEDISCRIMINATOR` (49).
     /// Scalar-only, bespoke non-shared carry, a=src (raw stream).
     HomodyneDiscriminator,
+    /// Cybercycle recurrence -- `K_CYBERCYCLE` (50).
+    /// Scalar-only, a=src (raw stream), carries [cycle_prev, cycle_prev2].
+    Cybercycle,
+    /// PeakDecay envelope for trendmode/ccfisher -- `K_PEAKDECAY` (51).
+    /// Scalar-only, a=src (raw stream), carry in st[k], mults=decay.
+    PeakDecay,
+    /// Plain IIR clamped recurrence — same semantics as `IirClamped` but uses
+    /// plain multiply+add (NO fused mul_add) for the recurrence. Scalar-only.
+    /// Used by ccfisher val1 to match hand's plain math.
+    IirClampedPlain,
     /// Single-operand sqrt host call — `K_SQRT`. Used by recipes that need
     /// to compute std dev from variance manually (e.g. volatility over derived
     /// rate-of-change values). Scalar-only.
@@ -203,6 +213,9 @@ impl Kind {
             Kind::SdftRotate => 47,
             Kind::SdftLead => 48,
             Kind::HomodyneDiscriminator => 49,
+            Kind::Cybercycle => 50,
+            Kind::PeakDecay => 51,
+            Kind::IirClampedPlain => 52,
             Kind::Sqrt => 13,
         }
     }
@@ -469,6 +482,9 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "RoofingFilter" => recipes::roofingfilter(&opts),
             "HilbertTransform" => recipes::hilberttransform(&opts),
             "HomodyneDiscriminator" => recipes::homodynediscriminator(&opts),
+            "Cybercycle" => recipes::cybercycle(&opts),
+            "TrendMode" => recipes::trendmode(&opts),
+            "CcFisher" => recipes::ccfisher(&opts),
             "Volatility" => recipes::volatility(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
@@ -633,6 +649,36 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
                 d: lo_t as usize,
                 e: lo_v as usize,
             },
+            Node::Cybercycle { src, .. } => {
+                // alpha_bits ride VALUES (mults/invms/periods) per signature.rs's
+                // erase(), not the arena structure.
+                ANode::new_simple(Kind::Cybercycle, src as usize, 0)
+            }
+            Node::PeakDecay { src, .. } => {
+                // decay_bits ride VALUES (mults) per signature.rs's erase(),
+                // not the arena structure.
+                ANode::new_simple(Kind::PeakDecay, src as usize, 0)
+            }
+            Node::IirClampedPlain {
+                src,
+                hi_t,
+                hi_v,
+                lo_t,
+                lo_v,
+                ..
+            } => {
+                // weights ride VALUES (mults/invms) per signature.rs's erase(),
+                // Const children are threshold/value slots.
+                let mut node = ANode::new_three(
+                    Kind::IirClampedPlain,
+                    src as usize,
+                    hi_t as usize,
+                    hi_v as usize,
+                );
+                node.d = lo_t as usize;
+                node.e = lo_v as usize;
+                node
+            }
             Node::SuperTrend {
                 atr, med, close, ..
             } => ANode::new_three(Kind::SuperTrend, atr as usize, med as usize, close as usize),
