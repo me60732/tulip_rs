@@ -159,6 +159,16 @@ pub enum Kind {
     /// to compute std dev from variance manually (e.g. volatility over derived
     /// rate-of-change values). Scalar-only.
     Sqrt,
+    /// Ehlers Instantaneous Trendline recurrence -- `K_INSTANTANEOUSTRENDLINE` (53).
+    /// Scalar-only, bespoke 2-pole IIR with adaptive α from embedded HD. Reads raw stream.
+    InstantaneousTrendline,
+    /// Ehlers MAMA/FAMA adaptive EMA recurrence -- `K_MAMA` (54).
+    /// Scalar-only, uses embedded HomodyneDiscriminator to get DC period, then
+    /// applies adaptive α to MAMA and FAMA EMAs. Reads raw stream.
+    Mama,
+    /// Ehlers FAMA following EMA - secondary output from Mama node.
+    /// Reads Mama's output (`v[src]`) and alpha from Mama's `st[src]` slot.
+    Fama,
 }
 
 impl Kind {
@@ -217,6 +227,9 @@ impl Kind {
             Kind::PeakDecay => 51,
             Kind::IirClampedPlain => 52,
             Kind::Sqrt => 13,
+            Kind::InstantaneousTrendline => 53,
+            Kind::Mama => 54,
+            Kind::Fama => 55,
         }
     }
 }
@@ -485,6 +498,8 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Cybercycle" => recipes::cybercycle(&opts),
             "TrendMode" => recipes::trendmode(&opts),
             "CcFisher" => recipes::ccfisher(&opts),
+            "InstantaneousTrendline" => recipes::instantaneoustrendline(&opts),
+            "Mama" => recipes::mama(&opts),
             "Volatility" => recipes::volatility(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
@@ -692,6 +707,26 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             Node::HtInPhase { src } => ANode::new_simple(Kind::HtInPhase, src as usize, 0),
             Node::HtQuadrature { src } => ANode::new_simple(Kind::HtQuadrature, src as usize, 0),
             Node::Sqrt { src } => ANode::new_simple(Kind::Sqrt, src as usize, 0),
+            Node::InstantaneousTrendline { src } => {
+                // Uses embedded HomodyneDiscriminator; structure is raw stream only.
+                ANode::new_simple(Kind::InstantaneousTrendline, src as usize, 0)
+            }
+            Node::Mama {
+                src,
+                fast_limit_bits,
+                slow_limit_bits,
+            } => {
+                // MAMA node: structure is raw stream only. Options (fast_limit/slow_limit bits)
+                // ride VALUES (consts/st_step) per signature.rs's erase(), not arena structure.
+                let mut anode = ANode::new_simple(Kind::Mama, src as usize, 0);
+                anode.d = fast_limit_bits as usize;
+                anode.e = slow_limit_bits as usize;
+                anode
+            }
+            Node::Fama { src } => {
+                // FAMA node: reads Mama's output (src) and alpha from st[src].
+                ANode::new_simple(Kind::Fama, src as usize, 0)
+            }
         };
         nodes.push(a);
     }

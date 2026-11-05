@@ -5901,6 +5901,61 @@ mod tests {
     }
 
     #[test]
+    fn instantaneoustrendline_planable_bit_exact() {
+        use tulip_rs::indicators::instantaneoustrendline::InstantaneousTrendline;
+        // First test with primary output only to check basic functionality
+        let req = Request::new().add(InstantaneousTrendline::recipe(&[]), None);
+        for n in [23usize, 40, 700] {
+            let prices = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+            let streams = [prices.as_slice()];
+            let out = run_registered(&req, &streams)
+                .expect("instantaneoustrendline via Planable registered");
+            let inp = [prices.as_slice()];
+            // IT has primary trendline only (no optionals in recipe yet)
+            let (results, _) = InstantaneousTrendline::indicator(&inp, &[], None).unwrap();
+
+            assert_bits(
+                &out.rows[0],
+                &results[0],
+                "instantaneoustrendline trendline row [Planable]",
+            );
+        }
+    }
+
+    #[test]
+    fn mama_planable_bit_exact() {
+        use tulip_rs::indicators::mama::Mama;
+        // Test with default options (fast_limit=0.5, slow_limit=0.05)
+        let fast_limit = 0.5;
+        let slow_limit = 0.05;
+        let req = Request::new().add(Mama::recipe(&[fast_limit, slow_limit]), None);
+        for n in [23usize, 40, 700] {
+            let prices = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+            let streams = [prices.as_slice()];
+            let out = run_registered(&req, &streams).expect("mama via Planable registered");
+            let inp = [prices.as_slice()];
+            // Mama has primary outputs (mama, fama) and optionals (dc_period, alpha)
+            let (results, _) = Mama::indicator(
+                &inp,
+                &[fast_limit, slow_limit],
+                None, // no optional outputs in test
+            )
+            .unwrap();
+
+            assert_bits(
+                &out.rows[0],
+                &results[0],
+                &format!("mama mama row [Planable] n={}", n),
+            );
+            assert_bits(
+                &out.rows[1],
+                &results[1],
+                &format!("mama fama row [Planable] n={}", n),
+            );
+        }
+    }
+
+    #[test]
     fn trendmode_planable_bit_exact() {
         use tulip_rs::indicators::trendmode::TrendMode;
         for alpha in [0.07, 0.2] {

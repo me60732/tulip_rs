@@ -596,4 +596,14 @@ tulip_rs_macros::kernel! {
 
     // ccfisher_n: CcFisher(alpha) — cybercycle + peak decay envelope + Fisher transform.
     ccfisher_n: CcFisher(alpha);
+
+    // instantaneoustrendline_n: InstantaneousTrendline() — Ehlers 2-pole IIR with
+    // adaptive α from embedded HomodyneDiscriminator. Fixed 23-bar warmup, lead 22.
+    instantaneoustrendline_n: InstantaneousTrendline();
+
+    // mama_n: Mama(0.5, 0.05) — Ehlers MAMA/FAMA adaptive EMA with
+    // embedded HomodyneDiscriminator. Fixed 23-bar warmup, lead 22.
+    // Outputs: mama (primary), fama (secondary sink), dc_period/alpha (optionals).
+    // Options: fast_limit=0.5 (Ehlers default), slow_limit=0.05 (Ehlers default).
+    mama_n: Mama(0.5, 0.05);
 }

@@ -396,6 +396,14 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Mama {
     }
 }
 
+impl crate::cse::Planable for Mama {
+    /// The graph is leaf data — `crate::cse::recipes::mama`:
+    /// `Mama{src, fast_limit, slow_limit}` over the price column.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::mama(options)
+    }
+}
+
 /// Validates MAMA options.
 ///
 /// # Errors
@@ -410,6 +418,60 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), Indicator
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
+}
+
+/// Single-bar MAMA step for the CSE scalar kernel.
+/// Uses embedded HomodyneDiscriminator pipeline internally, then applies adaptive
+/// α from phase delta to MAMA/FAMA EMAs.
+///
+/// `kvacc = [mama_prev, fama_prev, prev_phase]`
+#[inline(always)]
+pub(crate) fn mama_step_with_alpha(
+    hdacc: &mut [f64; 38],
+    kvacc: &mut [f64; 3],
+    fast_limit: f64,
+    slow_limit: f64,
+    price: f64,
+) -> (f64, f64, f64) {
+    // hd_step_with_iq pushes current price, runs full HD pipeline, and returns
+    // (dc_period, i1, q1). MAMA uses i1/q1 for phase/alpha.
+    let (_dc, i1, q1) = crate::indicators::homodynediscriminator::hd_step_with_iq(hdacc, price);
+
+    let prev_phase = kvacc[2];
+
+    const RAD_TO_DEG: f64 = 180.0 / std::f64::consts::PI;
+
+    let phase = if i1 != 0.0 {
+        crate::math::atan_fast(q1 / i1).algebraic_mul(RAD_TO_DEG)
+    } else {
+        0.0
+    };
+
+    // DeltaPhase = prev − current, floored at 1° (Ehlers / TA-Lib convention).
+    let delta_phase = prev_phase.algebraic_sub(phase).max(1.0);
+    let alpha = (fast_limit / delta_phase).clamp(slow_limit, fast_limit);
+
+    let mama = alpha.mul_add(price - kvacc[0], kvacc[0]);
+    let half_alpha = alpha.algebraic_mul(0.5);
+    let fama = half_alpha.mul_add(mama - kvacc[1], kvacc[1]);
+
+    kvacc[0] = mama;
+    kvacc[1] = fama;
+    kvacc[2] = phase;
+
+    (mama, fama, alpha)
+}
+
+/// Single-bar MAMA step for lane/scalar-per-lane call sites.
+#[inline(always)]
+pub fn mama_step_per_lane(
+    hdacc: &mut [f64; 38],
+    kvacc: &mut [f64; 3],
+    fast_limit: f64,
+    slow_limit: f64,
+    price: f64,
+) -> (f64, f64, f64) {
+    mama_step_with_alpha(hdacc, kvacc, fast_limit, slow_limit, price)
 }
 
 /// Core calculation loop for MAMA / FAMA.

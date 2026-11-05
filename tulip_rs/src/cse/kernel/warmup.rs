@@ -1144,9 +1144,9 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let hl0 = streams[hs][t - 1] - streams[ls][t - 1];
                         st[k] = if hlc > hlc0 { 1.0 } else { 0.0 };
                         let cm0 = if hlc != hlc0 { hl0 } else { 0.0 };
-                        kvacc[k] = [hlc0, cm0, hl0];
+                        kvacc[k] = [hlc0, cm0, hl0]; // KvoFlow uses first 3 fields
                     }
-                    let [prev_hlc, cm, prev_hl] = kvacc[k];
+                    let [prev_hlc, cm, prev_hl] = kvacc[k]; // KvoFlow uses first 3 fields
 
                     // Trend flip-flop logic:
                     // - If trend=false (st[k] < 0.5) AND hlc > prev_hlc: flip to true, cm=prev_hl
@@ -1167,7 +1167,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     }
                     cm += dm.max(f64::EPSILON);
 
-                    // Update state: prev_hlc = hlc, prev_hl = dm
+                    // Update state: prev_hlc = hlc, prev_hl = dm (KvoFlow uses first 3 fields)
                     kvacc[k] = [hlc, cm, dm];
 
                     // vf = ((dm / cm) * 2.0 - 1.0).abs() * volume * 100.0 * sign
@@ -1632,7 +1632,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                             };
                         }
                         st[k] = if uptrend { 1.0 } else { 0.0 };
-                        kvacc[k] = [psar, extream, accel];
+                        kvacc[k] = [psar, extream, accel]; // Psar uses first 3 fields
                         psar
                     } else {
                         let [mut psar, mut extream, mut accel] = kvacc[k];
@@ -1674,7 +1674,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                             extream = if uptrend { h } else { l };
                         }
                         st[k] = if uptrend { 1.0 } else { 0.0 };
-                        kvacc[k] = [psar, extream, accel];
+                        kvacc[k] = [psar, extream, accel]; // Psar uses first 3 fields
                         psar
                     }
                 }
@@ -1705,7 +1705,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                                 crate::indicators::msw::calc_rp_ip::<8>(window, mult)
                             }
                         } else {
-                            let [rp, ip, _lead] = kvacc[k];
+                            let [rp, ip, _lead] = kvacc[k]; // SdftRotate uses first 3 fields
                             (rp, ip)
                         };
                         let wr = vals.mults[k];
@@ -1715,7 +1715,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let rp2 = wr.mul_add(rp, -(wi * ip)) + (new - old);
                         let ip2 = wr.mul_add(ip, wi * rp);
                         let (sine, lead) = crate::indicators::msw::phase_from_rp_ip(rp2, ip2);
-                        kvacc[k] = [rp2, ip2, lead];
+                        kvacc[k] = [rp2, ip2, lead]; // SdftRotate uses first 3 fields
                         sine
                     }
                 }
@@ -1743,7 +1743,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let s = SIG.a[SIG.a[k] as usize] as usize;
 
                         if t == 0 {
-                            // Initialize to zero
+                            // Initialize to zero (SdftRotate uses first 3 fields)
                             kvacc[k] = [0.0, 0.0, 0.0];
                         } else if t >= 2 {
                             // Second-difference seeding: (P[t-2] - 2*P[t-1] + P[t]) / 4
@@ -1760,7 +1760,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                             };
                             let seed = (p_t_2 - 2.0 * p_t_1 + p_t) / 4.0;
 
-                            // Update carry: [Cycle[t], Cycle[t-1], 0.0]
+                            // Update carry: [Cycle[t], Cycle[t-1], 0.0] (Cybercycle uses first 3 fields)
                             kvacc[k] = [seed, kvacc[k][0], 0.0];
                         }
                         0.0 // No output until bar 6
@@ -1771,7 +1771,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let d1 = vals.invms[k];
                         let d2 = (d1 / 2.0) * (d1 / 2.0);
                         // After warmup at bar 5, kvacc holds [Cycle[5], Cycle[4], 0.0].
-                        // Read carry values.
+                        // Read carry values (Cybercycle uses first 3 fields).
                         let [cycle_prev, cycle_prev2, _smooth_temp] = kvacc[k];
 
                         // Read current and previous prices for 6-tap weighted smooth.
@@ -1823,7 +1823,7 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let cycle =
                             coef.mul_add(smooth_diff, d1.mul_add(cycle_prev, -d2 * cycle_prev2));
 
-                        // Update carry: [Cycle[t], Cycle[t-1], 0.0]
+                        // Update carry: [Cycle[t], Cycle[t-1], 0.0] (Cybercycle uses first 3 fields)
                         kvacc[k] = [cycle, cycle_prev, 0.0];
                         cycle
                     }
@@ -1840,6 +1840,217 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let src = v[SIG.a[k] as usize]; // Use computed value (works for both Input and derived)
                         st[k] = (st[k] * decay).max(src);
                         st[k]
+                    }
+                }
+                crate::cse::signature::K_INSTANTANEOUSTRENDLINE => {
+                    // Ehlers Instantaneous Trendline recurrence.
+                    // Uses embedded HomodyneDiscriminator pipeline internally, then applies
+                    // 2-pole IIR with adaptive α = 2/(DC+1) computed live per bar from HD's smooth_period.
+                    // First published bar is 22 (min_data=23), so feed = src_lead + 22 = 22.
+                    use crate::indicators::homodynediscriminator::{
+                        hd_apply_discriminator, hd_kernel, hd_ring_at, hd_ring_push,
+                    };
+                    let f = vals.feeds[k] as usize; // feed = 22
+                    if t < f {
+                        // Warmup bars: run HD pipeline but IT stays at 0 (no output yet).
+                        // The hand's init_state seeds IT[1]/IT[2] from its own price_buf.
+                        let x = v[SIG.a[k] as usize];
+                        let acc = &mut hd_acc[k];
+                        hd_ring_push(acc, 0, 4, x);
+                        if t < 3 {
+                            0.0
+                        } else {
+                            let ab =
+                                4.0_f64.mul_add(hd_ring_at(acc, 0, 0), 3.0 * hd_ring_at(acc, 0, 1));
+                            let cd = 2.0_f64.mul_add(hd_ring_at(acc, 0, 2), hd_ring_at(acc, 0, 3));
+                            let smooth = (ab + cd) * 0.1;
+                            let gain = 0.075_f64.mul_add(acc[36], 0.54);
+                            hd_ring_push(acc, 4, 7, smooth);
+                            if t < 9 {
+                                0.0
+                            } else {
+                                let detrender = hd_kernel(acc, 4, gain);
+                                hd_ring_push(acc, 11, 7, detrender);
+                                if t < 15 {
+                                    0.0
+                                } else {
+                                    let i1 = hd_ring_at(acc, 11, 3);
+                                    let q1 = hd_kernel(acc, 11, gain);
+                                    hd_ring_push(acc, 18, 7, i1);
+                                    hd_ring_push(acc, 25, 7, q1);
+
+                                    // Seed IT at bars 20 and 21 using HD's price_buf.
+                                    // price_buf[0]=real[t], [1]=real[t-1], [2]=real[t-2], [3]=real[t-3]
+                                    if t == 20 {
+                                        let p_t = hd_ring_at(acc, 0, 0); // price_buf[0] = real[20]
+                                        let p_t_1 = hd_ring_at(acc, 0, 1); // price_buf[1] = real[19]
+                                        let p_t_2 = hd_ring_at(acc, 0, 2); // price_buf[2] = real[18]
+                                        kvacc[k] = [
+                                            kvacc[k][0],                       // it_prev stays at bar 19 value (0)
+                                            (p_t + 2.0 * p_t_1 + p_t_2) / 4.0, // IT[2] at bar 20
+                                            0.0,
+                                        ];
+                                    } else if t == 21 {
+                                        let p_t = hd_ring_at(acc, 0, 0); // price_buf[0] = real[21]
+                                        let p_t_1 = hd_ring_at(acc, 0, 1); // price_buf[1] = real[20]
+                                        let p_t_2 = hd_ring_at(acc, 0, 2); // price_buf[2] = real[19]
+                                        kvacc[k] = [
+                                            (p_t + 2.0 * p_t_1 + p_t_2) / 4.0, // IT[1] at bar 21
+                                            kvacc[k][1], // it_prev2 stays from bar 20
+                                            0.0,
+                                        ];
+                                    }
+
+                                    if t < 21 {
+                                        // HD pipeline not fully complete yet, IT stays at 0.
+                                        0.0
+                                    } else {
+                                        // HD pipeline is complete (all buffers full).
+                                        let j_i = hd_kernel(acc, 18, gain);
+                                        let j_q = hd_kernel(acc, 25, gain);
+                                        _ = hd_apply_discriminator(acc, i1, q1, j_i, j_q);
+                                        // acc[36] = period, acc[37] = smooth_period.
+                                        // IT still has no output until bar 22 (t >= f).
+
+                                        0.0
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Steady state bars (t >= f = 22): IT recurrence using HD's current state.
+                        // Run HD step to update all rings and get fresh DC period.
+                        let x = v[SIG.a[k] as usize];
+                        let dc =
+                            crate::indicators::homodynediscriminator::hd_step(&mut hd_acc[k], x);
+
+                        // Compute adaptive α from DC period
+                        let alpha = 2.0 / (dc + 1.0);
+                        let a2 = alpha * alpha;
+                        let beta = 1.0 - alpha;
+
+                        // Read prices from HD's price_buf at offset 0 (capacity 4)
+                        let p0 = hd_acc[k][0]; // current price (just pushed by hd_step)
+                        let p1 = hd_acc[k][1]; // price[1]
+                        let p2 = hd_acc[k][2]; // price[2]
+
+                        // Read IT carry values from kvacc: [it_prev, it_prev2, 0.0]
+                        let it_prev = kvacc[k][0];
+                        let it_prev2 = kvacc[k][1];
+
+                        // Apply 2-pole IIR: IT = c₀·P + c₁·P[1] + c₂·P[2] + d₁·IT[1] + d₂·IT[2]
+                        let it = (2.0 * beta).mul_add(
+                            it_prev,
+                            (-(beta * beta)).mul_add(
+                                it_prev2,
+                                (alpha - a2 * 0.25)
+                                    .mul_add(p0, (a2 * 0.5).mul_add(p1, -(alpha - a2 * 0.75) * p2)),
+                            ),
+                        );
+
+                        // Update carry: [IT[t], IT[t-1], 0.0] (IT uses first 3 fields)
+                        kvacc[k] = [it, it_prev, 0.0];
+                        it
+                    }
+                }
+                crate::cse::signature::K_MAMA => {
+                    // Ehlers MAMA/FAMA adaptive EMA recurrence.
+                    // Uses embedded HomodyneDiscriminator pipeline internally, then applies
+                    // adaptive α from phase delta to MAMA/FAMA.
+                    // First published bar is 22 (min_data=23), so feed = src_lead + 22 = 22.
+                    use crate::indicators::homodynediscriminator::{
+                        hd_apply_discriminator, hd_kernel, hd_ring_at, hd_ring_push,
+                    };
+                    let f = vals.feeds[k] as usize; // feed = 22
+                    if t < f {
+                        // Warmup bars: run HD pipeline but MAMA/FAMA stay at 0 (no output yet).
+                        let x = v[SIG.a[k] as usize];
+                        let acc = &mut hd_acc[k];
+                        hd_ring_push(acc, 0, 4, x);
+                        if t < 3 {
+                            0.0
+                        } else {
+                            let ab =
+                                4.0_f64.mul_add(hd_ring_at(acc, 0, 0), 3.0 * hd_ring_at(acc, 0, 1));
+                            let cd = 2.0_f64.mul_add(hd_ring_at(acc, 0, 2), hd_ring_at(acc, 0, 3));
+                            let smooth = (ab + cd) * 0.1;
+                            let gain = 0.075_f64.mul_add(acc[36], 0.54);
+                            hd_ring_push(acc, 4, 7, smooth);
+                            if t < 9 {
+                                0.0
+                            } else {
+                                let detrender = hd_kernel(acc, 4, gain);
+                                hd_ring_push(acc, 11, 7, detrender);
+                                if t < 15 {
+                                    0.0
+                                } else {
+                                    let i1 = hd_ring_at(acc, 11, 3);
+                                    let q1 = hd_kernel(acc, 11, gain);
+                                    hd_ring_push(acc, 18, 7, i1);
+                                    hd_ring_push(acc, 25, 7, q1);
+
+                                    if t < 21 {
+                                        // HD pipeline not fully complete yet, MAMA/FAMA stay at 0.
+                                        0.0
+                                    } else {
+                                        // HD pipeline is complete (all buffers full).
+                                        let j_i = hd_kernel(acc, 18, gain);
+                                        let j_q = hd_kernel(acc, 25, gain);
+                                        _ = hd_apply_discriminator(acc, i1, q1, j_i, j_q);
+                                        // acc[36] = period, acc[37] = smooth_period.
+                                        // MAMA/FAMA still have no output until bar 22 (t >= f).
+                                        0.0
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        let x = v[SIG.a[k] as usize];
+
+                        // Match hand init semantics: on the first published bar,
+                        // seed both EMA carries from the same bar's price so the
+                        // first output is price-exact.
+                        if t == f {
+                            kvacc[k][0] = x;
+                            kvacc[k][1] = x;
+                            kvacc[k][2] = 0.0;
+                        }
+
+                        let fast_limit = vals.consts[k];
+                        let slow_limit = vals.st_step[k];
+                        let (mama, _fama, alpha) = crate::indicators::mama::mama_step_with_alpha(
+                            &mut hd_acc[k],
+                            &mut kvacc[k],
+                            fast_limit,
+                            slow_limit,
+                            x,
+                        );
+                        st[k] = alpha;
+                        mama
+                    }
+                }
+                crate::cse::signature::K_FAMA => {
+                    // FAMA secondary output: reads Mama output from v[src] and alpha
+                    // from Mama's st[src] slot (written in K_MAMA this same bar).
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let mama_slot = SIG.a[k] as usize;
+                        let mama = v[mama_slot];
+
+                        if t == f {
+                            // Match hand first output bar exactly.
+                            kvacc[k][0] = mama;
+                            mama
+                        } else {
+                            let alpha = st[mama_slot];
+                            let fama_prev = kvacc[k][0];
+                            let half_alpha = alpha.algebraic_mul(0.5);
+                            let fama = half_alpha.mul_add(mama - fama_prev, fama_prev);
+                            kvacc[k][0] = fama;
+                            fama
+                        }
                     }
                 }
                 _ => {

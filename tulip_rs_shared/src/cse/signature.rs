@@ -219,6 +219,22 @@ pub const K_CYBERCYCLE: u8 = 50;
 /// `mults[k]`=decay (f64, bits-encoded, fixed 0.991), carry in `st[k]`.
 /// No warmup bars; first output at bar 0 (lead = src_lead).
 pub const K_PEAKDECAY: u8 = 51;
+/// Ehlers Instantaneous Trendline recurrence (`Node::InstantaneousTrendline` doc):
+/// `a`=src (raw stream only). Uses embedded HomodyneDiscriminator to get adaptive
+/// DC period, then applies 2-pole IIR with α=2/(DC+1). Own 3-field carry `[it_prev,
+/// it_prev2, smooth[2]]` in `kvacc[k]`. `feeds[k] = leads[src] + 22` (first output
+/// bar is 22, min_data=23).
+pub const K_INSTANTANEOUSTRENDLINE: u8 = 53;
+/// Ehlers MAMA/FAMA adaptive EMA recurrence (`Node::Mama` doc): `a`=src (raw stream).
+/// Uses embedded HomodyneDiscriminator to derive phase-driven adaptive α,
+/// then applies α to MAMA/FAMA EMAs. Own 3-field carry
+/// `[mama_prev, fama_prev, prev_phase]` in `kvacc[k]`; alpha is published in
+/// `st[k]` for `K_FAMA` to consume this bar. `feeds[k] = leads[src] + 22`
+/// (first output bar is 22, min_data=23).
+pub const K_MAMA: u8 = 54;
+
+/// FAMA secondary EMA - reads Mama's output (`v[src]`) and alpha (`st[src]`).
+pub const K_FAMA: u8 = 55;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -944,6 +960,45 @@ pub fn erase(
                 // First published bar is 6 (min_data=7), so feed = src_lead + 6
                 vals.feeds[k] = leads[src as usize] + 6;
                 (K_CYBERCYCLE, src, 0, 0)
+            }
+            Node::InstantaneousTrendline { src } => {
+                if !matches!(arena.nodes[src as usize], Node::Input { .. }) {
+                    panic!("Node::InstantaneousTrendline: src must be a raw Node::Input stream");
+                }
+                // IT uses embedded HomodyneDiscriminator for adaptive DC period,
+                // so the feed = HD's first output bar (src_lead + 22).
+                vals.feeds[k] = leads[src as usize] + 22;
+                (K_INSTANTANEOUSTRENDLINE, src, 0, 0)
+            }
+            Node::Mama {
+                src,
+                fast_limit_bits,
+                slow_limit_bits,
+            } => {
+                if !matches!(arena.nodes[src as usize], Node::Input { .. }) {
+                    panic!("Node::Mama: src must be a raw Node::Input stream");
+                }
+                // MAMA uses embedded HomodyneDiscriminator for adaptive DC period,
+                // then applies adaptive α to MAMA and FAMA EMAs.
+                // Decode options from u64 bits and populate Values arrays:
+                // fast_limit → vals.consts[k], slow_limit → vals.st_step[k]
+                let fast_limit = f64::from_bits(fast_limit_bits);
+                let slow_limit = f64::from_bits(slow_limit_bits);
+                vals.consts[k] = fast_limit;
+                vals.st_step[k] = slow_limit;
+                vals.feeds[k] = leads[src as usize] + 22;
+                dd = 0u32; // d/e unused at runtime for Mama
+                ee = 0u32; // d/e unused at runtime for Mama
+                (K_MAMA, src, 0, 0)
+            }
+            Node::Fama { src } => {
+                if !matches!(arena.nodes[src as usize], Node::Mama { .. }) {
+                    panic!("Node::Fama: src must be a Mama node");
+                }
+                // FAMA reads Mama's output (`v[src]`) and alpha (`st[src]`).
+                // No extra warmup bars; first output aligns with Mama's lead.
+                vals.feeds[k] = leads[src as usize];
+                (K_FAMA, src, 0, 0)
             }
             Node::PeakDecay { src, decay_bits } => {
                 // Decode decay from bits (fixed 0.991)

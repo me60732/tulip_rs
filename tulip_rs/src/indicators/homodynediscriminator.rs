@@ -576,8 +576,10 @@ pub(crate) fn hd_apply_discriminator(
 /// Used verbatim by `codegen.rs`'s steady loop; the `warmup.rs` interpreter
 /// calls the same ring/kernel primitives directly behind its own per-stage
 /// gates instead (it needs the early-return-0.0 branches this fn omits).
+///
+/// Returns `(dc_period, i1, q1)` for callers that need phase inputs (e.g. MAMA).
 #[inline(always)]
-pub(crate) fn hd_step(acc: &mut [f64; HD_ACC_LEN], price: f64) -> f64 {
+pub(crate) fn hd_step_with_iq(acc: &mut [f64; HD_ACC_LEN], price: f64) -> (f64, f64, f64) {
     hd_ring_push(acc, 0, 4, price);
     let ab = 4.0_f64.mul_add(hd_ring_at(acc, 0, 0), 3.0 * hd_ring_at(acc, 0, 1));
     let cd = 2.0_f64.mul_add(hd_ring_at(acc, 0, 2), hd_ring_at(acc, 0, 3));
@@ -597,5 +599,11 @@ pub(crate) fn hd_step(acc: &mut [f64; HD_ACC_LEN], price: f64) -> f64 {
     let j_i = hd_kernel(acc, 18, gain);
     let j_q = hd_kernel(acc, 25, gain);
 
-    hd_apply_discriminator(acc, i1, q1, j_i, j_q)
+    let dc = hd_apply_discriminator(acc, i1, q1, j_i, j_q);
+    (dc, i1, q1)
+}
+
+#[inline(always)]
+pub(crate) fn hd_step(acc: &mut [f64; HD_ACC_LEN], price: f64) -> f64 {
+    hd_step_with_iq(acc, price).0
 }

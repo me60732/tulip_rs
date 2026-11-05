@@ -379,8 +379,58 @@ impl Indicator<INPUTS, OPTIONS> for InstantaneousTrendline {
     }
 }
 
+impl crate::cse::Planable for InstantaneousTrendline {
+    /// The graph is leaf data — `crate::cse::recipes::instantaneoustrendline`:
+    /// `InstantaneousTrendline{src}` over the price column.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::instantaneoustrendline(options)
+    }
+}
+
+/// CSE steady-state step: computes IT from HD's state carry.
+/// `hdacc[k]` already contains the full HD pipeline (all rings filled).
+/// `kvacc[k] = [it_prev, it_prev2, 0.0]` holds the IIR feedback states.
+/// `price` is the current bar's price to push to HD ring.
+/// Returns the new IT value and updates kvacc[k].
+pub(crate) fn it_step(hdacc: &mut [f64; 38], kvacc: &mut [f64; 3], price: f64) -> f64 {
+    // hd_step pushes current price to HD ring, runs full pipeline, returns DC period.
+    // This is the same as State<Warm>::calc which first calls self.hd.calc(price).
+    let dc = crate::indicators::homodynediscriminator::hd_step(hdacc, price);
+
+    // Compute adaptive α from DC period
+    let alpha = 2.0 / (dc + 1.0);
+    let a2 = alpha * alpha;
+    let beta = 1.0 - alpha;
+
+    // Read prices from HD's price_buf at offset 0 (capacity 4)
+    // After hd_step, these are the current and previous prices.
+    let p0 = hdacc[0]; // price_buf[0] = current price (just pushed by hd_step)
+    let p1 = hdacc[1]; // price_buf[1]
+    let p2 = hdacc[2]; // price_buf[2]
+
+    // Read IT carry values from kvacc: [it_prev, it_prev2, 0.0]
+    let it_prev = kvacc[0];
+    let it_prev2 = kvacc[1];
+
+    // Apply 2-pole IIR: IT = c₀·P + c₁·P[1] + c₂·P[2] + d₁·IT[1] + d₂·IT[2]
+    let it = (2.0 * beta).mul_add(
+        it_prev,
+        (-(beta * beta)).mul_add(
+            it_prev2,
+            (alpha - a2 * 0.25).mul_add(p0, (a2 * 0.5).mul_add(p1, -(alpha - a2 * 0.75) * p2)),
+        ),
+    );
+
+    // Update carry: [IT[t], IT[t-1], 0.0]
+    kvacc[0] = it;
+    kvacc[1] = it_prev;
+    kvacc[2] = 0.0;
+
+    it
+}
+
 /// Core calculation loop for the Instantaneous Trendline.
-///
+
 /// All HD ring buffers must be full on entry (guaranteed after `init_state`).
 /// Writes `trendline` for every bar, and optionally `trigger`, `dc_period`, `alpha`.
 fn cycle(

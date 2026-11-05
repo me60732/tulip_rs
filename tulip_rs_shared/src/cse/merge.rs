@@ -242,6 +242,14 @@ impl Merged {
                 Node::Cybercycle { src, .. } => leads[src as usize] + 6,
                 // PeakDecay: zero-init peak envelope, no warmup bars. Lead = src_lead.
                 Node::PeakDecay { src, .. } => leads[src as usize],
+                // InstantaneousTrendline: uses embedded HomodyneDiscriminator pipeline,
+                // first output at bar 22 (min_data=23). Lead = src_lead + 22.
+                Node::InstantaneousTrendline { src } => leads[src as usize] + 22,
+                // Mama: uses embedded HomodyneDiscriminator pipeline, then adaptive EMA.
+                // First output at bar 22 (min_data=23). Lead = src_lead + 22.
+                Node::Mama { src, .. } => leads[src as usize] + 22,
+                // Fama: secondary output from Mama node, same warmup/lead as Mama.
+                Node::Fama { src } => leads[src as usize],
             };
             leads.push(id);
         }
@@ -669,6 +677,13 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         // PeakDecay envelope: simple max recurrence, scalar-only.
         // No SIMD form.
         PeakDecay { .. } => (0, 0),
+        // InstantaneousTrendline recurrence: bespoke 2-pole IIR with adaptive
+        // α from embedded HD. Scalar-only, same standing as Cybercycle/HomodyneDiscriminator.
+        InstantaneousTrendline { .. } => (0, 0),
+        // Mama/FAMA adaptive EMA recurrence: bespoke with embedded HD. Scalar-only,
+        // same standing as Cybercycle/HomodyneDiscriminator/InstantaneousTrendline.
+        Mama { .. } => (0, 0),
+        Fama { .. } => (0, 0),
     }
 }
 
@@ -700,6 +715,9 @@ fn lane_warmup(node: &Node) -> u8 {
         RollMax { .. } | RollMin { .. } => 3,
         Cybercycle { .. } => 0, // steady recurrence (no fold phase)
         PeakDecay { .. } => 0,  // no warmup bars
+        InstantaneousTrendline { .. } => 0, // steady recurrence (no fold phase)
+        Mama { .. } => 0,       // steady recurrence (no fold phase)
+        Fama { .. } => 0,       // steady recurrence (no fold phase)
         _ => 0,
     }
 }
@@ -1040,6 +1058,17 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             src: g(src),
             decay_bits,
         },
+        InstantaneousTrendline { src } => InstantaneousTrendline { src: g(src) },
+        Mama {
+            src,
+            fast_limit_bits,
+            slow_limit_bits,
+        } => Mama {
+            src: g(src),
+            fast_limit_bits,
+            slow_limit_bits,
+        },
+        Fama { src } => Fama { src: g(src) },
     }
 }
 
@@ -1205,6 +1234,9 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         }
         Cybercycle { src, .. } => visit(*src),
         PeakDecay { src, .. } => visit(*src),
+        InstantaneousTrendline { src } => visit(*src),
+        Mama { src, .. } => visit(*src),
+        Fama { src } => visit(*src),
     }
 }
 

@@ -401,6 +401,62 @@ pub fn homodynediscriminator(options: &[f64]) -> Recipe {
     r
 }
 
+pub fn instantaneoustrendline(options: &[f64]) -> Recipe {
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    // IT uses the embedded HomodyneDiscriminator pipeline internally.
+    // The node is bespoke (K_INSTANTANEOUSTRENDLINE), so it carries its own
+    // 3-field `[it_prev, it_prev2, smooth[2]]` in `kvacc[k]`.
+    let it = r.add(Node::InstantaneousTrendline { src: real });
+    r.tag(it, "trendline");
+
+    r.kind = "instantaneoustrendline";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![it];
+    // First published bar is 22 (min_data=23), so lead = 22.
+    r.outputs.push(Sink::iface_lead(it, 22));
+    r
+}
+
+pub fn mama(options: &[f64]) -> Recipe {
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+    // MAMA uses the embedded HomodyneDiscriminator pipeline internally,
+    // then applies phase-driven adaptive α to EMA MAMA and FAMA.
+    // The node is bespoke (K_MAMA), carrying `[mama_prev, fama_prev, prev_phase]`
+    // in kvacc[k]; alpha is written to st[k] for FAMA to consume.
+    let fast_limit = options.get(0).copied().unwrap_or(0.5);
+    let slow_limit = options.get(1).copied().unwrap_or(0.05);
+    let mama_node = r.add(Node::Mama {
+        src: real,
+        fast_limit_bits: fast_limit.to_bits(),
+        slow_limit_bits: slow_limit.to_bits(),
+    });
+    r.tag(mama_node, "mama");
+
+    // FAMA node reads from Mama's output and alpha stored in Mama's st slot.
+    let fama_node = r.add(Node::Fama { src: mama_node });
+    r.tag(fama_node, "fama");
+
+    r.kind = "mama";
+    r.options = options.to_vec();
+    r.tail_inputs = vec![mama_node];
+    // First published bar is 22 (min_data=23), so lead = 22.
+    // Outputs: mama (primary) and fama (secondary node).
+    r.outputs.push(Sink::iface_lead(mama_node, 22));
+    r.outputs.push(Sink::iface_lead(fama_node, 22));
+    r
+}
+
+/// `InstantaneousTrendline()` — Ehlers 2-pole IIR with adaptive α from embedded HD.
+/// Streams: 0=real. Options: none (fully adaptive). Fixed 23-bar warmup (bars 0-21),
+/// lead 22. Uses the same HD pipeline as `homodynediscriminator`, but applies a
+/// separate 2-pole IIR recurrence on top of the DC period.
+/// Graph: hd = HomodyneDiscriminator(real), it = InstantaneousTrendline(hd).
+/// First published bar is 22 (min_data=23).
+
 /// `MEDPRICE = 0.5 * (high + low)` -- stateless, every bar publishes
 /// (`Sink::iface`, lead 0). Streams: 0 = high, 1 = low.
 pub fn medprice(_options: &[f64]) -> Recipe {

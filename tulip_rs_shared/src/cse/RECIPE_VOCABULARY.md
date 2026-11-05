@@ -138,6 +138,9 @@ conversion for you.
 | `Cybercycle{src,alpha_bits}` | Ehlers CyberCycle recurrence: weighted smooth + two-pole IIR carry (`cycle_prev`,`cycle_prev2`) | `K_CYBERCYCLE=50`; scalar-only; feed/lead = `src_lead + 6` (first output bar 6, `min_data=7`); used by `cybercycle`, `trendmode`, `ccfisher` |
 | `PeakDecay{src,decay_bits}` | decaying amplitude envelope `peak=max(prev*decay, src)` | `K_PEAKDECAY=51`; scalar-only; carry in `st[k]`; no warmup bars (`lead=src_lead`); used by `trendmode`/`ccfisher` |
 | `IirClampedPlain{src,a_bits,b_bits,hi_t,hi_v,lo_t,lo_v}` | explicit-weight IIR with plain mul+add (NO fused `mul_add`), then clamp | `K_IIRCLAMPEDPLAIN=52`; same clamp operands as `IirClamped` (`b/c/d/e` are Const refs) but recurrence uses plain arithmetic; used by `ccfisher` (`val1`) for bit-exact hand parity |
+| `InstantaneousTrendline{src}` | Ehlers 2-pole IIR with adaptive α from embedded HomodyneDiscriminator | `K_INSTANTANEOUSTRENDLINE=53`; bespoke 3-field carry `[it_prev, it_prev2, smooth[2]]` in `kvacc[k]`, uses HD's `hdacc[k]` (same ring buffers); scalar-only; used by `instantaneoustrendline` |
+| `Mama{src,fast_limit_bits,slow_limit_bits}` | Ehlers MAMA adaptive EMA driven by phase delta from embedded HomodyneDiscriminator | `K_MAMA=54`; bespoke 3-field carry `[mama_prev, fama_prev, prev_phase]` in `kvacc[k]`; writes live `alpha` to `st[k]`; options decode from bits into `vals.consts/vals.st_step`; feed/lead = `src_lead + 22`; scalar-only; used by `mama` |
+| `Fama{src}` | Ehlers FAMA following EMA companion over a `Mama` source | `K_FAMA=55`; reads Mama output from `v[src]` and Mama alpha from `st[src]`, carries its own previous fama in `kvacc[k][0]`; feed/lead aligns with source Mama (`vals.feeds[k] = leads[src]`); scalar-only; used by `mama` |
 
 **Why four of those rows USED to say "cannot be erased" — the whole paragraph was stale.**
 `HighPass`, `SuperSmoother`, `HtInPhase` and `HtQuadrature` are real `Node` variants and `merge`

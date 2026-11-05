@@ -436,8 +436,29 @@ fn sig_const(p: &Pattern) -> TokenStream {
         })
         .collect();
     // K_IIRCLAMPED's lo_t/lo_v refs (every other kind: 0, matching erase).
-    let d: Vec<u32> = p.nodes.iter().map(|x| x.d as u32).collect();
-    let e: Vec<u32> = p.nodes.iter().map(|x| x.e as u32).collect();
+    // For Mama/Fama, d/e are unused at runtime - set to 0.
+    let d: Vec<u32> = p
+        .nodes
+        .iter()
+        .map(|x| {
+            if x.kind == Kind::Mama || x.kind == Kind::Fama {
+                0u32
+            } else {
+                x.d as u32
+            }
+        })
+        .collect();
+    let e: Vec<u32> = p
+        .nodes
+        .iter()
+        .map(|x| {
+            if x.kind == Kind::Mama || x.kind == Kind::Fama {
+                0u32
+            } else {
+                x.e as u32
+            }
+        })
+        .collect();
     let sinks: Vec<u32> = p.sinks.iter().map(|s| *s as u32).collect();
     // Compute n_streams from Input nodes (max stream index + 1)
     let max_stream = p
@@ -2248,6 +2269,59 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     };
                 });
             }
+            Kind::InstantaneousTrendline => {
+                // Ehlers Instantaneous Trendline recurrence.
+                // Uses embedded HomodyneDiscriminator pipeline internally, then applies
+                // 2-pole IIR with adaptive α = 2/(DC+1) computed live per bar from HD's smooth_period.
+                // Steady bars are always past every warmup stage (warmup.rs already ran the full
+                // HD pipeline up to the seam), so this is pure unconditional recurrence.
+                let ki = k;
+                let src = ev(node.a, &idents); // Current price from input stream
+                body.push(quote! {
+                    let #xk = crate::indicators::instantaneoustrendline::it_step(
+                        &mut hdacc[#ki],
+                        &mut kvacc[#ki],
+                        #src,
+                    );
+                });
+            }
+            Kind::Mama => {
+                // Ehlers MAMA/FAMA adaptive EMA recurrence.
+                // Uses embedded HomodyneDiscriminator pipeline internally, then applies
+                // adaptive α from phase delta to MAMA/FAMA.
+                let ki = k;
+                let src = ev(node.a, &idents); // Current price from input stream
+                body.push(quote! {
+                    let #xk = {
+                        let (mama, _fama, alpha) = crate::indicators::mama::mama_step_with_alpha(
+                            &mut hdacc[#ki],
+                            &mut kvacc[#ki],
+                            vals.consts[#ki],  // fast_limit
+                            vals.st_step[#ki], // slow_limit
+                            #src,
+                        );
+                        st[#ki] = alpha;
+                        mama
+                    };
+                });
+            }
+            Kind::Fama => {
+                // FAMA secondary output - reads Mama's output and Mama's alpha from st[src].
+                let ki = k;
+                let mama_slot = node.a as usize; // Mama's slot index
+                let mama_ident = format_ident!("{}", idents[mama_slot]);
+                body.push(quote! {
+                    let #xk = {
+                        let mama = #mama_ident;
+                        let alpha = st[#mama_slot];
+                        let fama_prev = kvacc[#ki][0];
+                        let half_alpha = alpha.algebraic_mul(0.5);
+                        let fama = half_alpha.mul_add(mama - fama_prev, fama_prev);
+                        kvacc[#ki][0] = fama;
+                        fama
+                    };
+                });
+            }
         }
     }
     let mut const_hoists = Vec::new();
@@ -2492,7 +2566,9 @@ fn run_fn(p: &Pattern) -> TokenStream {
             let mut trail = [0usize; crate::cse::MAX]; // roll trail carry
             let mut rings = crate::cse::kernel::warmup::RingSet::new();
             let mut hacc = [[0.0f64; 7]; crate::cse::MAX];
-            let mut kvacc = [[0.0f64; 3]; crate::cse::MAX]; // KvoFlow's [prev_hlc, cm, prev_hl]
+            // Shared 3-field bespoke carry (kind-specific meaning; e.g.
+            // Mama uses [mama_prev, fama_prev, prev_phase], alpha rides st[k]).
+            let mut kvacc = [[0.0f64; 3]; crate::cse::MAX];
             let mut hp_acc = [[0.0f64; 2]; crate::cse::MAX]; // HighPass's [y1, prev_real]
             let mut ss_acc = [[0.0f64; 3]; crate::cse::MAX]; // SuperSmoother's [y1, y2, prev_real]
             let mut hdacc = [[0.0f64; 38]; crate::cse::MAX]; // HomodyneDiscriminator's bespoke cell
@@ -2748,6 +2824,20 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                     let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
                 });
+            }
+            Kind::InstantaneousTrendline => {
+                // Lane InstantaneousTrendline carry in kvaccw (3-field: [it_prev, it_prev2, 0.0]).
+                let ki = k;
+                let c1 = format_ident!("{}_it_prev", ident_k);
+                let c2 = format_ident!("{}_it_prev2", ident_k);
+                carry_hoists.push(quote! {
+                    let mut #c1 = Simd::<f64, L>::from_array(std::array::from_fn(|a| kvaccw[a][#ki][0]));
+                    let mut #c2 = Simd::<f64, L>::from_array(std::array::from_fn(|a| kvaccw[a][#ki][1]));
+                });
+            }
+            Kind::Mama => {
+                // Lane MAMA carry in kvaccw ([mama_prev, fama_prev, prev_phase]).
+                // Alpha is written to stw[a][k] each bar for FAMA to consume.
             }
             Kind::IirClampedPlain => {
                 // Plain IIR clamped: lane form with plain mul+add (NO mul_add fusion).
@@ -3185,6 +3275,64 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     let #xk = {
                         #ck = (#ck * #mk).simd_max(#ea);
                         #ck
+                    };
+                });
+            }
+            Kind::InstantaneousTrendline => {
+                // Lane InstantaneousTrendline recurrence, scalar-per-lane for exactness.
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let src_arr = #ea.to_array();
+                        let out_arr: [f64; L] = std::array::from_fn(|a| {
+                            crate::indicators::instantaneoustrendline::it_step(
+                                &mut hdaccw[a][#ki],
+                                &mut kvaccw[a][#ki],
+                                src_arr[a],
+                            )
+                        });
+                        Simd::<f64, L>::from_array(out_arr)
+                    };
+                });
+            }
+            Kind::Mama => {
+                // Lane MAMA/FAMA adaptive EMA recurrence.
+                // Uses embedded HD pipeline per lane and writes alpha to stw[a][k].
+                let ki = k;
+                body.push(quote! {
+                    let #xk = {
+                        let src_arr = #ea.to_array();
+                        let out_arr: [f64; L] = std::array::from_fn(|a| {
+                            let (mama, _fama, alpha) = crate::indicators::mama::mama_step_with_alpha(
+                                &mut hdaccw[a][#ki],
+                                &mut kvaccw[a][#ki],
+                                vals.consts[#ki],
+                                vals.st_step[#ki],
+                                src_arr[a],
+                            );
+                            stw[a][#ki] = alpha;
+                            mama
+                        });
+                        Simd::<f64, L>::from_array(out_arr)
+                    };
+                });
+            }
+            Kind::Fama => {
+                // Lane FAMA secondary output - reads Mama output from src and alpha from stw[src].
+                let ki = k;
+                let mama_slot = node.a as usize; // Mama's slot index
+                body.push(quote! {
+                    let #xk = {
+                        let mama = #ea;
+                        let alpha = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#mama_slot]));
+                        let fama_prev = Simd::<f64, L>::from_array(std::array::from_fn(|a| kvaccw[a][#ki][0]));
+                        let half_alpha = alpha * Simd::<f64, L>::splat(0.5);
+                        let fama = half_alpha.mul_add(mama - fama_prev, fama_prev);
+                        let fama_arr = fama.to_array();
+                        for a in 0..L {
+                            kvaccw[a][#ki][0] = fama_arr[a];
+                        }
+                        fama
                     };
                 });
             }
@@ -4175,6 +4323,7 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     .collect();
             let mut haccw: Vec<[[f64; 7]; crate::cse::MAX]> =
                 vec![[[0.0f64; 7]; crate::cse::MAX]; L];
+            // Shared 3-field bespoke carry (kind-specific meaning per node).
             let mut kvaccw: Vec<[[f64; 3]; crate::cse::MAX]> =
                 vec![[[0.0f64; 3]; crate::cse::MAX]; L];
             let mut hp_accw: Vec<[[f64; 2]; crate::cse::MAX]> =

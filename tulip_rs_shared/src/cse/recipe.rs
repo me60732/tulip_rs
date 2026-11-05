@@ -636,6 +636,23 @@ pub enum Node {
     HomodyneDiscriminator {
         src: Id,
     },
+    /// Ehlers InstantaneousTrendline recurrence -- bespoke 2-pole IIR with
+    /// adaptive α computed live per bar from the embedded HomodyneDiscriminator's
+    /// SmoothPeriod (DC). `alpha_bits` encodes the coefficients `(c0, c1, c2, d1, d2)`
+    /// as f64 bit patterns. Own 3-field carry `[it_prev, it_prev2, smooth[2]]`
+    /// in `kvacc[k]`. See `instantaneoustrendline.rs`'s `cycle` and `State::calc`
+    /// for the exact recurrence.
+    InstantaneousTrendline {
+        src: Id,
+    },
+    Mama {
+        src: Id,
+        fast_limit_bits: u64,
+        slow_limit_bits: u64,
+    },
+    Fama {
+        src: Id, // Points to Mama's slot
+    },
 }
 
 /// Where a sink's value comes from each bar.
