@@ -20,6 +20,93 @@ pub(super) fn sink_lead_hoists(p: &Pattern, idents: &[String]) -> Vec<TokenStrea
     lead_hoists
 }
 
+/// Collect Input slot sources from nodes, preserving first-seen order and
+/// de-duplicating via `contains` check. Used by emitters to identify which
+/// stream base pointers need hoisting.
+pub(super) fn used_input_slots(p: &Pattern) -> Vec<usize> {
+    let mut slots: Vec<usize> = Vec::new();
+    for node in &p.nodes {
+        if node.kind == Kind::Input && !slots.contains(&node.a) {
+            slots.push(node.a);
+        }
+    }
+    slots
+}
+
+/// SinkWindowSymbols: symbols derived per-sink/group for row-ref and warm-pointer builders.
+/// Contains the Ident names needed by both `emit_scalar.rs` and `emit_assets.rs` when
+/// building window offsets and pointer arithmetic for sink outputs grouped by shared node.
+pub(super) struct SinkWindowSymbols {
+    /// Group index (group_of[sidx])
+    #[allow(dead_code)]
+    pub(super) gidx: usize,
+    /// Offset identifier for the group (`off{gidx}`)
+    pub(super) off_g: Ident,
+    /// Row size identifier for the group (`rsz{gidx}`)
+    pub(super) rsz_g: Ident,
+    /// Group minimum lead identifier (`minl_{ident_g}_{gidx}`)
+    pub(super) g_minl: Ident,
+    /// Sink-specific lead identifier (`{ident_s}_{sidx}`)
+    pub(super) l_s: Ident,
+}
+
+/// Derive SinkWindowSymbols for a sink index within a pattern.
+///
+/// Used by BOTH renderers to build window offsets and warm-pointer arithmetic.
+/// The derivation is identical in `emit_scalar.rs` (row_refs, warm_ptrs) and
+/// `emit_assets.rs` (row_refs, warm_ptrs map), extracted here to eliminate duplication.
+///
+/// # Arguments
+/// - `p`: the Pattern being generated
+/// - `idents`: display-only naming for nodes (role names or fallback x{k})
+/// - `group_members`: group -> list of sink indices in that group
+/// - `group_of`: sink index -> group index
+/// - `sidx`: sink index to derive symbols for
+///
+/// # Behavior
+/// Matches existing per-sink derivation exactly:
+/// - gidx = group_of[sidx]
+/// - leader = group_members[gidx][0]
+/// - ident_g = idents[p.sinks[leader]].clone()
+/// - off_g = format_ident!("off{}", gidx)
+/// - rsz_g = format_ident!("rsz{}", gidx)  (only used in emit_scalar row_refs and emit_assets row_refs/warm_ptrs)
+/// - g_minl = format_ident!("minl_{}_{}", ident_g, gidx)
+/// - l_s = format_ident!("{}_{}", idents[p.sinks[sidx]], sidx)
+pub(super) fn sink_window_symbols(
+    p: &Pattern,
+    idents: &[String],
+    group_members: &[Vec<usize>],
+    group_of: &[usize],
+    sidx: usize,
+) -> SinkWindowSymbols {
+    let gidx = group_of[sidx];
+    let leader = group_members[gidx][0];
+    let ident_g = idents[p.sinks[leader]].clone();
+    let off_g = format_ident!("off{}", gidx);
+    let rsz_g = format_ident!("rsz{}", gidx);
+    let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
+    let l_s = format_ident!("{}_{}", idents[p.sinks[sidx]], sidx);
+    SinkWindowSymbols {
+        gidx,
+        off_g,
+        rsz_g,
+        g_minl,
+        l_s,
+    }
+}
+
+/// Build the sink-window offset expression: `off_g + (l_s - g_minl)`.
+///
+/// Used by BOTH renderers to compute the window start within a shared group row.
+/// The arithmetic is identical in `emit_scalar.rs` (warm_ptrs, row_refs) and
+/// `emit_assets.rs` (row_refs, warm_ptrs map), extracted here to eliminate duplication.
+pub(super) fn sink_window_offset(sym: &SinkWindowSymbols) -> TokenStream {
+    let off_g = &sym.off_g;
+    let l_s = &sym.l_s;
+    let g_minl = &sym.g_minl;
+    quote! { #off_g + (#l_s - #g_minl) }
+}
+
 /// Build the steady loop body with optional-group support.
 ///
 /// When `opt_group_ids` is empty, emits a single loop:

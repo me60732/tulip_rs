@@ -1,5 +1,7 @@
 use super::*;
 
+use shared::{sink_window_offset, sink_window_symbols};
+
 pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     let name = format_ident!("{}", p.name);
     let sig = format_ident!("SIG_{}", name);
@@ -1714,21 +1716,12 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     // ---- warm exec ptrs setup (per-sink, aliased via arena) ----
     let mut warm_ptrs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
-        let gidx = group_of[sidx];
-        // Get the ident for this group
-        let leader_g = group_members[gidx][0];
-        let ident_g = idents[p.sinks[leader_g]].clone();
-        let g = format_ident!("minl_{}_{}", ident_g, gidx);
-        // Keep off as plain numeric per task requirement
-        let off_g = format_ident!("off{}", gidx);
-        // Build sink lead var name using the node's ident
-        let sink_node_sidx = p.sinks[sidx];
-        let ident_s = idents[sink_node_sidx].clone();
-        let l_s = format_ident!("{}_{}", ident_s, sidx);
+        let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
+        let off_expr = sink_window_offset(&sym);
         // ptr = base + off_g + (lead_s - minl_g): this sink's window inside
         // the shared group row.
         warm_ptrs.push(quote! {
-            ptrs[#sidx] = unsafe { base.add(#off_g + (#l_s - #g)) };
+            ptrs[#sidx] = unsafe { base.add(#off_expr) };
         });
     }
 
@@ -1771,23 +1764,17 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     // ---- return RowRef windows per sink (in sink order) ----
     let mut row_refs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
-        let gidx = group_of[sidx];
-        // Keep off and rsz as plain numeric per task requirement
-        let leader_g = group_members[gidx][0];
-        let ident_g = idents[p.sinks[leader_g]].clone();
-        let off_g = format_ident!("off{}", gidx);
-        let rsz_g = format_ident!("rsz{}", gidx);
-        let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
-        // Build sink lead var name using the node's ident
-        let sink_node_sidx = p.sinks[sidx];
-        let ident_s = idents[sink_node_sidx].clone();
-        let l_s = format_ident!("{}_{}", ident_s, sidx);
+        let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
+        let off_expr = sink_window_offset(&sym);
+        let rsz_g = sym.rsz_g;
+        let l_s = sym.l_s;
+        let g_minl = sym.g_minl;
         // Disabled sinks get zero-length windows (is_empty() == true)
         row_refs.push(quote! {
             if vals.sink_want[#sidx] {
                 crate::cse::query::RowRef::window(
                     &arena,
-                    #off_g + (#l_s - #g_minl),
+                    #off_expr,
                     #rsz_g.saturating_sub(#l_s - #g_minl)
                 )
             } else {

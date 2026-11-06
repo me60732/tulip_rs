@@ -10,12 +10,14 @@ use quote::{format_ident, quote};
 use std::collections::HashMap;
 
 mod classify;
-mod emit_assets;
-mod emit_scalar;
 mod idents;
 mod layout;
 mod shape;
+mod shared;
 mod signature;
+
+mod emit_assets;
+mod emit_scalar;
 
 use classify::{classify, classify_packed, Scalar};
 use emit_assets::run_assets_fn;
@@ -23,10 +25,8 @@ use emit_scalar::run_fn;
 use idents::build_idents;
 use layout::row_layout;
 use shape::{chain_step, chain_step_form, ev, Shape};
+use shared::{sink_lead_hoists, steady_with_optional_groups, used_input_slots};
 use signature::sig_const;
-
-mod shared;
-use shared::{sink_lead_hoists, steady_with_optional_groups};
 
 pub fn expand(patterns: &[Pattern]) -> TokenStream {
     assert!(!patterns.is_empty(), "kernel!: no patterns given");

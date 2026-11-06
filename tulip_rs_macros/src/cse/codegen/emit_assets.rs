@@ -1,5 +1,7 @@
 use super::*;
 
+use shared::{sink_window_offset, sink_window_symbols};
+
 // ──────────────────────────────────────────────────────────────────────────
 // M2 — the asset axis: `<name>_assets<const L>`, L assets through ONE
 // (Signature, Values). `by_assets` layout for inputs (asset-major,
@@ -44,12 +46,7 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
     let opt_group_ids = &row.opt_group_ids;
 
     // ---- stream base arrays (one per Input slot actually read) ----
-    let mut used_slots: Vec<usize> = Vec::new();
-    for node in &p.nodes {
-        if node.kind == Kind::Input && !used_slots.contains(&node.a) {
-            used_slots.push(node.a);
-        }
-    }
+    let used_slots = used_input_slots(p);
     let stream_arr_hoists: Vec<TokenStream> = used_slots
         .iter()
         .map(|s| {
@@ -1587,18 +1584,16 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
     // ---- RowRef windows per asset (one shared arena, asset-major) ----
     let mut row_refs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
-        let gidx = group_of[sidx];
-        let leader = group_members[gidx][0];
-        let ident_g = idents[p.sinks[leader]].clone();
-        let off_g = format_ident!("off{}", gidx);
-        let rsz_g = format_ident!("rsz{}", gidx);
-        let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
-        let l_s = format_ident!("{}_{}", idents[p.sinks[sidx]], sidx);
+        let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
+        let off_expr = sink_window_offset(&sym);
+        let rsz_g = sym.rsz_g;
+        let l_s = sym.l_s;
+        let g_minl = sym.g_minl;
         row_refs.push(quote! {
             if vals.sink_want[#sidx] {
                 crate::cse::query::RowRef::window(
                     &arena,
-                    a * total + #off_g + (#l_s - #g_minl),
+                    a * total + #off_expr,
                     #rsz_g.saturating_sub(#l_s - #g_minl),
                 )
             } else {
@@ -1609,14 +1604,10 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
     let n_sinks = p.sinks.len();
     let warm_ptrs: Vec<TokenStream> = (0..n_sinks)
         .map(|sidx| {
-            let gidx = group_of[sidx];
-            let leader = group_members[gidx][0];
-            let ident_g = idents[p.sinks[leader]].clone();
-            let off_g = format_ident!("off{}", gidx);
-            let g = format_ident!("minl_{}_{}", ident_g, gidx);
-            let l_s = format_ident!("{}_{}", idents[p.sinks[sidx]], sidx);
+            let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
+            let off_expr = sink_window_offset(&sym);
             quote! {
-                ptrs[#sidx] = unsafe { base.add(a * total + (#off_g + (#l_s - #g))) };
+                ptrs[#sidx] = unsafe { base.add(a * total + #off_expr) };
             }
         })
         .collect();
