@@ -1,6 +1,6 @@
 use super::*;
 
-use shared::{sink_window_offset, sink_window_symbols};
+use shared::{scalar_row_ref_token, scalar_warm_ptr_token, sink_window_symbols};
 
 pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     let name = format_ident!("{}", p.name);
@@ -1717,12 +1717,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     let mut warm_ptrs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
         let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
-        let off_expr = sink_window_offset(&sym);
-        // ptr = base + off_g + (lead_s - minl_g): this sink's window inside
-        // the shared group row.
-        warm_ptrs.push(quote! {
-            ptrs[#sidx] = unsafe { base.add(#off_expr) };
-        });
+        warm_ptrs.push(scalar_warm_ptr_token(&sym, sidx));
     }
 
     // ---- steady loop: group store pointers (hoisted once per group) ----
@@ -1765,22 +1760,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     let mut row_refs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
         let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
-        let off_expr = sink_window_offset(&sym);
-        let rsz_g = sym.rsz_g;
-        let l_s = sym.l_s;
-        let g_minl = sym.g_minl;
-        // Disabled sinks get zero-length windows (is_empty() == true)
-        row_refs.push(quote! {
-            if vals.sink_want[#sidx] {
-                crate::cse::query::RowRef::window(
-                    &arena,
-                    #off_expr,
-                    #rsz_g.saturating_sub(#l_s - #g_minl)
-                )
-            } else {
-                crate::cse::query::RowRef::window(&arena, 0, 0) // disabled: empty row
-            }
-        });
+        row_refs.push(scalar_row_ref_token(&sym, sidx));
     }
 
     // Early return case (n==0): build empty arena with zero-length windows

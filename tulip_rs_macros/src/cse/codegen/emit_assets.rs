@@ -1,6 +1,6 @@
 use super::*;
 
-use shared::{sink_window_offset, sink_window_symbols};
+use shared::{assets_row_ref_token, assets_warm_ptr_token, sink_window_symbols};
 
 // ──────────────────────────────────────────────────────────────────────────
 // M2 — the asset axis: `<name>_assets<const L>`, L assets through ONE
@@ -1585,30 +1585,12 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
     let mut row_refs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
         let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
-        let off_expr = sink_window_offset(&sym);
-        let rsz_g = sym.rsz_g;
-        let l_s = sym.l_s;
-        let g_minl = sym.g_minl;
-        row_refs.push(quote! {
-            if vals.sink_want[#sidx] {
-                crate::cse::query::RowRef::window(
-                    &arena,
-                    a * total + #off_expr,
-                    #rsz_g.saturating_sub(#l_s - #g_minl),
-                )
-            } else {
-                crate::cse::query::RowRef::window(&arena, 0, 0)
-            }
-        });
+        row_refs.push(assets_row_ref_token(&sym, sidx));
     }
-    let n_sinks = p.sinks.len();
-    let warm_ptrs: Vec<TokenStream> = (0..n_sinks)
+    let warm_ptrs: Vec<TokenStream> = (0..p.sinks.len())
         .map(|sidx| {
             let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
-            let off_expr = sink_window_offset(&sym);
-            quote! {
-                ptrs[#sidx] = unsafe { base.add(a * total + #off_expr) };
-            }
+            assets_warm_ptr_token(&sym, sidx)
         })
         .collect();
 

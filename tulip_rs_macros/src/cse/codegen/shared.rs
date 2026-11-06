@@ -107,6 +107,108 @@ pub(super) fn sink_window_offset(sym: &SinkWindowSymbols) -> TokenStream {
     quote! { #off_g + (#l_s - #g_minl) }
 }
 
+/// Build the sink-window length expression: `rsz_g.saturating_sub(l_s - g_minl)`.
+///
+/// Used by BOTH renderers to compute the window length within a shared group row.
+/// The arithmetic is identical in `emit_scalar.rs` (row_refs) and
+/// `emit_assets.rs` (row_refs), extracted here to eliminate duplication.
+pub(super) fn sink_window_len(sym: &SinkWindowSymbols) -> TokenStream {
+    let rsz_g = &sym.rsz_g;
+    let l_s = &sym.l_s;
+    let g_minl = &sym.g_minl;
+    quote! { #rsz_g.saturating_sub(#l_s - #g_minl) }
+}
+
+/// Build row-ref window token for scalar emitter.
+///
+/// Generates:
+/// ```text
+/// if vals.sink_want[#sidx] {
+///     crate::cse::query::RowRef::window(
+///         &arena,
+///         #off_expr,
+///         #len_expr
+///     )
+/// } else {
+///     crate::cse::query::RowRef::window(&arena, 0, 0)
+/// }
+/// ```
+///
+/// Used by `emit_scalar.rs` row_refs loop to build window tokens.
+pub(super) fn scalar_row_ref_token(sym: &SinkWindowSymbols, sidx: usize) -> TokenStream {
+    let off_expr = sink_window_offset(sym);
+    let len_expr = sink_window_len(sym);
+    quote! {
+        if vals.sink_want[#sidx] {
+            crate::cse::query::RowRef::window(
+                &arena,
+                #off_expr,
+                #len_expr
+            )
+        } else {
+            crate::cse::query::RowRef::window(&arena, 0, 0)
+        }
+    }
+}
+
+/// Build row-ref window token for assets emitter.
+///
+/// Generates:
+/// ```text
+/// if vals.sink_want[#sidx] {
+///     crate::cse::query::RowRef::window(
+///         &arena,
+///         a * total + #off_expr,
+///         #len_expr
+///     )
+/// } else {
+///     crate::cse::query::RowRef::window(&arena, 0, 0)
+/// }
+/// ```
+///
+/// Used by `emit_assets.rs` row_refs loop to build window tokens.
+pub(super) fn assets_row_ref_token(sym: &SinkWindowSymbols, sidx: usize) -> TokenStream {
+    let off_expr = sink_window_offset(sym);
+    let len_expr = sink_window_len(sym);
+    quote! {
+        if vals.sink_want[#sidx] {
+            crate::cse::query::RowRef::window(
+                &arena,
+                a * total + #off_expr,
+                #len_expr
+            )
+        } else {
+            crate::cse::query::RowRef::window(&arena, 0, 0)
+        }
+    }
+}
+
+/// Build warm-ptr token for scalar emitter.
+///
+/// Generates:
+/// ```text
+/// ptrs[#sidx] = unsafe { base.add(#off_expr) };
+/// ```
+///
+/// Used by `emit_scalar.rs` warm_ptrs loop to build pointer setup tokens.
+pub(super) fn scalar_warm_ptr_token(sym: &SinkWindowSymbols, sidx: usize) -> TokenStream {
+    let off_expr = sink_window_offset(sym);
+    quote! { ptrs[#sidx] = unsafe { base.add(#off_expr) }; }
+}
+
+/// Build warm-ptr token for assets emitter.
+///
+/// Generates:
+/// ```text
+/// ptrs[#sidx] = unsafe { base.add(a * total + #off_expr) };
+/// ```
+///
+/// Used by `emit_assets.rs` warm_ptrs map to build pointer setup tokens.
+pub(super) fn assets_warm_ptr_token(sym: &SinkWindowSymbols, sidx: usize) -> TokenStream {
+    let off_expr = sink_window_offset(sym);
+    quote! { ptrs[#sidx] = unsafe { base.add(a * total + #off_expr) }; }
+}
+
 /// Build the steady loop body with optional-group support.
 ///
 /// When `opt_group_ids` is empty, emits a single loop:
