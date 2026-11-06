@@ -1,8 +1,19 @@
-//! Pattern -> straight-line Rust source. One function per pattern; the
-//! steady loop is emitted in ARENA ORDER (dependency-correct by SSA
-//! construction), one statement per slot: `Simd<f64, 2>` pair steps extract
-//! both lanes to `x{k}` locals, scalar chains and glue read only earlier
-//! slots, every number comes from `Values` by slot — params stay runtime.
+//! Pattern -> straight-line Rust source.
+//!
+//! Architecture (post Phase 3 refactor):
+//! - `classify`: scalar/pair/packed grouping metadata.
+//! - `idents`, `layout`, `shape`, `signature`: small, focused builders.
+//! - `shared`: emitter-shared token builders and `EmitterContext`.
+//! - `emit_scalar`: scalar kernel emitter (`run_fn`) staged as
+//!   hoists/body/stores/returns orchestration.
+//! - `emit_assets`: asset-lane kernel emitter (`run_assets_fn`) staged with
+//!   the same high-level build phases.
+//!
+//! One function is emitted per pattern; the steady loop is emitted in ARENA
+//! ORDER (dependency-correct by SSA construction), one statement per slot:
+//! `Simd<f64, 2>` pair steps extract both lanes to `x{k}` locals, scalar
+//! chains and glue read only earlier slots, and every parameter remains runtime
+//! via `Values`.
 
 use crate::cse::planner::{Kind, Pattern};
 use proc_macro2::{Ident, TokenStream};

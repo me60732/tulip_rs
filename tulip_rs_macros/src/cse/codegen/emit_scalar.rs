@@ -672,7 +672,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                         .iter()
                         .map(|s| {
                             let pv = format_ident!("{}_prevp", idents[*s]);
-                            quote! { unsafe { *#pv.add(i) }; }
+                            quote! { unsafe { *#pv.add(i) } }
                         })
                         .collect();
                     let binds: Vec<TokenStream> = (0..w)
@@ -1627,30 +1627,41 @@ fn build_scalar_const_hoists(p: &Pattern, idents: &[String]) -> Vec<TokenStream>
     const_hoists
 }
 
-/// Build stores: per-group store writes (one per group, dedup across sinks).
+/// Build stores: per-group store pointers + per-group store writes.
 fn build_scalar_stores(
     p: &Pattern,
     idents: &[String],
     ctx: &crate::cse::codegen::shared::EmitterContext,
 ) -> (
+    Vec<TokenStream>, // group_stores
     Vec<TokenStream>, // always_stores
     Vec<TokenStream>, // opt_stores
 ) {
+    let mut group_stores: Vec<TokenStream> = Vec::new();
     let mut always_stores: Vec<TokenStream> = Vec::new();
     let mut opt_stores: Vec<TokenStream> = Vec::new();
+
     for (gidx, members) in ctx.group_members.iter().enumerate() {
         let leader = members[0];
         let ident_g = idents[p.sinks[leader]].clone();
-        let e = ev(p.sinks[members[0]], &idents);
-        // Scalar uses ptrs[gidx] for stores
+        let q_g = format_ident!("row_{}_{}", ident_g, gidx);
+        let off_g = format_ident!("off{}", gidx);
+        let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
+
+        group_stores.push(quote! {
+            let #q_g = unsafe { base.add(#off_g + (gate - #g_minl)) };
+        });
+
+        let e = ev(p.sinks[leader], &idents);
         if ctx.group_is_optional[gidx] {
             let want_g = format_ident!("want{}", gidx);
-            opt_stores.push(quote! { unsafe { if #want_g { *ptrs[#gidx].add(i) = #e; }; } });
+            opt_stores.push(quote! { unsafe { if #want_g { *#q_g.add(i) = #e; } } });
         } else {
-            always_stores.push(quote! { unsafe { *ptrs[#gidx].add(i) = #e; }; });
+            always_stores.push(quote! { unsafe { *#q_g.add(i) = #e; } });
         }
     }
-    (always_stores, opt_stores)
+
+    (group_stores, always_stores, opt_stores)
 }
 
 /// Build returns: row refs and final return statement.
@@ -1803,7 +1814,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     let const_hoists = build_scalar_const_hoists(p, &idents);
 
     // Stage 3b: Build stores
-    let (always_stores, opt_stores) = build_scalar_stores(p, &idents, &ctx);
+    let (group_stores, always_stores, opt_stores) = build_scalar_stores(p, &idents, &ctx);
 
     // Stage 4: Build returns and early return case
     let row_refs = build_scalar_returns(p, &idents, &ctx);
@@ -1888,6 +1899,9 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             // (the arm-level `.expect` never fired) is now checked once at the
             // seam instead of branched on every bar.
             let mut rings = rings.into_warm();
+
+            // Steady loop: group store pointers (hoisted once per group before loop)
+            #(#group_stores)*
 
             // Steady loop hoists (pair)
             #(#pair_hoists)*

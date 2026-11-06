@@ -1,33 +1,28 @@
+//! Assets emitter: builds the main kernel function body for asset-lane CSE patterns.
+
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
+
 use super::*;
 
-use shared::{assets_row_ref_token, assets_warm_ptr_token, emitter_context, sink_window_symbols};
+// Additional imports from shared module needed for emit_assets
+use crate::cse::codegen::shared::{
+    assets_row_ref_token, assets_warm_ptr_token, emitter_context, sink_window_symbols,
+    EmitterContext,
+};
 
-// ──────────────────────────────────────────────────────────────────────────
-// M2 — the asset axis: `<name>_assets<const L>`, L assets through ONE
-// (Signature, Values). `by_assets` layout for inputs (asset-major,
-// field-minor, `&[&[&[f64]]; L]`) and rows out (`Vec<Vec<RowRef>>` per
-// asset, sink order). Every per-bar linear operation (chains, glue, sums,
-// fma/selects) becomes a `Simd<f64, L>` lane step — NO cross-lane
-// extraction anywhere, the condition packing needed to win. Branchy
-// per-lane kinds keep exactness by construction: rolls rescan the lanes a
-// bitmask says need it, through the same `find_*_simd::<4>` the scalar path
-// and the hand use; the Supertrend block becomes the branchless
-// all-selects form of the same formula (selects compute both arms, pick
-// one — bit-identical). Warm bars run the existing scalar `exec` once per
-// asset (the warm path stays ONE authority), each asset's carry arrays then
-// gathering into the lane vectors. `Values` is asset-invariant — one plan
-// serves every L; a lane kernel equals the scalar kernel per asset bit for
-// bit (registry-pinned), so this axis can never fork results.
-// ──────────────────────────────────────────────────────────────────────────
-pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
-    let name = format_ident!("{}_assets", p.name);
-    let sig = format_ident!("SIG_{}", p.name);
-    let shape = Shape { lanes: true };
-    let idents = build_idents(p);
-
-    // Build the shared emitter context (sink/window setup)
-    let ctx = emitter_context(p, &idents);
-
+/// Build hoists for the assets (lane) form.
+///
+/// Returns: (stream_arr_hoists, carry_hoists, const_hoists, ring_replay).
+fn build_assets_hoists(
+    p: &Pattern,
+    idents: &[String],
+) -> (
+    Vec<TokenStream>, // stream_arr_hoists
+    Vec<TokenStream>, // carry_hoists
+    Vec<TokenStream>, // const_hoists
+    Vec<TokenStream>, // ring_replay
+) {
     // ---- stream base arrays (one per Input slot actually read) ----
     let used_slots = used_input_slots(p);
     let stream_arr_hoists: Vec<TokenStream> = used_slots
@@ -66,10 +61,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let pv = format_ident!("{}_prevp", ident_k);
                 let s = stream_slot(node.a);
                 let sfa = format_ident!("sp{}", s);
-                // exec's `st[k]` IS the window SUM for these kinds (fold bars
-                // emit 0 but accumulate into st), and `sumsq`/`wsum` are
-                // exec-maintained too — the per-asset warm left them exact,
-                // so the lane seeds straight from those arrays.
                 carry_hoists.push(quote! {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                     let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
@@ -99,13 +90,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let pk = format_ident!("{}_p", ident_k);
                 let lb = format_ident!("{}_lb", ident_k);
                 if p.plan.is_ring(k) {
-                    // Derived source: EXTREMUM RING lane hoist (fisher). The
-                    // group coordinates are ARENA facts — one (leader, cap)
-                    // pair drives all L ring instances; carries seed from
-                    // exec's per-asset st[]/trail[] exactly like the pointer
-                    // lanes. No window pointers: the mask-dispatched body arm
-                    // reads each lane's OWN contiguous mirror slice through
-                    // `RingSetL::window` — the hand `min_chuncked` shape.
                     let gk = format_ident!("{}_grp", ident_k);
                     carry_hoists.push(quote! {
                         let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
@@ -144,14 +128,9 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Iir | Kind::IirClamped => {
-                // Lane IIR: same `st[k]` carry exec seeded per asset (the
-                // idle bars left the hand's zero init untouched), weights
-                // splat once. IirClamped's four clamp Consts resolve their
-                // arena slots at EXPANSION time (b/c/d/e refs) and splat.
                 let ck = format_ident!("{}_carry", ident_k);
                 let mk = format_ident!("{}_mult", ident_k);
                 let ik = format_ident!("{}_inv", ident_k);
-                let ki = k;
                 carry_hoists.push(quote! {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                     let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
@@ -174,7 +153,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 }
             }
             Kind::Cybercycle => {
-                // Lane Cybercycle carry + coefficients.
                 let c1 = format_ident!("{}_cycle_prev", ident_k);
                 let c2 = format_ident!("{}_cycle_prev2", ident_k);
                 let mk = format_ident!("{}_mult", ident_k);
@@ -195,7 +173,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::InstantaneousTrendline => {
-                // Lane InstantaneousTrendline carry in kvaccw (3-field: [it_prev, it_prev2, 0.0]).
                 let ki = k;
                 let c1 = format_ident!("{}_it_prev", ident_k);
                 let c2 = format_ident!("{}_it_prev2", ident_k);
@@ -204,12 +181,8 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                     let mut #c2 = Simd::<f64, L>::from_array(std::array::from_fn(|a| kvaccw[a][#ki][1]));
                 });
             }
-            Kind::Mama => {
-                // Lane MAMA carry in kvaccw ([mama_prev, fama_prev, prev_phase]).
-                // Alpha is written to stw[a][k] each bar for FAMA to consume.
-            }
+            Kind::Mama => {}
             Kind::IirClampedPlain => {
-                // Plain IIR clamped: lane form with plain mul+add (NO mul_add fusion).
                 let ck = format_ident!("{}_carry", ident_k);
                 let mk = format_ident!("{}_mult", ident_k);
                 let ik = format_ident!("{}_inv", ident_k);
@@ -231,52 +204,28 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Prev => {
-                // Lane delayed copy: `st[k]` after exec's warm holds the src
-                // chain's LAST warm bar — the same seeded slot the scalar
-                // steady arm reads; the arm below shadows each bar's src
-                // value forward per lane.
                 let ck = format_ident!("{}_carry", ident_k);
-                let ki = k;
                 carry_hoists.push(quote! {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                 });
             }
             Kind::Accum => {
-                // Lane running total: the carry slot ONLY — no `mult`/`inv`,
-                // because the multiplier is a NODE (volume), not a value.
                 let ck = format_ident!("{}_carry", ident_k);
-                let ki = k;
                 carry_hoists.push(quote! {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                 });
             }
             Kind::VariableAlpha => {
-                // Lane carry only — same standing as Accum: the blend
-                // weight is a live per-bar NODE value (node.c), not a
-                // `mults`/`invms` constant, so there is nothing to splat.
                 let ck = format_ident!("{}_carry", ident_k);
-                let ki = k;
                 carry_hoists.push(quote! {
                     let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                 });
             }
             Kind::RollSum => {
-                // Lane ring roll: carry = the window SUM (exec's `st[k]`,
-                // seeded per asset exactly like the Sma-family lanes). The
-                // group coordinates are ARENA facts the planner publishes —
-                // one leader slot drives all L ring instances.
-                //
-                // A LOCKSTEP (pure-sum) group needs no capacity and no
-                // cap-owner flag: its leave comes from the group leader's one
-                // fused `feed_periods` call, whose pre-push age read is the
-                // eviction at `p == cap` and the old `at(p)` otherwise. A
-                // RESCAN group still compares `p == cap` here because it rides
-                // the lane-major batched authority, which has no fused form.
                 let ck = format_ident!("{}_carry", ident_k);
                 let mk = format_ident!("{}_mult", ident_k);
                 let pk = format_ident!("{}_p", ident_k);
                 let gk = format_ident!("{}_grp", ident_k);
-                let ki = k;
                 if p.plan.is_lockstep(k) {
                     carry_hoists.push(quote! {
                         let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
@@ -298,12 +247,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Hma => {
-                // Lane HMA: the seven accumulators gather from the per-asset
-                // carry vectors (`haccw`); `fd` is fold-only and stays dead
-                // here (mirrors the scalar hoist's `let _ = &mut fd`). The
-                // two leaving-window pointers are per-asset, gate-anchored
-                // like the Sma lanes' `pv` — `sfa` already points at bar
-                // `gate`, so `.sub(n)` lands on the window-exit bar.
                 let ik = idents[k].clone();
                 let (s1, w1) = (format_ident!("{ik}_s1"), format_ident!("{ik}_w1"));
                 let (s2, w2) = (format_ident!("{ik}_s2"), format_ident!("{ik}_w2"));
@@ -324,7 +267,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let (pv1, pv2) = (format_ident!("{ik}_pv1"), format_ident!("{ik}_pv2"));
                 let s = stream_slot(node.a);
                 let sfa = format_ident!("sp{}", s);
-                let ki = k;
                 carry_hoists.push(quote! {
                     let mut #s1 = Simd::<f64, L>::from_array(std::array::from_fn(|a| haccw[a][#ki][0]));
                     let mut #w1 = Simd::<f64, L>::from_array(std::array::from_fn(|a| haccw[a][#ki][1]));
@@ -347,9 +289,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Lag => {
-                // Lane Lag depth is the same runtime VALUE as the scalar arm
-                // (one per-node `usize`, identical for every lane — the lanes
-                // differ in SERIES, never in depth).
                 let lk = format_ident!("{}_lag", ident_k);
                 carry_hoists.push(quote! { let #lk = vals.lag_n[#ki] as usize; });
             }
@@ -364,34 +303,7 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
         }
     }
 
-    // The batched lane ring engine: the per-asset warmed `ringw` rings are
-    // REPLAYED once at the seam into ONE OF TWO authorities, chosen by the
-    // group class the planner publishes on the key (`p.plan`, the same
-    // `lowering::ring_facts` that `Signature::build` and `erase` run — this
-    // renderer reads the decision, it does not make one):
-    // * a pure-SUM group takes `SimdRingSet<L>` — the VECTOR-ELEMENT layout
-    //   (slots are whole `Simd<f64, L>` bars, the hand's `cvi_simd` assets
-    //   shape): ONE non-mirror store per group per bar, the leave as ONE
-    //   vector read, no `[f64; L]` gather/scatter at either end. Legal because
-    //   the LOCKSTEP invariant holds: same bar, same age, same cap in every
-    //   lane.
-    // * a group carrying a `RollMax`/`RollMin` stays lane-major (`RingSetL`,
-    //   one `MultiMirrorBuffer` per group) — its rescan triggers are per-lane
-    //   and fire on different bars, and only that walk needs one lane's
-    //   contiguous mirror window, which the vector layout cannot give. Mirror
-    //   law: only min/max buffers mirror; sums never rescan. Measured at the
-    //   split's landing: ao lanes 236→147.5 µs, fisher 540→494, fused
-    //   ao+fisher 778→548.6 vs the hand pair's 607.9.
-    // The replay walks the DISTINCT GROUP LEADERS in arena order (first roll
-    // over an interned src — sums and derived extrema share one leader), O
-    // (cap·L) per group at the seam. The HMA machine's of-one √p window stays
-    // on the per-asset `ringw` (class `BESPOKE`): the batched form measured
-    // +48 % slower there (hma lanes 166.9 vs 113.3 µs, same-binary A/B) —
-    // batching pays where the L× protocol calls dominate, not where one
-    // scalar push inlines into the consumer's bespoke tail.
-    // The planner's container choice, honoured not re-derived: a bundled group
-    // is fed and read through its bundle's ONE multi-series buffer, so it
-    // leaves the per-group list entirely.
+    // The batched lane ring engine
     let bundled: Vec<usize> = p.bundles.iter().flat_map(|b| b.groups.clone()).collect();
     let groups: Vec<usize> = p
         .plan
@@ -426,13 +338,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
             });
         }
         let mut decls: Vec<TokenStream> = Vec::new();
-        // The planner's fused containers: ONE multi-series buffer per bundle.
-        // Capacity is the max member period across the bundle (a runtime
-        // NUMBER on `Values`, never a pattern fact) and the replay start is the
-        // earliest feed. Those two choices are provably safe together: if every
-        // group is individually full at the seam, the bundle is too, because
-        // `gate - lo_b >= gate - lo_g >= cap_g` for the widest group, and
-        // `cap_b = cap_g` for that group.
         for (bi, b) in p.bundles.iter().enumerate() {
             let bu = format_ident!("bu{}", bi);
             let bb = b.groups.len();
@@ -451,12 +356,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
             decls.push(quote! {
                 let mut #bu = crate::cse::kernel::warmup::BundleRings::<L, #bb>::new(#cap);
             });
-            // Every series reads its OWN history; a series whose group is
-            // narrower than the bundle clamps to its own last slot. That slot
-            // sits deeper than the series ever asks for in the steady loop, so
-            // its value is inert — and the clamp is what keeps the read inside
-            // the ring (`period_to_idx` wraps by ONE capacity, so a raw
-            // bundle-deep age would index out of bounds, not around).
             let fills = b.groups.iter().map(|&g| {
                 quote! {
                     Simd::<f64, L>::from_array(std::array::from_fn(|a| {
@@ -485,12 +384,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
             decls.push(quote! {
                 let mut ringb = crate::cse::kernel::warmup::RingSetL::<L>::new();
             });
-            // The replay has filled every rescan-capable group, so the steady
-            // loop drives `Warm` (`feed_batch` loses `cap`, the eviction loses
-            // its `Option` and the arm its per-bar `expect`). `window()` is
-            // unaffected — `get_slices_by_period` is in MultiMirrorBuffer's
-            // SHARED `impl<B, S, T>` block, so the mirror's contiguous
-            // per-lane slice survives the fill-state change.
             ring_replay.push(quote! {
                 let mut ringb = ringb.into_warm();
             });
@@ -499,13 +392,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
             decls.push(quote! {
                 let mut rings = crate::cse::kernel::warmup::SimdRingSet::<L>::new();
             });
-            // The seam replay has filled every pure-sum group, so the steady
-            // loop drives the WARM authority: `into_full` makes fullness a
-            // type-level fact, which is what lets `feed` drop the `cap`
-            // argument and the eviction drop its `Option` (so the arm below
-            // drops a per-bar `expect`). In a debug build a group the replay
-            // left short — gate - lo < cap — trips `into_full`'s assert
-            // instead of quietly reading a zero slot.
             ring_replay.push(quote! {
                 let mut rings = rings.into_warm();
             });
@@ -513,7 +399,14 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
         ring_replay.splice(0..0, decls);
     }
 
-    // ---- steady body, lane form, arena order ----
+    (stream_arr_hoists, carry_hoists, const_hoists, ring_replay)
+}
+
+/// Build the steady body statements for the assets (lane) form.
+fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
+    let shape = Shape { lanes: true };
+    // Define stream_slot helper - returns the source slot for a given node
+    let stream_slot = |slot_src: usize| -> usize { p.nodes[slot_src].a };
     let mut body: Vec<TokenStream> = Vec::new();
     for (k, node) in p.nodes.iter().enumerate() {
         let xk = format_ident!("{}", idents[k]);
@@ -521,14 +414,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
         let eb = ev(node.b, &idents);
         match node.kind {
             Kind::Ln => {
-                // Lane ln = the hand's own SIMD polynomial (`ln_unchecked` —
-                // the exact call `fisher_simd::calc_fisher` makes; std has no
-                // vector log, per-lane libm would be N call sites). Legal
-                // un-checked on fisher's domain: val1 clamps to [-0.999,
-                // 0.999] ⇒ arg = (1+v)/(1-v) ∈ [~5e-4, ~1999] — never ≤0/
-                // NaN/inf/subnormal, so the fast path always runs. ≤ 20 ULP
-                // from libm (which the SCALAR arm keeps per §6.41), so this
-                // pattern's lanes-vs-scalar gate is 1e-12 RELATIVE.
                 body.push(quote! {
                     let #xk = unsafe { crate::math_simd::ln_unchecked(#ea) };
                 });
@@ -541,11 +426,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 body.push(quote! { let #xk = { #step }; });
             }
             Kind::IirClamped => {
-                // Text-for-text the hand `fisher_simd::calc_fisher`: the ONE
-                // mul_add in its operand order (mult·inner + inv·prev, a/b
-                // not exact halves — association is visible), then the
-                // nested selects ON THE PRE-CLAMP VALUE (inner `lt` tests nv,
-                // like the hand), and the CLAMPED number is what carries.
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
                 let ik = format_ident!("{}_inv", idents[k]);
@@ -567,25 +447,18 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Prev => {
-                // Lane delayed copy: emit the slot, shadow this bar's src
-                // vector into it (arena order = src already updated).
                 let ck = format_ident!("{}_carry", idents[k]);
                 body.push(quote! {
                     let #xk = { let o = #ck; #ck = #ea; o };
                 });
             }
             Kind::Accum => {
-                // Lane running total — one fused instruction per lane on the
-                // pre-bound operands (`#ea`/`#eb` are bound once above the
-                // match, the same pair the selects use): the multiplier `#eb`
-                // is a NODE, and for `ad` it is the volume column.
                 let ck = format_ident!("{}_carry", idents[k]);
                 body.push(quote! {
                     let #xk = { #ck = #ea.mul_add(#eb, #ck); #ck };
                 });
             }
             Kind::Cybercycle => {
-                // Lane Cybercycle steady recurrence.
                 let stream = p.nodes[node.a].a;
                 let sfa = format_ident!("sp{}", stream);
                 let c1 = format_ident!("{}_cycle_prev", idents[k]);
@@ -648,7 +521,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::InstantaneousTrendline => {
-                // Lane InstantaneousTrendline recurrence, scalar-per-lane for exactness.
                 let ki = k;
                 body.push(quote! {
                     let #xk = {
@@ -665,8 +537,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Mama => {
-                // Lane MAMA/FAMA adaptive EMA recurrence.
-                // Uses embedded HD pipeline per lane and writes alpha to stw[a][k].
                 let ki = k;
                 body.push(quote! {
                     let #xk = {
@@ -687,9 +557,8 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Fama => {
-                // Lane FAMA secondary output - reads Mama output from src and alpha from stw[src].
                 let ki = k;
-                let mama_slot = node.a as usize; // Mama's slot index
+                let mama_slot = node.a as usize;
                 body.push(quote! {
                     let #xk = {
                         let mama = #ea;
@@ -727,12 +596,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::VariableAlpha => {
-                // Lane fold: src is `#eb` (node.b), live weight is node.c
-                // (not pre-bound above, read fresh here same as the scalar
-                // arm). No seed-bar branch for validity (gate is always
-                // strictly above feed). The Vidya shape's one-bar spelling
-                // asymmetry (see the scalar arm's comment) applies per-lane
-                // too, using the splatted first-fold-bar mask.
                 let ck = format_ident!("{}_carry", idents[k]);
                 let ec = ev(node.c.expect("VariableAlpha: mult operand"), &idents);
                 let ki = k;
@@ -753,32 +616,11 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::RollSum => {
-                // Lane ring step — ONE group op per bar on the authority the
-                // published class selects. A pure-SUM (lockstep) group takes
-                // the vector-element `rings` WITH the fold: the group leader
-                // issues ONE `feed_periods` carrying every member's age and
-                // each member indexes its own leave out of the returned array.
-                // Per group per bar that costs one store, one advance and N
-                // pre-push age reads — no `last_t` idempotency branch, no
-                // eviction stash, no cap compare (the pre-push read at
-                // `p == cap` IS the eviction). A group carrying a
-                // `RollMax`/`RollMin` stays on the lane-major `ringb`: its
-                // rescan needs one lane's contiguous mirror window, which the
-                // vector layout cannot give, so it keeps the hoisted
-                // cap-owner flag.
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
                 let gk = format_ident!("{}_grp", idents[k]);
                 if p.plan.is_lockstep(k) {
                     let ld = p.plan.leader[k] as usize;
-                    // The planner's container decision, read not re-derived: a
-                    // group inside a bundle pushes through the bundle's ONE
-                    // multi-series buffer instead of `rings`. The fused call is
-                    // issued at the bundle's FIRST member (the plan guarantees
-                    // every bundled source precedes it) and costs one push and
-                    // one advance for the whole bundle; each member then folds
-                    // against its own `(series, rank)` leave, which is the same
-                    // bar the per-group fold would have read.
                     let fused = p
                         .bundles
                         .iter()
@@ -867,11 +709,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Hma => {
-                // Lane HMA — the scalar statement-for-statement mirror:
-                // two WMA steps, `2·o2 − o1`, then the tail's EXACT
-                // divide-before-subtract order. Per-lane ring ops: feed
-                // `diff` into each asset's own ring, read age m−1 after
-                // the push (the hand's post-push `front()` slot).
                 let ik = idents[k].clone();
                 let (s1, w1) = (format_ident!("{ik}_s1"), format_ident!("{ik}_w1"));
                 let (s2, w2) = (format_ident!("{ik}_s2"), format_ident!("{ik}_w2"));
@@ -921,9 +758,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Input => {
-                // `node.a` IS the stream slot for an Input node (the scalar
-                // arm reads `s{node.a}` directly) — `gather(node.a)` would
-                // double-index it as a node reference.
                 let sfa = format_ident!("sp{}", node.a);
                 body.push(quote! {
                     let #xk = Simd::<f64, L>::from_array(std::array::from_fn(
@@ -940,10 +774,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 body.push(quote! { let #xk = { #step }; });
             }
             Kind::SeededEma => {
-                // Same fma as `Kind::Ema`, but the fold value is `node.b`
-                // (the FOLD source, e.g. `tr`) -- `node.a` (the SEED) is
-                // only read at the warm-up seed bar, already baked into the
-                // carry this lane's warm left in `stw`.
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
                 let ik = format_ident!("{}_inv", idents[k]);
@@ -966,8 +796,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 body.push(quote! { let #xk = #v; });
             }
             Kind::Mirror => {
-                // identity copy — state mirror (see the scalar arm); the
-                // sink graph never reads it, LLVM DCEs the dead lane copy.
                 body.push(quote! { let #xk = #ea; });
             }
             Kind::Fma => {
@@ -975,9 +803,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 body.push(quote! { let #xk = #ea.mul_add(#eb, #ec); });
             }
             Kind::Lag => {
-                // Depth is the hoisted VALUE (`vals.lag_n[k]`), not a literal —
-                // `sp{s}` is pre-sliced at `gate`, so every lane reads
-                // `bar gate + i − n`. Legality is enforced in `erase`.
                 let s = stream_slot(node.a);
                 let sfa = format_ident!("sp{}", s);
                 let lk = format_ident!("{}_lag", idents[k]);
@@ -1006,9 +831,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::WhereLe => {
-                // Branchless, and NaN-correct the same way the scalar arm is:
-                // `simd_le` is false for a NaN `a`, so the VALUE lane runs and
-                // poisons — the hand's early-return guard, not a zero-fill.
                 let ec = ev(node.c.expect("WhereLe: t operand"), &idents);
                 body.push(quote! {
                     let #xk = #ea.simd_le(#eb).select(Simd::<f64, L>::splat(0.0f64), #ec);
@@ -1086,14 +908,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                     quote! { simd_le }
                 };
                 if p.plan.is_ring(k) {
-                    // Derived source (fisher): each lane's OWN ring instance
-                    // feeds once per bar (idempotent per instance — sibling
-                    // members calling is the arena's normal), then the
-                    // pointer arm's EXACT trail machine: +1, trigger mask,
-                    // fold select. Only DUE lanes walk a window — each its
-                    // own lane's contiguous mirror slice via `RingSet::window`
-                    // — the hand `min_chuncked` mask dispatch; same finder,
-                    // same `trail = lb − ri` rule, cannot drift.
                     let gk = format_ident!("{}_grp", idents[k]);
                     let lbk = format_ident!("{}_lb", idents[k]);
                     body.push(quote! {
@@ -1173,10 +987,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let tr = format_ident!("tr{}", k);
                 let step = format_ident!("st_step{}", k);
                 let ec = ev(node.c.expect("SuperTrend: close operand"), &idents);
-                // The branchless form of the SAME block the scalar kernel
-                // runs: every value each branch could produce is computed,
-                // selects pick per lane. max/min/select are exact, so the
-                // lanes agree bit-for-bit with the scalar branch version.
                 body.push(quote! {
                     let w = #step * #ea;
                     let ub0 = #eb + w;
@@ -1408,11 +1218,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::Psar => {
-                // Per-lane scalar transcription of the scalar K_PSAR arm --
-                // same standing as the other (0,0) scalar-only kinds (see
-                // `lane_formula`): this is required for `run_assets_fn` to
-                // stay exhaustive, not because real by-assets requests are
-                // expected to exercise it.
                 let ki = k;
                 let sh = stream_slot(node.a);
                 let sl = stream_slot(node.b);
@@ -1470,10 +1275,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::SdftRotate => {
-                // Per-lane scalar transcription of the scalar K_SDFTROTATE
-                // arm -- same standing as Kind::Psar's run_assets_fn arm:
-                // required for exhaustiveness, not because by-assets requests
-                // are expected to exercise a (0,0) scalar-only kind.
                 let ki = k;
                 let ss = stream_slot(node.a);
                 let sfas = format_ident!("sp{}", ss);
@@ -1507,10 +1308,6 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::HomodyneDiscriminator => {
-                // Per-lane scalar transcription -- same standing as
-                // Kind::SdftRotate's run_assets_fn arm: required for
-                // exhaustiveness, not because by-assets requests are
-                // expected to exercise this (0,0) scalar-only kind.
                 let ki = k;
                 let ss = stream_slot(node.a);
                 let sfas = format_ident!("sp{}", ss);
@@ -1530,21 +1327,36 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
         }
     }
 
-    // ---- lane store arrays + scatter stores ----
+    body
+}
+
+/// Build store declarations and scatter operations for the assets (lane) form.
+fn build_assets_stores(
+    p: &Pattern,
+    idents: &[String],
+    ctx: &EmitterContext,
+) -> (
+    Vec<TokenStream>, // row_arrays
+    Vec<TokenStream>, // always_stores
+    Vec<TokenStream>, // opt_stores
+) {
     let mut row_arrays: Vec<TokenStream> = Vec::new();
     let mut always_stores: Vec<TokenStream> = Vec::new();
     let mut opt_stores: Vec<TokenStream> = Vec::new();
+
     for (gidx, members) in ctx.group_members.iter().enumerate() {
         let leader = members[0];
         let ident_g = idents[p.sinks[leader]].clone();
         let q_g = format_ident!("row_{}_{}", ident_g, gidx);
         let off_g = format_ident!("off{}", gidx);
         let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
+
         row_arrays.push(quote! {
             let #q_g: [*mut f64; L] = std::array::from_fn(|a| unsafe {
                 base.add(a * total + #off_g + (gate - #g_minl))
             });
         });
+
         let e = ev(p.sinks[leader], &idents);
         let scatter = quote! {
             {
@@ -1556,6 +1368,7 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 }
             }
         };
+
         if ctx.group_is_optional[gidx] {
             let want_g = format_ident!("want{}", gidx);
             opt_stores.push(quote! { if #want_g { #scatter } });
@@ -1564,12 +1377,24 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
         }
     }
 
-    // ---- RowRef windows per asset (one shared arena, asset-major) ----
+    (row_arrays, always_stores, opt_stores)
+}
+
+/// Build return-related code for the assets (lane) form.
+fn build_assets_returns(
+    p: &Pattern,
+    idents: &[String],
+    ctx: &EmitterContext,
+) -> (
+    Vec<TokenStream>, // row_refs
+    Vec<TokenStream>, // warm_ptrs
+) {
     let mut row_refs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
         let sym = sink_window_symbols(p, &idents, &ctx.group_members, &ctx.group_of, sidx);
         row_refs.push(assets_row_ref_token(&sym, sidx));
     }
+
     let warm_ptrs: Vec<TokenStream> = (0..p.sinks.len())
         .map(|sidx| {
             let sym = sink_window_symbols(p, &idents, &ctx.group_members, &ctx.group_of, sidx);
@@ -1577,16 +1402,41 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
         })
         .collect();
 
-    let steady =
-        steady_with_optional_groups(&ctx.opt_group_ids, &body, &always_stores, &opt_stores);
+    (row_refs, warm_ptrs)
+}
 
-    // Extract ctx fields for use in quote blocks - total_expr needs to be before quote!
+pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
+    let name = format_ident!("{}_assets", p.name);
+    let sig = format_ident!("SIG_{}", p.name);
+    let idents = build_idents(p);
+
+    // Build the shared emitter context (sink/window setup)
+    let ctx = emitter_context(p, &idents);
+
+    // Stage 1: Build hoists
+    let (stream_arr_hoists, carry_hoists, const_hoists, ring_replay) =
+        build_assets_hoists(p, &idents);
+
+    // Stage 2: Build body
+    let body = build_assets_body(p, &idents);
+
+    // Stage 3a: Build stores
+    let (row_arrays, always_stores, opt_stores) = build_assets_stores(p, &idents, &ctx);
+
+    // Stage 3b: Build returns and warm pointers
+    let (row_refs, warm_ptrs) = build_assets_returns(p, &idents, &ctx);
+
+    // Extract ctx fields for use in quote blocks
     let total_expr = &ctx.total_expr;
     let lead_hoists = &ctx.lead_hoists;
     let group_minl = &ctx.group_minl;
     let group_want = &ctx.group_want;
     let group_rsz = &ctx.group_rsz;
     let off_decl = &ctx.off_decl;
+
+    // Build steady loop
+    let steady =
+        steady_with_optional_groups(&ctx.opt_group_ids, &body, &always_stores, &opt_stores);
 
     quote! {
         #[allow(unused_variables, unused_mut, unused_parens, clippy::needless_range_loop)]
@@ -1627,9 +1477,7 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                     .cast::<f64>()
             };
             let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
-            // Warm [0, gate): the SAME scalar interpreter, once per asset —
-            // the seed/lead authority stays single, per-asset carries land in
-            // the Vec below for the lane gather.
+            // Warm [0, gate): the SAME scalar interpreter, once per asset
             let mut stw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
             let mut stbw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
             let mut stcubw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
@@ -1637,10 +1485,7 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
             let mut sumsqw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
             let mut wsumw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
             let mut trailw: Vec<[usize; crate::cse::MAX]> = vec![[0usize; crate::cse::MAX]; L];
-            // The ring/HMA carry states are PERSISTENT per asset: the warm
-            // exec fills them, the steady lane arms read the same instances
-            // (mirrors the scalar kernel, where one `rings`/`hacc` lives for
-            // the whole run). Non-ring patterns pay only the Vec allocation.
+            // The ring/HMA carry states are PERSISTENT per asset
             let mut ringw: Vec<crate::cse::kernel::warmup::RingSet> =
                 (0..L)
                     .map(|_| crate::cse::kernel::warmup::RingSet::new())
