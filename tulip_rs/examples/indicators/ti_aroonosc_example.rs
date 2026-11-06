@@ -1,4 +1,4 @@
-use tulip_rs::indicators::aroonosc::{AroonOsc, TIndicatorState, Indicator};
+use tulip_rs::indicators::aroonosc::{AroonOsc, Indicator, TIndicatorState};
 
 fn main() {
     // Example input data: high and low prices

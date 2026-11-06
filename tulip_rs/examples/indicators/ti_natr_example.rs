@@ -1,4 +1,4 @@
-use tulip_rs::indicators::natr::{Natr, TIndicatorState, Indicator};
+use tulip_rs::indicators::natr::{Indicator, Natr, TIndicatorState};
 fn main() {
     let high = [
         82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::md::{Md, TIndicatorState, Indicator};
+use tulip_rs::indicators::md::{Indicator, Md, TIndicatorState};
 
 fn main() {
     // Example input data: real prices

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vhf::{Vhf, TIndicatorState, Indicator};
+use tulip_rs::indicators::vhf::{Indicator, TIndicatorState, Vhf};
 
 fn main() {
     // Example input data (close prices)

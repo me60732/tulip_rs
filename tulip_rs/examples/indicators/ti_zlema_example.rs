@@ -1,4 +1,4 @@
-use tulip_rs::indicators::zlema::{Zlema, TIndicatorState, Indicator};
+use tulip_rs::indicators::zlema::{Indicator, TIndicatorState, Zlema};
 
 fn main() {
     let close = [

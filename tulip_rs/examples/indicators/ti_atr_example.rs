@@ -1,4 +1,4 @@
-use tulip_rs::indicators::atr::{Atr, TIndicatorState, Indicator};
+use tulip_rs::indicators::atr::{Atr, Indicator, TIndicatorState};
 
 fn main() {
     let high = [

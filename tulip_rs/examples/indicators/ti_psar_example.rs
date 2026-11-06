@@ -1,4 +1,4 @@
-use tulip_rs::indicators::psar::{Psar, TIndicatorState, Indicator};
+use tulip_rs::indicators::psar::{Indicator, Psar, TIndicatorState};
 
 fn main() {
     // Example input data: high and low prices

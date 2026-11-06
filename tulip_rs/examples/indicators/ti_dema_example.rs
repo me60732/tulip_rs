@@ -1,4 +1,4 @@
-use tulip_rs::indicators::dema::{Dema, TIndicatorState, Indicator};
+use tulip_rs::indicators::dema::{Dema, Indicator, TIndicatorState};
 
 fn main() {
     let close = [

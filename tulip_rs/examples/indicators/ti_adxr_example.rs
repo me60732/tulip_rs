@@ -17,7 +17,8 @@ fn main() {
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-    let (indicators, _) = match Adxr::indicator(&inputs, &options, Some(&[true, true, true, true])) {
+    let (indicators, _) = match Adxr::indicator(&inputs, &options, Some(&[true, true, true, true]))
+    {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

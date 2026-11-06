@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vortex::{Vortex, TIndicatorState, Indicator};
+use tulip_rs::indicators::vortex::{Indicator, TIndicatorState, Vortex};
 
 fn main() {
     // Test Input Data

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::nvi::{Nvi, TIndicatorState, Indicator};
+use tulip_rs::indicators::nvi::{Indicator, Nvi, TIndicatorState};
 
 fn main() {
     // Example input data: close prices and volume

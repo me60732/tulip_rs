@@ -55,10 +55,11 @@ fn main() {
         }
     }
 
-    let (result, _) = match CandleStick::indicator(&inputs, &options, Some(ForecastType::BearishContinuation)) {
-        Ok(r) => r,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (result, _) =
+        match CandleStick::indicator(&inputs, &options, Some(ForecastType::BearishContinuation)) {
+            Ok(r) => r,
+            Err(e) => panic!("Error: {}", e),
+        };
     println!("\n\nResult: {:?}", result);
 
     if let Some(patterns) = result.last().and_then(|opt| opt.as_ref()) {

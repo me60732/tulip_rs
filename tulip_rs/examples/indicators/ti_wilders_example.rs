@@ -1,4 +1,4 @@
-use tulip_rs::indicators::wilders::{Wilders, TIndicatorState, Indicator};
+use tulip_rs::indicators::wilders::{Indicator, TIndicatorState, Wilders};
 
 fn main() {
     let close = [

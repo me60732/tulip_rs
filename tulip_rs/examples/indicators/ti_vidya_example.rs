@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vidya::{Vidya, TIndicatorState, Indicator};
+use tulip_rs::indicators::vidya::{Indicator, TIndicatorState, Vidya};
 
 fn main() {
     let close = [

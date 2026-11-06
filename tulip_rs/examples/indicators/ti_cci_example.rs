@@ -1,4 +1,4 @@
-use tulip_rs::indicators::cci::{Cci, TIndicatorState, Indicator};
+use tulip_rs::indicators::cci::{Cci, Indicator, TIndicatorState};
 
 fn main() {
     // Example input data: high, low, and close prices

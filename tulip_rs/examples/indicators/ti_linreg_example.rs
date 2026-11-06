@@ -1,4 +1,4 @@
-use tulip_rs::indicators::linreg::{Linreg, TIndicatorState, Indicator};
+use tulip_rs::indicators::linreg::{Indicator, Linreg, TIndicatorState};
 
 fn main() {
     let close = [

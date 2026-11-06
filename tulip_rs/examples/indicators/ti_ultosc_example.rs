@@ -1,4 +1,4 @@
-use tulip_rs::indicators::ultosc::{Ultosc, TIndicatorState, Indicator};
+use tulip_rs::indicators::ultosc::{Indicator, TIndicatorState, Ultosc};
 
 fn main() {
     // Sample OHLC data (from your test file)

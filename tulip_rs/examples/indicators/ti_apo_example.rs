@@ -1,4 +1,4 @@
-use tulip_rs::indicators::apo::{Apo, TIndicatorState, Indicator};
+use tulip_rs::indicators::apo::{Apo, Indicator, TIndicatorState};
 
 fn main() {
     // Example input data: close prices

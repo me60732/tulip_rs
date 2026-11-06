@@ -1,4 +1,4 @@
-use tulip_rs::indicators::willr::{Willr, TIndicatorState, Indicator};
+use tulip_rs::indicators::willr::{Indicator, TIndicatorState, Willr};
 
 fn main() {
     // Test Input Data

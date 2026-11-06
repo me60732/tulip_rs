@@ -1,4 +1,4 @@
-use tulip_rs::indicators::marketfi::{Marketfi, TIndicatorState, Indicator};
+use tulip_rs::indicators::marketfi::{Indicator, Marketfi, TIndicatorState};
 
 fn main() {
     // Test Input Data

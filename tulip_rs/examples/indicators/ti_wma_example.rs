@@ -1,4 +1,4 @@
-use tulip_rs::indicators::wma::{Wma, TIndicatorState, Indicator};
+use tulip_rs::indicators::wma::{Indicator, TIndicatorState, Wma};
 
 fn main() {
     let close = [

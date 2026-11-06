@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vwap::{Vwap, TIndicatorState, Indicator};
+use tulip_rs::indicators::vwap::{Indicator, TIndicatorState, Vwap};
 
 fn main() {
     let high = [
