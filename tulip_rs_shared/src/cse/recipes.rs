@@ -41,7 +41,7 @@ pub use momentum_oscillators::{
 };
 pub use range_roll_stats::{
     adx, adxr, aroon, aroon_graph, aroonosc, cci, cvi, di, dm, dx, fosc, linreg, mass, max, md,
-    min, tr, trima, tsf, vhf, volatility, vortex, willr, AroonLines,
+    min, tr, trima, tsf, vhf, vortex, willr, AroonLines,
 };
 
 /// `Ema(p)` over `Input{0}`: one chain node mirroring its own line.
@@ -547,6 +547,13 @@ pub fn elderray(options: &[f64]) -> Recipe {
 /// 2026-10-26 via the new `Node::SeededEma { seed, src, period }` primitive.
 pub fn trvi(options: &[f64]) -> Recipe {
     range_roll_stats::trvi(options)
+}
+
+/// `Volatility(p)` — the hand's volatility indicator: rate-of-change values
+/// over a rolling stddev. The hand computes std dev manually from two rolling sums
+/// over the derived ROC values, so we do the same here to match semantics.
+pub fn volatility(options: &[f64]) -> Recipe {
+    range_roll_stats::volatility(options)
 }
 
 /// ENGINE-CORRECTNESS PROBE for B4a -- NOT a real indicator, no hand oracle.

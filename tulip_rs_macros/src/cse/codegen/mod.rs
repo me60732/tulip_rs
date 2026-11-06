@@ -25,7 +25,7 @@ use emit_scalar::run_fn;
 use idents::build_idents;
 use layout::row_layout;
 use shape::{chain_step, chain_step_form, ev, Shape};
-use shared::{sink_lead_hoists, steady_with_optional_groups, used_input_slots};
+use shared::{steady_with_optional_groups, used_input_slots};
 use signature::sig_const;
 
 pub fn expand(patterns: &[Pattern]) -> TokenStream {

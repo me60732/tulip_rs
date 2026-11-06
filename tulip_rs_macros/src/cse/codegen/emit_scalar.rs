@@ -1,68 +1,42 @@
+//! Scalar emitter: builds the main kernel function body for scalar CSE patterns.
+
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
+
 use super::*;
 
-use shared::{scalar_row_ref_token, scalar_warm_ptr_token, sink_window_symbols};
+// Additional imports from shared module needed for emit_scalar
+use crate::cse::codegen::classify::Classified;
+use crate::cse::codegen::shared::{
+    emitter_context, scalar_row_ref_token, scalar_warm_ptr_token, sink_window_symbols,
+};
 
-pub(super) fn run_fn(p: &Pattern) -> TokenStream {
-    let name = format_ident!("{}", p.name);
-    let sig = format_ident!("SIG_{}", name);
-    let shape = Shape { lanes: false };
-
-    // Build idents for display-only naming (role names or fallback x{k})
-    let idents = build_idents(p);
-
-    // Use packed classify if this pattern is packed; otherwise use standard pair classify
-    let mut c = if p.packed {
-        classify_packed(p)
-    } else {
-        classify(p)
-    };
-    if std::env::var("CSE_FUSED_PAIR").is_err() && !p.packed {
-        // pairing is opt-IN for now: extraction cost exceeded the packed-fma
-        // saving on the measured trio; the machinery stays for lane-widening
-        // (M2/GPU). Un-paired Ema slots fall back to scalar chains.
-        c.groups.clear();
-        c.slot_group.clear();
-    }
-    // After clearing slot_group, add all remaining EMA slots to scalars
-    for (k, node) in p.nodes.iter().enumerate() {
-        if node.kind == Kind::Ema && !c.slot_group.contains_key(&k) && !c.scalars.contains_key(&k) {
-            c.scalars.insert(
-                k,
-                if p.plan.is_price_src(k) {
-                    Scalar::Price(p.nodes[node.a].a)
-                } else {
-                    Scalar::Chain(node.a)
-                },
-            );
-        }
-    }
-    // Add Wilders slots to scalars for hoisting (they need st[] carry like Ema)
-    for (k, node) in p.nodes.iter().enumerate() {
-        if node.kind == Kind::Wilders
-            && !c.slot_group.contains_key(&k)
-            && !c.scalars.contains_key(&k)
-        {
-            c.scalars.insert(
-                k,
-                if p.plan.is_price_src(k) {
-                    Scalar::Price(p.nodes[node.a].a)
-                } else {
-                    Scalar::Chain(node.a)
-                },
-            );
-        }
-    }
-
-    // ---- steady-loop hoists ----
+/// Build hoists for scalar pattern.
+fn build_scalar_hoists(
+    p: &Pattern,
+    idents: &[String],
+    classify: &Classified,
+) -> (
+    Vec<TokenStream>, // pair_hoists
+    Vec<TokenStream>, // scalar_hoists
+    Vec<TokenStream>, // roll_hoists
+    Vec<TokenStream>, // lag_hoists
+    Vec<TokenStream>, // stream_hoists
+    Vec<TokenStream>, // stb_hoists
+    Vec<TokenStream>, // stc_ub_hoists
+    Vec<TokenStream>, // stc_lb_hoists
+    Vec<TokenStream>, // st_trend_hoists
+    Vec<TokenStream>, // st_step_hoists
+) {
     let mut pair_hoists = Vec::new();
-    for (gi, (k0, k1, _stream)) in c.groups.iter().enumerate() {
+    for (gi, (k0, k1, _stream)) in classify.groups.iter().enumerate() {
         let g = format_ident!("g{gi}");
         let gm = format_ident!("g{gi}_m");
         let gi_v = format_ident!("g{gi}_i");
         let (k0, k1) = (*k0, *k1);
         // For 4-lane groups: hoist all 4 slots; for 2-lane: just the pair
         // Find all slots in this group by scanning slot_group
-        let mut group_slots: Vec<usize> = c
+        let mut group_slots: Vec<usize> = classify
             .slot_group
             .iter()
             .filter(|(_, (g, _))| *g == gi)
@@ -85,9 +59,6 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             4 if is_sma => {
                 let k2 = group_slots[2];
                 let k3 = group_slots[3];
-                // Sma lanes: carry = the window SUM, `gm` = the `1/p`
-                // multipliers; the step needs no invms vector (add/sub
-                // formula, see the group statement).
                 pair_hoists.push(quote! {
                     let mut #g = Simd::<f64, 4>::from_array([st[#k0], st[#k1], st[#k2], st[#k3]]);
                     let #gm = Simd::<f64, 4>::from_array([vals.mults[#k0], vals.mults[#k1], vals.mults[#k2], vals.mults[#k3]]);
@@ -123,11 +94,10 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             }
         }
     }
+
     let mut scalar_hoists = Vec::new();
-    for k in c.scalars.keys() {
-        // Get the node's ident at slot k
+    for k in classify.scalars.keys() {
         let ident_k = idents[*k].clone();
-        // Scalar carry/params should be {ident}_carry, {ident}_mult, {ident}_inv
         let ck = format_ident!("{}_carry", ident_k);
         let mk = format_ident!("{}_mult", ident_k);
         let ik = format_ident!("{}_inv", ident_k);
@@ -138,6 +108,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             let #ik = vals.invms[#ki];
         });
     }
+
     // IirClampedPlain clamp values: load from consts at expansion time.
     for (k, node) in p.nodes.iter().enumerate() {
         if node.kind == Kind::IirClampedPlain {
@@ -162,6 +133,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             });
         }
     }
+
     // SuperTrend band state hoists: prev_st=stb[k], prev_ub=stc_ub[k],
     // prev_lb=stlb[k], and the carried trend bool in the node's OWN st[k]
     // slot as 1.0/0.0 (st nodes carry no chain value) — same convention as
@@ -186,6 +158,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             st_step_hoists.push(quote! { let #sk = vals.st_step[#ki]; });
         }
     }
+
     // Rolling carry/params hoists (Sma/Stddev/Wma): the window step needs
     // the sum carry, its runtime params, and a BASE POINTER to the leaving
     // bar (`prevp` = the pre-sliced stream pointer moved back one period,
@@ -194,12 +167,6 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     let mut roll_hoists = Vec::new();
     for (k, node) in p.nodes.iter().enumerate() {
         if node.kind == Kind::RollSum {
-            // Ring-backed roll: carry = the window SUM (seeded from exec's
-            // st[]), plus the group coordinates read once per run: leader
-            // slot, capacity, and the compile-once flag saying whether THIS
-            // roll is the cap owner (leave = eviction) or shorter (leave =
-            // age read at p) — the hand's ao.rs `calc` split, no per-bar
-            // comparison.
             let ident_k = idents[k].clone();
             let ck = format_ident!("{}_carry", ident_k);
             let mk = format_ident!("{}_mult", ident_k);
@@ -219,12 +186,6 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             continue;
         }
         if node.kind == Kind::Hma {
-            // Bespoke machine: destructure the seven accumulators INTO
-            // named locals after warm (hacc is then dead — the steady loop
-            // owns them, LLVM keeps them live), plus every per-node
-            // constant the hand's step region needs and the two
-            // pre-sliced leaving pointers (bars ≥ gate > n ⇒ pure step
-            // region: stage1/stage2/tail all step form).
             let ik = idents[k].clone();
             let (s1, w1) = (format_ident!("{ik}_s1"), format_ident!("{ik}_w1"));
             let (s2, w2) = (format_ident!("{ik}_s2"), format_ident!("{ik}_w2"));
@@ -272,11 +233,6 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             node.kind,
             Kind::Sma | Kind::Stddev | Kind::Wma | Kind::RollMax | Kind::RollMin
         ) {
-            // Ring-vs-pointer is the published plan's fact, not a kind scan:
-            // an extremum over a DERIVED source is ring-backed, one over a
-            // price stream keeps the pointer form. A Sma/Stddev/Wma over a
-            // derived source has no ring AND no stream slice to walk, so it
-            // stays unemittable (needs the host anchor).
             let derived_roll = p.plan.is_ring(k);
             if !p.plan.is_price_src(k) && !derived_roll {
                 panic!(
@@ -289,11 +245,6 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             let ki = k;
             let sp = format_ident!("s{}", p.nodes[node.a].a);
             if derived_roll {
-                // EXTREMUM RING form (fisher): the rescan window rides the
-                // group ring like the sums do — hoist carries, trigger,
-                // window span, and the group coords. Steady bars are all
-                // past the fold (sink lead ≥ roll lead = feed + period−1),
-                // so the emitted arm is the pure step.
                 let tc = format_ident!("{}_trail", ident_k);
                 let lbk = format_ident!("{}_lb", ident_k);
                 let gk = format_ident!("{}_grp", ident_k);
@@ -307,11 +258,6 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                 continue;
             }
             if matches!(node.kind, Kind::RollMax | Kind::RollMin) {
-                // Trail-rescan roll: value+trail carries, the trigger p, the
-                // window (`look_back + 1`), and a WINDOW BASE POINTER —
-                // `wb = s0.sub(look_back)` so the rescan slice at steady bar
-                // i is `from_raw_parts(wb.add(i), win)`: the hand's
-                // `real[i − lb ..= i]`, one add one slice, zero re-clamps.
                 let tc = format_ident!("{}_trail", ident_k);
                 let lb = format_ident!("{}_lb", ident_k);
                 let win = format_ident!("{}_win", ident_k);
@@ -355,6 +301,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             }
         }
     }
+
     // IIR-family carry hoists (Kind::Iir/IirClamped/Prev/Accum): the recurrence
     // locals ride `st[k]` (exec seeded/carried them — idling below feed
     // left the hand's zero init untouched), weights are VALUES
@@ -396,6 +343,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             });
         }
     }
+
     // Lag depths are VALUES (`Values::lag_n`), never structure — the same rev-2
     // law that keeps every period out of the Signature. Hoisted once per node so
     // the steady loop carries a register instead of a load; legality (depth ≤
@@ -409,19 +357,19 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
         let ki = k;
         lag_hoists.push(quote! { let #lk = vals.lag_n[#ki] as usize; });
     }
-    let lead_hoists = sink_lead_hoists(p, &idents);
+
     // Input base pointers hoisted: steady-loop reads are unchecked raw loads
     // (the slice index's bounds check is provably-always-true to no one but
     // us — n is the min stream length — so LLVM keeps it).
     let mut used_streams: Vec<usize> = Vec::new();
-    for sc in c.scalars.values() {
+    for sc in classify.scalars.values() {
         if let Scalar::Price(s) = sc {
-            if !used_streams.contains(s) {
+            if !used_streams.contains(&s) {
                 used_streams.push(*s);
             }
         }
     }
-    for (k0, _, src_slot) in &c.groups {
+    for (k0, _, src_slot) in &classify.groups {
         // The group statement reads the SOURCE NODE's bound local; the
         // raw stream pointer is only needed when that source is an Input
         // (a price-sourced chain). Derived sources (e.g. `tr`) pull their
@@ -524,6 +472,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             }
         }
     }
+
     let stream_hoists: Vec<TokenStream> = used_streams
         .iter()
         .map(|s| {
@@ -533,12 +482,23 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             quote! { let #sp = unsafe { streams[#s].as_ptr().add(gate) }; }
         })
         .collect();
-    let stream_ptr = |s: usize| {
-        let sp = format_ident!("s{}", s);
-        quote! { unsafe { *#sp.add(i) } }
-    };
 
-    // ---- steady-loop body, arena order ----
+    (
+        pair_hoists,
+        scalar_hoists,
+        roll_hoists,
+        lag_hoists,
+        stream_hoists,
+        stb_hoists,
+        stc_ub_hoists,
+        stc_lb_hoists,
+        st_trend_hoists,
+        st_step_hoists,
+    )
+}
+
+/// Build scalar body: the main computation loop for all node kinds.
+fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> Vec<TokenStream> {
     let mut body = Vec::new();
     for (k, node) in p.nodes.iter().enumerate() {
         let xk = format_ident!("{}", idents[k]);
@@ -546,25 +506,25 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             Kind::Input => {
                 // Read from the appropriate stream pointer
                 let stream = node.a;
-                let srcp = stream_ptr(stream);
-                body.push(quote! { let #xk = #srcp; });
+                let sp = format_ident!("s{}", stream);
+                body.push(quote! { let #xk = unsafe { *#sp.add(i) }; });
             }
             Kind::Const => { /* hoisted below */ }
             Kind::Ema => {
-                if let Some(&(gi, lane1)) = c.slot_group.get(&k) {
+                if let Some(&(gi, lane1)) = classify.slot_group.get(&k) {
                     // For packed mode: lane1=false means this is the first statement of a group
                     // (which binds all lanes); lane1=true means skip (bound by first statement)
                     if lane1 {
                         continue; // bound with lane0's statement
                     }
-                    let (k0, k1, _stream) = c.groups[gi];
+                    let (k0, k1, _stream) = classify.groups[gi];
                     let ga = format_ident!("ga{gi}");
                     let (k0, k1) = (k0, k1);
                     let g = format_ident!("g{gi}");
                     let gm = format_ident!("g{gi}_m");
                     let gi_v = format_ident!("g{gi}_i");
                     // Determine width by scanning slot_group for all slots in this group
-                    let mut group_slots: Vec<usize> = c
+                    let mut group_slots: Vec<usize> = classify
                         .slot_group
                         .iter()
                         .filter(|(_, (g, _))| *g == gi)
@@ -612,7 +572,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                     // Get the node's ident at slot k for scalar hoists
                     let ident_k = idents[k].clone();
                     let ck = format_ident!("{}_carry", ident_k);
-                    let src = match c.scalars.get(&k) {
+                    let src = match classify.scalars.get(&k) {
                         Some(_) => {
                             // consumers reference the source SLOT's bound local
                             // (Inputs emit theirs first — one load per stream per
@@ -625,7 +585,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                         None => panic!(
                             "run_fn EMA: scalars key {} not found (len={})",
                             k,
-                            c.scalars.len()
+                            classify.scalars.len()
                         ),
                     };
                     let mk = format_ident!("{}_mult", ident_k);
@@ -645,12 +605,12 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             }
             Kind::Sub | Kind::Add | Kind::Mul | Kind::Div | Kind::Max | Kind::Min => {
                 let (ea, eb) = (ev(node.a, &idents), ev(node.b, &idents));
-                let v = shape.binop(&node.kind, &ea, &eb);
+                let v = Shape { lanes: false }.binop(&node.kind, &ea, &eb);
                 body.push(quote! { let #xk = #v; });
             }
             Kind::Abs => {
                 let ea = ev(node.a, &idents);
-                let v = shape.abs(&ea);
+                let v = Shape { lanes: false }.abs(&ea);
                 body.push(quote! { let #xk = #v; });
             }
             Kind::Mirror => {
@@ -691,11 +651,11 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                 // the lane SUMS as one SIMD vector; the per-lane leaving
                 // loads stay scalar (each lane has its own period), and
                 // the VALUES extract once for the row stores.
-                if let Some(&(gi, lane1)) = c.slot_group.get(&k) {
+                if let Some(&(gi, lane1)) = classify.slot_group.get(&k) {
                     if lane1 {
                         continue; // bound by lane0's group statement
                     }
-                    let mut gslots: Vec<usize> = c
+                    let mut gslots: Vec<usize> = classify
                         .slot_group
                         .iter()
                         .filter(|(_, (g, _))| *g == gi)
@@ -712,7 +672,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                         .iter()
                         .map(|s| {
                             let pv = format_ident!("{}_prevp", idents[*s]);
-                            quote! { unsafe { *#pv.add(i) } }
+                            quote! { unsafe { *#pv.add(i) }; }
                         })
                         .collect();
                     let binds: Vec<TokenStream> = (0..w)
@@ -953,7 +913,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                     } else {
                         quote! { crate::indicators::min::find_min_simd::<4> }
                     };
-                    let ge = if is_max {
+                    let ge_or_le = if is_max {
                         quote! { >= }
                     } else {
                         quote! { <= }
@@ -967,7 +927,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                                 let (rv, ri) = #finder(rings.window(#gk, #lbk + 1));
                                 #vc = rv;
                                 #tc = #lbk - ri;
-                            } else if current #ge #vc {
+                            } else if current #ge_or_le #vc {
                                 #vc = current;
                                 #tc = 0;
                             }
@@ -1132,11 +1092,11 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                 // an Ema group with that order preserved (lane values of a
                 // shared derived source — atr_multi's three chains over one
                 // `tr` node — read `ev(src)` exactly like price chains).
-                if let Some(&(gi, lane1)) = c.slot_group.get(&k) {
+                if let Some(&(gi, lane1)) = classify.slot_group.get(&k) {
                     if lane1 {
                         continue; // bound with lane0's group statement
                     }
-                    let mut group_slots: Vec<usize> = c
+                    let mut group_slots: Vec<usize> = classify
                         .slot_group
                         .iter()
                         .filter(|(_, (g, _))| *g == gi)
@@ -1525,9 +1485,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
                 // this same bar because topological order places it earlier
                 // in the k-loop (see `Node::SdftLead` doc).
                 let owner_ki = node.a;
-                body.push(quote! {
-                    let #xk = kvacc[#owner_ki][2];
-                });
+                body.push(quote! { let #xk = kvacc[#owner_ki][2]; });
             }
             Kind::HomodyneDiscriminator => {
                 // Bespoke, non-shared 38-slot carry (K_HOMODYNEDISCRIMINATOR):
@@ -1653,6 +1611,11 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             }
         }
     }
+    body
+}
+
+/// Build const hoists for Const nodes.
+fn build_scalar_const_hoists(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
     let mut const_hoists = Vec::new();
     for (k, node) in p.nodes.iter().enumerate() {
         if node.kind == Kind::Const {
@@ -1661,38 +1624,75 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             const_hoists.push(quote! { let #xk = vals.consts[#k]; });
         }
     }
+    const_hoists
+}
 
-    // ---- arena dedup setup: the planner's sink partition ----
-    // Sinks sharing a node share ONE physical row (`apo` line ≡ `macd` line
-    // in the trio: 5 sinks, 4 rows, 4 stores per bar). `group_members[g][0]`
-    // is the group's leader sink; `group_of` maps sink → GROUP index (the
-    // leader's SINK index would diverge the moment a duplicate precedes a new
-    // group — the bug that once made `group_members[g]` read out of range).
-    // Both renderers read this one structure; neither rebuilds it.
-    let group_members = &p.sink_plan.groups;
-    let group_of = &p.sink_plan.group_of;
-    let group_is_optional = &p.sink_plan.optional;
-    // Now: G groups, each with leader (first appearance) and members
-    let ng = group_members.len();
+/// Build stores: per-group store writes (one per group, dedup across sinks).
+fn build_scalar_stores(
+    p: &Pattern,
+    idents: &[String],
+    ctx: &crate::cse::codegen::shared::EmitterContext,
+) -> (
+    Vec<TokenStream>, // always_stores
+    Vec<TokenStream>, // opt_stores
+) {
+    let mut always_stores: Vec<TokenStream> = Vec::new();
+    let mut opt_stores: Vec<TokenStream> = Vec::new();
+    for (gidx, members) in ctx.group_members.iter().enumerate() {
+        let leader = members[0];
+        let ident_g = idents[p.sinks[leader]].clone();
+        let e = ev(p.sinks[members[0]], &idents);
+        // Scalar uses ptrs[gidx] for stores
+        if ctx.group_is_optional[gidx] {
+            let want_g = format_ident!("want{}", gidx);
+            opt_stores.push(quote! { unsafe { if #want_g { *ptrs[#gidx].add(i) = #e; }; } });
+        } else {
+            always_stores.push(quote! { unsafe { *ptrs[#gidx].add(i) = #e; }; });
+        }
+    }
+    (always_stores, opt_stores)
+}
 
-    // The row layout (min leads, want flags, row sizes, arena offsets, total)
-    // is shared with the lane kernel — one implementation in `row_layout`.
-    let row = row_layout(p, &idents);
-    let group_minl = &row.minl;
-    let group_want = &row.want;
-    let group_rsz = &row.rsz;
-    let off_decl = &row.off;
-    let total_expr = &row.total;
-    let opt_group_ids = &row.opt_group_ids;
+/// Build returns: row refs and final return statement.
+fn build_scalar_returns(
+    p: &Pattern,
+    idents: &[String],
+    ctx: &crate::cse::codegen::shared::EmitterContext,
+) -> Vec<TokenStream> {
+    let mut row_refs: Vec<TokenStream> = Vec::new();
+    for sidx in 0..p.sinks.len() {
+        let sym = sink_window_symbols(p, &idents, &ctx.group_members, &ctx.group_of, sidx);
+        row_refs.push(scalar_row_ref_token(&sym, sidx));
+    }
+    row_refs
+}
 
-    // Arena allocation (exact jit.rs pattern)
-    let arena_alloc = if ng == 0 {
+/// Build early return (n==0 case).
+fn build_scalar_early_return(p: &Pattern) -> TokenStream {
+    let mut zero_row_refs: Vec<TokenStream> = Vec::new();
+    for _sidx in 0..p.sinks.len() {
+        zero_row_refs.push(quote! { crate::cse::query::RowRef::window(&arena, 0, 0) });
+    }
+    quote! {
+        let arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> = std::sync::Arc::new_uninit_slice(0usize);
+        let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
+        return vec![
+            #(#zero_row_refs),*
+        ];
+    }
+}
+
+/// Build arena allocation.
+fn build_scalar_arena_alloc(ctx: &crate::cse::codegen::shared::EmitterContext) -> TokenStream {
+    let ng = ctx.group_members.len();
+    if ng == 0 {
         quote! {
             let arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> = std::sync::Arc::new_uninit_slice(0usize);
             let base: *mut f64 = std::ptr::null_mut();
             let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
         }
     } else {
+        let total_expr = &ctx.total_expr;
         quote! {
             let total = #total_expr;
             let mut arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> =
@@ -1711,77 +1711,116 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             };
             let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
         }
-    };
+    }
+}
 
-    // ---- warm exec ptrs setup (per-sink, aliased via arena) ----
+/// Build warm pointers setup.
+fn build_scalar_warm_ptrs(
+    p: &Pattern,
+    idents: &[String],
+    ctx: &crate::cse::codegen::shared::EmitterContext,
+) -> Vec<TokenStream> {
     let mut warm_ptrs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
-        let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
+        let sym = sink_window_symbols(p, &idents, &ctx.group_members, &ctx.group_of, sidx);
         warm_ptrs.push(scalar_warm_ptr_token(&sym, sidx));
     }
+    warm_ptrs
+}
 
-    // ---- steady loop: group store pointers (hoisted once per group) ----
-    let mut group_stores: Vec<TokenStream> = Vec::new();
-    for (gidx, members) in group_members.iter().enumerate() {
-        let leader = members[0];
-        let ident_g = idents[p.sinks[leader]].clone();
-        let q_g = format_ident!("row_{}_{}", ident_g, gidx);
-        // Keep off as plain numeric per task requirement
-        let off_g = format_ident!("off{}", gidx);
-        let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
-        // Pre-advanced past the warm region AND the group's lead (the hand's
-        // `slice_outputs_start!` equivalent): the steady store is `q.add(i)`.
-        group_stores.push(quote! {
-            let #q_g = unsafe { base.add(#off_g + (gate - #g_minl)) };
-        });
+/// Main orchestrator: builds the kernel function by invoking stage helpers in sequence.
+pub(super) fn run_fn(p: &Pattern) -> TokenStream {
+    let name = format_ident!("{}", p.name);
+    let sig = format_ident!("SIG_{}", name);
+
+    // Build idents for display-only naming (role names or fallback x{k})
+    let idents = build_idents(p);
+
+    // Use packed classify if this pattern is packed; otherwise use standard pair classify
+    let mut c = if p.packed {
+        classify_packed(p)
+    } else {
+        classify(p)
+    };
+    if std::env::var("CSE_FUSED_PAIR").is_err() && !p.packed {
+        // pairing is opt-IN for now: extraction cost exceeded the packed-fma
+        // saving on the measured trio; the machinery stays for lane-widening
+        // (M2/GPU). Un-paired Ema slots fall back to scalar chains.
+        c.groups.clear();
+        c.slot_group.clear();
     }
-
-    // ---- steady stores: ONE PER GROUP (the dedup: sinks sharing a node —
-    // e.g. apo line and macd line are both node 3 — share one physical row
-    // and one store, aliased downstream by window offsets). Groups split on
-    // role: primary-member groups store unconditionally; optional-only
-    // groups are want-guarded and appear ONLY in the any_opt loop copy.
-    let mut always_stores: Vec<TokenStream> = Vec::new();
-    let mut opt_stores: Vec<TokenStream> = Vec::new();
-    for (gidx, members) in group_members.iter().enumerate() {
-        let leader = members[0];
-        let ident_g = idents[p.sinks[leader]].clone();
-        let e = ev(p.sinks[members[0]], &idents);
-        let q_g = format_ident!("row_{}_{}", ident_g, gidx);
-        if group_is_optional[gidx] {
-            let want_g = format_ident!("want{}", gidx);
-            opt_stores.push(quote! { unsafe { if #want_g { *#q_g.add(i) = #e; } } });
-        } else {
-            always_stores.push(quote! { unsafe { *#q_g.add(i) = #e; } });
+    // After clearing slot_group, add all remaining EMA slots to scalars
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Ema && !c.slot_group.contains_key(&k) && !c.scalars.contains_key(&k) {
+            c.scalars.insert(
+                k,
+                if p.plan.is_price_src(k) {
+                    Scalar::Price(p.nodes[node.a].a)
+                } else {
+                    Scalar::Chain(node.a)
+                },
+            );
+        }
+    }
+    // Add Wilders slots to scalars for hoisting (they need st[] carry like Ema)
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Wilders
+            && !c.slot_group.contains_key(&k)
+            && !c.scalars.contains_key(&k)
+        {
+            c.scalars.insert(
+                k,
+                if p.plan.is_price_src(k) {
+                    Scalar::Price(p.nodes[node.a].a)
+                } else {
+                    Scalar::Chain(node.a)
+                },
+            );
         }
     }
 
-    // ---- return RowRef windows per sink (in sink order) ----
-    let mut row_refs: Vec<TokenStream> = Vec::new();
-    for sidx in 0..p.sinks.len() {
-        let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
-        row_refs.push(scalar_row_ref_token(&sym, sidx));
-    }
+    // Build the shared emitter context (sink/window setup)
+    let ctx = emitter_context(p, &idents);
 
-    // Early return case (n==0): build empty arena with zero-length windows
-    let mut zero_row_refs: Vec<TokenStream> = Vec::new();
-    for _sidx in 0..p.sinks.len() {
-        zero_row_refs.push(quote! { crate::cse::query::RowRef::window(&arena, 0, 0) });
-    }
-    let early_return = quote! {
-        let arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> = std::sync::Arc::new_uninit_slice(0usize);
-        let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
-        return vec![
-            #(#zero_row_refs),*
-        ];
-    };
+    // Stage 1: Build hoists
+    let (
+        pair_hoists,
+        scalar_hoists,
+        roll_hoists,
+        lag_hoists,
+        stream_hoists,
+        stb_hoists,
+        stc_ub_hoists,
+        stc_lb_hoists,
+        st_trend_hoists,
+        st_step_hoists,
+    ) = build_scalar_hoists(p, &idents, &c);
 
-    // ---- steady loop: ONE specialized copy for the common primary-only
-    // path (no flag loads, no branches, store set identical to the
-    // pre-flags kernel), one copy with want-guarded optional stores. The
-    // choice is one runtime branch OUTSIDE the loop (WYSIWYG: the guards we
-    // measured as +2 cyc/bar when left inside). ----
-    let steady = steady_with_optional_groups(opt_group_ids, &body, &always_stores, &opt_stores);
+    // Stage 2: Build body
+    let body = build_scalar_body(p, &idents, &c);
+
+    // Stage 3a: Build const hoists (after body so they're in reverse order)
+    let const_hoists = build_scalar_const_hoists(p, &idents);
+
+    // Stage 3b: Build stores
+    let (always_stores, opt_stores) = build_scalar_stores(p, &idents, &ctx);
+
+    // Stage 4: Build returns and early return case
+    let row_refs = build_scalar_returns(p, &idents, &ctx);
+    let early_return = build_scalar_early_return(p);
+    let arena_alloc = build_scalar_arena_alloc(&ctx);
+    let warm_ptrs = build_scalar_warm_ptrs(p, &idents, &ctx);
+
+    // Extract ctx fields for use in quote blocks
+    let lead_hoists = &ctx.lead_hoists;
+    let group_minl = &ctx.group_minl;
+    let group_want = &ctx.group_want;
+    let group_rsz = &ctx.group_rsz;
+    let off_decl = &ctx.off_decl;
+
+    // Build steady loop
+    let steady =
+        steady_with_optional_groups(&ctx.opt_group_ids, &body, &always_stores, &opt_stores);
 
     quote! {
         #[allow(unused_variables, unused_mut)]
@@ -1819,7 +1858,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             )*
 
             // Steady loop hoists (stream pointers)
-            #( #stream_hoists )*
+            #(#stream_hoists)*
 
             let mut st = [0.0f64; crate::cse::MAX];
             let mut stb = [0.0f64; crate::cse::MAX]; // SuperTrend prev_st
@@ -1850,18 +1889,27 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             // seam instead of branched on every bar.
             let mut rings = rings.into_warm();
 
-            // Steady loop: group store pointers (hoisted once per group before loop)
-            #( #group_stores )*
-            #( #pair_hoists )*
-            #( #scalar_hoists )*
-            #( #stb_hoists )*
-            #( #stc_ub_hoists )*
-            #( #stc_lb_hoists )*
-            #( #st_trend_hoists )*
-            #( #st_step_hoists )*
-            #( #roll_hoists )*
-            #( #lag_hoists )*
-            #( #const_hoists )*
+            // Steady loop hoists (pair)
+            #(#pair_hoists)*
+
+            // Steady loop hoists (scalar)
+            #(#scalar_hoists)*
+
+            // SuperTrend hoists
+            #(#stb_hoists)*
+            #(#stc_ub_hoists)*
+            #(#stc_lb_hoists)*
+            #(#st_trend_hoists)*
+            #(#st_step_hoists)*
+
+            // Rolling hoists
+            #(#roll_hoists)*
+
+            // Lag hoists
+            #(#lag_hoists)*
+
+            // Const hoists (after body so they're in reverse order of emission)
+            #(#const_hoists)*
 
             #steady
             vec![#(#row_refs),*]

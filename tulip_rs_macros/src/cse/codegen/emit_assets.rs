@@ -1,6 +1,6 @@
 use super::*;
 
-use shared::{assets_row_ref_token, assets_warm_ptr_token, sink_window_symbols};
+use shared::{assets_row_ref_token, assets_warm_ptr_token, emitter_context, sink_window_symbols};
 
 // ──────────────────────────────────────────────────────────────────────────
 // M2 — the asset axis: `<name>_assets<const L>`, L assets through ONE
@@ -25,25 +25,8 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
     let shape = Shape { lanes: true };
     let idents = build_idents(p);
 
-    // ---- sink groups: the planner's partition, the SAME structure the scalar
-    // renderer reads (`Pattern::sink_plan`). One implementation of the
-    // row-dedup rule, so the two kernels cannot disagree about how many rows
-    // exist, who leads each one, or which are optional-only.
-    let group_members = &p.sink_plan.groups;
-    let group_of = &p.sink_plan.group_of;
-    let group_is_optional = &p.sink_plan.optional;
-
-    // ---- per-sink lead hoists + per-group min-lead / want / rsz / offs ----
-    let lead_hoists = sink_lead_hoists(p, &idents);
-    // The row layout is the SAME function the scalar kernel calls — the two
-    // kernels differ only in how they write a row, not in how they size them.
-    let row = row_layout(p, &idents);
-    let group_minl = &row.minl;
-    let group_want = &row.want;
-    let group_rsz = &row.rsz;
-    let off_decl = &row.off;
-    let total_expr = &row.total;
-    let opt_group_ids = &row.opt_group_ids;
+    // Build the shared emitter context (sink/window setup)
+    let ctx = emitter_context(p, &idents);
 
     // ---- stream base arrays (one per Input slot actually read) ----
     let used_slots = used_input_slots(p);
@@ -1551,7 +1534,7 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
     let mut row_arrays: Vec<TokenStream> = Vec::new();
     let mut always_stores: Vec<TokenStream> = Vec::new();
     let mut opt_stores: Vec<TokenStream> = Vec::new();
-    for (gidx, members) in group_members.iter().enumerate() {
+    for (gidx, members) in ctx.group_members.iter().enumerate() {
         let leader = members[0];
         let ident_g = idents[p.sinks[leader]].clone();
         let q_g = format_ident!("row_{}_{}", ident_g, gidx);
@@ -1573,7 +1556,7 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
                 }
             }
         };
-        if group_is_optional[gidx] {
+        if ctx.group_is_optional[gidx] {
             let want_g = format_ident!("want{}", gidx);
             opt_stores.push(quote! { if #want_g { #scatter } });
         } else {
@@ -1584,17 +1567,26 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
     // ---- RowRef windows per asset (one shared arena, asset-major) ----
     let mut row_refs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
-        let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
+        let sym = sink_window_symbols(p, &idents, &ctx.group_members, &ctx.group_of, sidx);
         row_refs.push(assets_row_ref_token(&sym, sidx));
     }
     let warm_ptrs: Vec<TokenStream> = (0..p.sinks.len())
         .map(|sidx| {
-            let sym = sink_window_symbols(p, &idents, group_members, group_of, sidx);
+            let sym = sink_window_symbols(p, &idents, &ctx.group_members, &ctx.group_of, sidx);
             assets_warm_ptr_token(&sym, sidx)
         })
         .collect();
 
-    let steady = steady_with_optional_groups(opt_group_ids, &body, &always_stores, &opt_stores);
+    let steady =
+        steady_with_optional_groups(&ctx.opt_group_ids, &body, &always_stores, &opt_stores);
+
+    // Extract ctx fields for use in quote blocks - total_expr needs to be before quote!
+    let total_expr = &ctx.total_expr;
+    let lead_hoists = &ctx.lead_hoists;
+    let group_minl = &ctx.group_minl;
+    let group_want = &ctx.group_want;
+    let group_rsz = &ctx.group_rsz;
+    let off_decl = &ctx.off_decl;
 
     quote! {
         #[allow(unused_variables, unused_mut, unused_parens, clippy::needless_range_loop)]

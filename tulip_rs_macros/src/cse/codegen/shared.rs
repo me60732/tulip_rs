@@ -209,6 +209,71 @@ pub(super) fn assets_warm_ptr_token(sym: &SinkWindowSymbols, sidx: usize) -> Tok
     quote! { ptrs[#sidx] = unsafe { base.add(a * total + #off_expr) }; }
 }
 
+/// EmitterContext: shared internal state used by both scalar and assets emitters.
+///
+/// Contains all sink/group/window setup data derived from the Pattern and idents,
+/// extracted to eliminate duplication between run_fn and run_assets_fn.
+pub(super) struct EmitterContext {
+    /// Per-sink lead hoists: `let {ident}_{s} = vals.sink_lead[#s] as usize;`
+    pub(super) lead_hoists: Vec<TokenStream>,
+    /// Group members: group index -> list of sink indices in that group
+    pub(super) group_members: Vec<Vec<usize>>,
+    /// Sink to group mapping: sink index -> group index
+    pub(super) group_of: Vec<usize>,
+    /// Per-group optional flag: true if the group is optional-only (no primary sinks)
+    pub(super) group_is_optional: Vec<bool>,
+    /// Per-group minimum lead: `minl_{ident}_{gidx}`
+    pub(super) group_minl: Vec<TokenStream>,
+    /// Per-group want hoist: runtime boolean for optional groups
+    pub(super) group_want: Vec<TokenStream>,
+    /// Per-group row size: depends on n (stream length)
+    pub(super) group_rsz: Vec<TokenStream>,
+    /// Arena offset declarations: `let off{gidx} = ...;`
+    pub(super) off_decl: Vec<TokenStream>,
+    /// Total arena size expression
+    pub(super) total_expr: TokenStream,
+    /// Optional group IDs for the steady loop branch optimization
+    pub(super) opt_group_ids: Vec<usize>,
+}
+
+/// Build EmitterContext from pattern and idents.
+///
+/// Derives all sink/group/window setup data shared by both emitters:
+/// - sink groups from p.sink_plan
+/// - lead hoists via sink_lead_hoists(p, idents)
+/// - row layout via row_layout(p, idents)
+pub(super) fn emitter_context(p: &Pattern, idents: &[String]) -> EmitterContext {
+    // Sink groups from the planner's partition (same structure both renderers read)
+    let group_members = p.sink_plan.groups.clone();
+    let group_of = p.sink_plan.group_of.clone();
+    let group_is_optional = p.sink_plan.optional.clone();
+
+    // Lead hoists: per-sink lead values hoisted once per request
+    let lead_hoists = sink_lead_hoists(p, idents);
+
+    // Row layout is shared with the lane kernel — one implementation in row_layout
+    let row = row_layout(p, idents);
+    let group_minl = row.minl;
+    let group_want = row.want;
+    let group_rsz = row.rsz;
+    let off_decl = row.off;
+    let total_expr = row.total;
+    let opt_group_ids = row.opt_group_ids;
+
+    EmitterContext {
+        lead_hoists,
+        group_members,
+        group_of,
+        group_is_optional,
+        group_minl,
+        group_want,
+        group_rsz,
+        off_decl,
+        total_expr,
+        opt_group_ids,
+    }
+}
+
 /// Build the steady loop body with optional-group support.
 ///
 /// When `opt_group_ids` is empty, emits a single loop:
