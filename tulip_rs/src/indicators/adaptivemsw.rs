@@ -344,6 +344,28 @@ impl crate::cse::Planable for AdaptiveMSW {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for AdaptiveMSW {
+    const KIND: &'static str = "adaptivemsw";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < Self::min_data(&[]) {
+            return None;
+        }
+
+        let mut sine_line = [0.0_f64];
+        let mut lead_line = [0.0_f64];
+        let mut dc_period_line = [0.0_f64];
+        let state = State::init_state(real, &mut sine_line, &mut lead_line, &mut dc_period_line);
+        Some(state)
+    }
+}
+
 #[cfg(feature = "simd_options")]
 impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for AdaptiveMSW {
     fn indicator_by_options<const N: usize>(

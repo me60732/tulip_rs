@@ -296,3 +296,30 @@ impl Planable for KeltnerChannel {
         crate::cse::recipes::keltnerchannel(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for KeltnerChannel {
+    const KIND: &'static str = "keltnerchannel";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [high, low, close] = windows else {
+            return None;
+        };
+        if high.len() < 2 || low.len() != high.len() || close.len() != high.len() {
+            return None;
+        }
+
+        let period = high.len() - 1;
+        if period == 0 {
+            return None;
+        }
+        // Fallback when recipe tail does not carry `step` yet.
+        let step = 2.0_f64;
+
+        let mut tr_line = vec![0.0_f64; period.saturating_sub(1)];
+        let state = State::init_state(high, low, close, period, step, &mut tr_line);
+        Some(state)
+    }
+}

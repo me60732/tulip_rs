@@ -65,8 +65,9 @@ pub const DENSE_NODES: usize = 27;
 // Module alias: generated kernels reference `crate::cse::query::RowRef`.
 pub use router::query;
 pub use router::{
-    erase_request, restorer_for, run_assets_registered, run_registered, AssetsOutcome,
-    ChainStateEma, IndicatorStateBox, Outcome, Request, Restorable, Results, RowRef, StateRestorer,
+    erase_request, restorer_for, restorer_for_with_options, run_assets_registered, run_registered,
+    AssetsOutcome, ChainStateEma, IndicatorStateBox, Outcome, Request, Restorable, Results, RowRef,
+    StateRestorer, StateRestorerWithOptions,
 };
 
 // ── Kernel facade (the generated engines + the warm/oracle machine) ─────

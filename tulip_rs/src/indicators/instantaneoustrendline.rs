@@ -387,6 +387,35 @@ impl crate::cse::Planable for InstantaneousTrendline {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for InstantaneousTrendline {
+    const KIND: &'static str = "instantaneoustrendline";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < Self::min_data(&[]) {
+            return None;
+        }
+
+        let mut trendline_line = [0.0_f64];
+        let mut trigger_line = [0.0_f64];
+        let mut dc_period_line = [0.0_f64];
+        let mut alpha_line = [0.0_f64];
+        let state = State::init_state(
+            real,
+            &mut trendline_line,
+            &mut trigger_line,
+            &mut dc_period_line,
+            &mut alpha_line,
+        );
+        Some(state)
+    }
+}
+
 #[cfg(feature = "simd_options")]
 impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for InstantaneousTrendline {
     fn indicator_by_options<const N: usize>(

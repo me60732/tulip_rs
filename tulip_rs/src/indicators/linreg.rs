@@ -322,3 +322,26 @@ impl Planable for Linreg {
         crate::cse::recipes::linreg(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Linreg {
+    const KIND: &'static str = "linreg";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < 2 {
+            return None;
+        }
+        let period = real.len() - 1;
+        if period == 0 {
+            return None;
+        }
+
+        let (state, f_params, p_params) = State::init_state(&real[1..period], period);
+        Some(IndicatorState::new(state, real, period, f_params, p_params))
+    }
+}

@@ -265,6 +265,41 @@ impl Planable for Mfi {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Mfi {
+    const KIND: &'static str = "mfi";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::RollAge { .. }, crate::cse::ChainState::Sma { period, .. }, crate::cse::ChainState::Sma { .. }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        if windows.len() < 4 {
+            return None;
+        }
+
+        let period = *period as usize;
+        let (high, low, close, volume) = (windows[0], windows[1], windows[2], windows[3]);
+        if high.len() < period
+            || low.len() < period
+            || close.len() < period
+            || volume.len() < period
+        {
+            return None;
+        }
+
+        let mut typprice_scratch = vec![0.0_f64; high.len()];
+        Some(State::init_state(
+            (high, low, close, volume),
+            period,
+            &mut typprice_scratch,
+        ))
+    }
+}
+
 #[cfg(feature = "simd_options")]
 impl IndicatorByOptions<INPUTS, OPTIONS> for Mfi {
     fn indicator_by_options<const N: usize>(

@@ -471,6 +471,23 @@ impl Planable for HomodyneDiscriminator {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for HomodyneDiscriminator {
+    const KIND: &'static str = "homodynediscriminator";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < Self::min_data(&[]) {
+            return None;
+        }
+        Some(State::init_state(real))
+    }
+}
+
 #[cfg(feature = "simd_options")]
 impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for HomodyneDiscriminator {
     fn indicator_by_options<const N: usize>(

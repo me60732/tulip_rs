@@ -298,3 +298,30 @@ impl Planable for Trima {
         crate::cse::recipes::trima(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Trima {
+    const KIND: &'static str = "trima";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { period: m1, .. }, crate::cse::ChainState::Sma { period: m2, .. }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        if windows.is_empty() {
+            return None;
+        }
+
+        let period = (*m1 as usize) + (*m2 as usize) - 1;
+        let real = windows[0];
+        if real.len() < period {
+            return None;
+        }
+
+        let state = State::init_state(real, period);
+        Some(IndicatorState::new(real, state))
+    }
+}

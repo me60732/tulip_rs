@@ -346,6 +346,24 @@ impl Planable for Msw {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Msw {
+    const KIND: &'static str = "msw";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [real] = windows else {
+            return None;
+        };
+        let period = real.len();
+        if period == 0 {
+            return None;
+        }
+        Some(IndicatorState::new(real, period, multiplier(period)))
+    }
+}
+
 /// SDFT hot loop — iterates over `real[period..]`, calling `calc` for each bar.
 ///
 /// Used by both the initial full run (`cycle_msw_sdft`) and streaming

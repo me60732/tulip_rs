@@ -19,7 +19,10 @@ mod restorable;
 mod route;
 mod state_ext;
 
-pub use query::{restorer_for, IndicatorStateBox, Request, Results, RowRef, StateRestorer};
+pub use query::{
+    restorer_for, restorer_for_with_options, IndicatorStateBox, Request, Results, RowRef,
+    StateRestorer, StateRestorerWithOptions,
+};
 pub use restorable::Restorable;
 pub use route::{erase_request, run_assets_registered, run_registered, AssetsOutcome, Outcome};
 pub use state_ext::ChainStateEma;

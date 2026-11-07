@@ -19,6 +19,7 @@
 //! (integration suite: `tulip_test/tests/cse_kernel_registry_test.rs`).
 
 use crate::cse::{ChainState, Recipe};
+use crate::indicator_types::Indicator;
 use crate::indicators::ema::State as EmaState;
 use crate::types::Warm;
 use std::sync::Arc;
@@ -230,6 +231,26 @@ pub enum IndicatorStateBox {
     Vwap(crate::indicators::vwap::IndicatorState),
     Vwma(crate::indicators::vwma::IndicatorState),
     Vosc(crate::indicators::vosc::IndicatorState),
+    Chaikinmf(crate::indicators::chaikinmf::IndicatorState),
+    Mfi(crate::indicators::mfi::IndicatorState),
+    Vortex(crate::indicators::vortex::IndicatorState),
+    Trima(crate::indicators::trima::IndicatorState),
+    AdaptiveMsw(crate::indicators::adaptivemsw::IndicatorState),
+    Cybercycle(crate::indicators::cybercycle::IndicatorState),
+    Instantaneoustrendline(crate::indicators::instantaneoustrendline::IndicatorState),
+    Mama(crate::indicators::mama::IndicatorState),
+    Psar(crate::indicators::psar::IndicatorState),
+    Trendmode(crate::indicators::trendmode::IndicatorState),
+    Ccfisher(crate::indicators::ccfisher::IndicatorState),
+    Fosc(crate::indicators::fosc::IndicatorState),
+    Homodynediscriminator(crate::indicators::homodynediscriminator::IndicatorState),
+    Kama(crate::indicators::kama::IndicatorState),
+    Keltnerchannel(crate::indicators::keltnerchannel::IndicatorState),
+    Linreg(crate::indicators::linreg::IndicatorState),
+    Msw(crate::indicators::msw::IndicatorState),
+    Smaenvelope(crate::indicators::smaenvelope::IndicatorState),
+    Tsf(crate::indicators::tsf::IndicatorState),
+    Vidya(crate::indicators::vidya::IndicatorState),
     /// E3 rolling recurrences — the hand's full continuable `IndicatorState`
     /// (`{real, state, period}`): the window `restore_state` now receives as its
     /// `window: &[f64]` argument is stitched in here, not left for the caller.
@@ -283,6 +304,15 @@ pub enum IndicatorStateBox {
 /// Rebuild one hand `IndicatorState` from its arena chain states — the
 /// signature every indicator's `restore_state` matches.
 pub type StateRestorer = fn(Vec<ChainState>, &[&[f64]]) -> IndicatorStateBox;
+
+/// Option-aware restorer used when the caller has the concrete request options
+/// and wants exact state reconstruction for option-sensitive indicators.
+pub type StateRestorerWithOptions = Box<
+    dyn for<'a, 'b> Fn(Vec<ChainState>, &'a [&'b [f64]]) -> IndicatorStateBox
+        + Send
+        + Sync
+        + 'static,
+>;
 
 /// The kind → restorer table. Phase 1 of "recipes as data" removed the
 /// `Recipe.restorer` field (the leaf crate cannot type a runtime restorer),
@@ -529,6 +559,269 @@ pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
                 .map(IndicatorStateBox::Vosc)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
+        k if k == <crate::indicators::chaikinmf::ChaikinMf as Restorable<4, 1>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::chaikinmf::ChaikinMf as Restorable<4, 1>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Chaikinmf)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::mfi::Mfi as Restorable<4, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::mfi::Mfi as Restorable<4, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Mfi)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::vortex::Vortex as Restorable<3, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::vortex::Vortex as Restorable<3, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Vortex)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::trima::Trima as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::trima::Trima as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Trima)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::adaptivemsw::AdaptiveMSW as Restorable<1, 0>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::adaptivemsw::AdaptiveMSW as Restorable<1, 0>>::restore_state(v, w)
+                    .map(IndicatorStateBox::AdaptiveMsw)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::cybercycle::Cybercycle as Restorable<1, 1>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::cybercycle::Cybercycle as Restorable<1, 1>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Cybercycle)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k
+            == <crate::indicators::instantaneoustrendline::InstantaneousTrendline as Restorable<1, 0>>::KIND =>
+        {
+            Some(|v, w| {
+                <crate::indicators::instantaneoustrendline::InstantaneousTrendline as Restorable<1, 0>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Instantaneoustrendline)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::mama::Mama as Restorable<1, 2>>::KIND => Some(|v, w| {
+            <crate::indicators::mama::Mama as Restorable<1, 2>>::restore_state(v, w)
+                .map(IndicatorStateBox::Mama)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::psar::Psar as Restorable<2, 2>>::KIND => Some(|v, w| {
+            <crate::indicators::psar::Psar as Restorable<2, 2>>::restore_state(v, w)
+                .map(IndicatorStateBox::Psar)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::trendmode::TrendMode as Restorable<1, 1>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::trendmode::TrendMode as Restorable<1, 1>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Trendmode)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::ccfisher::CcFisher as Restorable<1, 1>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::ccfisher::CcFisher as Restorable<1, 1>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Ccfisher)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::fosc::Fosc as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::fosc::Fosc as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Fosc)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k
+            == <crate::indicators::homodynediscriminator::HomodyneDiscriminator as Restorable<1, 0>>::KIND =>
+        {
+            Some(|v, w| {
+                <crate::indicators::homodynediscriminator::HomodyneDiscriminator as Restorable<1, 0>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Homodynediscriminator)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::kama::Kama as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::kama::Kama as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Kama)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k
+            == <crate::indicators::keltnerchannel::KeltnerChannel as Restorable<3, 2>>::KIND =>
+        {
+            Some(|v, w| {
+                <crate::indicators::keltnerchannel::KeltnerChannel as Restorable<3, 2>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Keltnerchannel)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::linreg::Linreg as Restorable<1, 1>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::linreg::Linreg as Restorable<1, 1>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Linreg)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::msw::Msw as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::msw::Msw as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Msw)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::smaenvelope::SmaEnvelope as Restorable<1, 2>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::smaenvelope::SmaEnvelope as Restorable<1, 2>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Smaenvelope)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::tsf::Tsf as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::tsf::Tsf as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Tsf)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::vidya::Vidya as Restorable<1, 3>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::vidya::Vidya as Restorable<1, 3>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Vidya)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
         _ => None,
+    }
+}
+
+/// Option-aware resolver for state restoration.
+///
+/// `restorer_for(kind)` remains as a compatibility path. This function should be
+/// preferred by callers that have the concrete recipe options available, because
+/// some indicator states cannot recover non-default option constants from chain
+/// payloads alone.
+pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRestorerWithOptions> {
+    match kind {
+        "cybercycle" => {
+            let alpha = options.first().copied().unwrap_or(0.07);
+            Some(Box::new(move |_v, windows| {
+                let [real] = windows else {
+                    return IndicatorStateBox::Other;
+                };
+                match crate::indicators::cybercycle::Cybercycle::indicator(&[real], &[alpha], None)
+                {
+                    Ok((_o, state)) => IndicatorStateBox::Cybercycle(state),
+                    Err(_) => IndicatorStateBox::Other,
+                }
+            }))
+        }
+        "trendmode" => {
+            let alpha = options.first().copied().unwrap_or(0.07);
+            Some(Box::new(move |_v, windows| {
+                let [real] = windows else {
+                    return IndicatorStateBox::Other;
+                };
+                match crate::indicators::trendmode::TrendMode::indicator(&[real], &[alpha], None) {
+                    Ok((_o, state)) => IndicatorStateBox::Trendmode(state),
+                    Err(_) => IndicatorStateBox::Other,
+                }
+            }))
+        }
+        "ccfisher" => {
+            let alpha = options.first().copied().unwrap_or(0.07);
+            Some(Box::new(move |_v, windows| {
+                let [real] = windows else {
+                    return IndicatorStateBox::Other;
+                };
+                match crate::indicators::ccfisher::CcFisher::indicator(&[real], &[alpha], None) {
+                    Ok((_o, state)) => IndicatorStateBox::Ccfisher(state),
+                    Err(_) => IndicatorStateBox::Other,
+                }
+            }))
+        }
+        "mama" => {
+            let fast_limit = options.first().copied().unwrap_or(0.5);
+            let slow_limit = options.get(1).copied().unwrap_or(0.05);
+            Some(Box::new(move |_v, windows| {
+                let [real] = windows else {
+                    return IndicatorStateBox::Other;
+                };
+                match crate::indicators::mama::Mama::indicator(
+                    &[real],
+                    &[fast_limit, slow_limit],
+                    None,
+                ) {
+                    Ok((_o, state)) => IndicatorStateBox::Mama(state),
+                    Err(_) => IndicatorStateBox::Other,
+                }
+            }))
+        }
+        "psar" => {
+            let af_step = options.first().copied().unwrap_or(0.02);
+            let max_af = options.get(1).copied().unwrap_or(0.2);
+            Some(Box::new(move |_v, windows| {
+                let [high, low] = windows else {
+                    return IndicatorStateBox::Other;
+                };
+                match crate::indicators::psar::Psar::indicator(
+                    &[high, low],
+                    &[af_step, max_af],
+                    None,
+                ) {
+                    Ok((_o, state)) => IndicatorStateBox::Psar(state),
+                    Err(_) => IndicatorStateBox::Other,
+                }
+            }))
+        }
+        "keltnerchannel" => {
+            let period = options.first().copied().unwrap_or(20.0);
+            let step = options.get(1).copied().unwrap_or(2.0);
+            Some(Box::new(move |_v, windows| {
+                let [high, low, close] = windows else {
+                    return IndicatorStateBox::Other;
+                };
+                match crate::indicators::keltnerchannel::KeltnerChannel::indicator(
+                    &[high, low, close],
+                    &[period, step],
+                    None,
+                ) {
+                    Ok((_o, state)) => IndicatorStateBox::Keltnerchannel(state),
+                    Err(_) => IndicatorStateBox::Other,
+                }
+            }))
+        }
+        "smaenvelope" => {
+            let period = options.first().copied().unwrap_or(20.0);
+            let percentage = options.get(1).copied().unwrap_or(1.0);
+            Some(Box::new(move |_v, windows| {
+                let [real] = windows else {
+                    return IndicatorStateBox::Other;
+                };
+                match crate::indicators::smaenvelope::SmaEnvelope::indicator(
+                    &[real],
+                    &[period, percentage],
+                    None,
+                ) {
+                    Ok((_o, state)) => IndicatorStateBox::Smaenvelope(state),
+                    Err(_) => IndicatorStateBox::Other,
+                }
+            }))
+        }
+        "vidya" => {
+            let short_period = options.first().copied().unwrap_or(5.0);
+            let long_period = options.get(1).copied().unwrap_or(20.0);
+            let alpha = options.get(2).copied().unwrap_or(0.2);
+            Some(Box::new(move |_v, windows| {
+                let [real] = windows else {
+                    return IndicatorStateBox::Other;
+                };
+                match crate::indicators::vidya::Vidya::indicator(
+                    &[real],
+                    &[short_period, long_period, alpha],
+                    None,
+                ) {
+                    Ok((_o, state)) => IndicatorStateBox::Vidya(state),
+                    Err(_) => IndicatorStateBox::Other,
+                }
+            }))
+        }
+        _ => restorer_for(kind).map(|f| Box::new(f) as StateRestorerWithOptions),
     }
 }

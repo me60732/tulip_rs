@@ -422,6 +422,47 @@ impl crate::cse::Planable for TrendMode {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for TrendMode {
+    const KIND: &'static str = "trendmode";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let alpha = v
+            .iter()
+            .find_map(|s| {
+                if let crate::cse::ChainState::Mirror { value } = s {
+                    Some(*value)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.07);
+        if !(0.0..1.0).contains(&alpha) {
+            return None;
+        }
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < Self::min_data(&[alpha]) {
+            return None;
+        }
+
+        let mut trendmode_line = [0.0_f64];
+        let mut cycle_line = [0.0_f64];
+        let mut peak_line = [0.0_f64];
+        let state = State::init_state(
+            real,
+            alpha,
+            &mut trendmode_line,
+            &mut cycle_line,
+            &mut peak_line,
+        );
+        Some(state)
+    }
+}
+
 /// Validates `alpha`.
 ///
 /// * `0.0` — adaptive (derived from `SmoothPeriod` each bar via the embedded HD).

@@ -187,6 +187,31 @@ impl Planable for Kama {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Kama {
+    const KIND: &'static str = "kama";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < 2 {
+            return None;
+        }
+        let period = real.len() - 1;
+        if period == 0 {
+            return None;
+        }
+
+        let mut kama_line = [0.0_f64];
+        let mut ef_line = [0.0_f64];
+        let state = State::init_state(real, period, &mut kama_line, &mut ef_line);
+        Some(IndicatorState::new(real, period, state))
+    }
+}
+
 impl Indicator<INPUTS, OPTIONS> for Kama {
     type IndicatorState = IndicatorState;
     const INFO: Info = Info {

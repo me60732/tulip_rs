@@ -320,3 +320,37 @@ impl crate::cse::Planable for Psar {
         crate::cse::recipes::psar(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Psar {
+    const KIND: &'static str = "psar";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let mut mirrors = v.iter().filter_map(|s| {
+            if let crate::cse::ChainState::Mirror { value } = s {
+                Some(*value)
+            } else {
+                None
+            }
+        });
+        let af_step = mirrors.next().unwrap_or(0.02);
+        let max_af = mirrors.next().unwrap_or(0.2);
+        validate_options(&[af_step, max_af]).ok()?;
+
+        let [high, low] = windows else {
+            return None;
+        };
+        if high.len() < Self::min_data(&[af_step, max_af])
+            || low.len() < 2
+            || high.len() != low.len()
+        {
+            return None;
+        }
+
+        let mut psar_line = [0.0_f64];
+        let state = State::init_state(high, low, af_step, max_af, &mut psar_line);
+        Some(IndicatorState::new(state, high, low))
+    }
+}

@@ -268,6 +268,52 @@ impl Planable for Vidya {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Vidya {
+    const KIND: &'static str = "vidya";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < 2 {
+            return None;
+        }
+
+        let long_period = real.len();
+        let short_period = (long_period / 2).max(1);
+        let alpha = 0.2_f64;
+
+        let mut vidya_line = [0.0_f64];
+        let mut short_sma_line = [0.0_f64];
+        let mut long_sma_line = [0.0_f64];
+        let mut short_sd_line = [0.0_f64];
+        let mut long_sd_line = [0.0_f64];
+
+        let state = State::init_state(
+            short_period,
+            long_period,
+            real,
+            alpha,
+            &mut vidya_line,
+            (
+                &mut short_sma_line,
+                &mut long_sma_line,
+                &mut short_sd_line,
+                &mut long_sd_line,
+            ),
+        );
+
+        Some(IndicatorState::new(
+            real,
+            state,
+            (short_period, long_period),
+        ))
+    }
+}
+
 impl Indicator<INPUTS, OPTIONS> for Vidya {
     type IndicatorState = IndicatorState;
     const INFO: Info = Info {

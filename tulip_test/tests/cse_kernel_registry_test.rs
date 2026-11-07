@@ -3936,6 +3936,147 @@ mod tests {
         }
     }
 
+    /// C2 Batch 1: standalone packed twins that are structurally lane-packable.
+    ///
+    /// - `apo_n` / `ppo_n`: two price-sourced EMA chains over the same source
+    /// - `macd_n`: short/long EMAs share source (signal EMA stays scalar)
+    /// - `adosc_s_l`: two EMAs over the same derived AD source
+    /// - `vosc_s_l`: two price-sourced SMAs over one volume stream
+    #[test]
+    fn standalone_packed_twins_match_scalar_batch_1() {
+        use tulip_rs::cse::kernel::registry::{
+            adosc_s_l, adosc_s_l_p, apo_n, apo_n_p, macd_n, macd_n_p, ppo_n, ppo_n_p, vosc_s_l,
+            vosc_s_l_p,
+        };
+        use tulip_rs::indicators::vosc::Vosc;
+
+        let cmp = |name: &str,
+                   scalar_rows: Vec<tulip_rs::cse::query::RowRef>,
+                   packed_rows: Vec<tulip_rs::cse::query::RowRef>| {
+            assert_eq!(
+                scalar_rows.len(),
+                packed_rows.len(),
+                "{name}: packed/scalar row count"
+            );
+            for (i, (s, p)) in scalar_rows.iter().zip(packed_rows.iter()).enumerate() {
+                assert_bits(
+                    s.as_slice(),
+                    p.as_slice(),
+                    &format!("{name}: row {i} packed == scalar"),
+                );
+            }
+        };
+
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            // APO
+            {
+                let req = Request::new().add(Apo::recipe(&[12.0, 26.0]), None);
+                let streams = [base.as_slice()];
+                let (_a, _sig, vals, _) = erase_request(&req).unwrap();
+                cmp("apo_n", apo_n(&vals, &streams), apo_n_p(&vals, &streams));
+            }
+
+            // PPO
+            {
+                let req = Request::new().add(Ppo::recipe(&[12.0, 26.0]), None);
+                let streams = [base.as_slice()];
+                let (_a, _sig, vals, _) = erase_request(&req).unwrap();
+                cmp("ppo_n", ppo_n(&vals, &streams), ppo_n_p(&vals, &streams));
+            }
+
+            // MACD
+            {
+                let req = Request::new().add(Macd::recipe(&[12.0, 26.0, 9.0]), None);
+                let streams = [base.as_slice()];
+                let (_a, _sig, vals, _) = erase_request(&req).unwrap();
+                cmp("macd_n", macd_n(&vals, &streams), macd_n_p(&vals, &streams));
+            }
+
+            // ADOSC
+            {
+                let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+                let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+                let vol = volume(base.len());
+                let streams = [
+                    hi.as_slice(),
+                    lo.as_slice(),
+                    base.as_slice(),
+                    vol.as_slice(),
+                ];
+                let req = Request::new().add(Adosc::recipe(&[3.0, 10.0]), None);
+                let (_a, _sig, vals, _) = erase_request(&req).unwrap();
+                cmp(
+                    "adosc_s_l",
+                    adosc_s_l(&vals, &streams),
+                    adosc_s_l_p(&vals, &streams),
+                );
+            }
+
+            // VOSC
+            {
+                let vol = volume(base.len());
+                let streams = [vol.as_slice()];
+                let req = Request::new().add(Vosc::recipe(&[6.0, 14.0]), None);
+                let (_a, _sig, vals, _) = erase_request(&req).unwrap();
+                cmp(
+                    "vosc_s_l",
+                    vosc_s_l(&vals, &streams),
+                    vosc_s_l_p(&vals, &streams),
+                );
+            }
+        }
+    }
+
+    /// C2 Batch 2: standalone packed twin parity for KVO.
+    ///
+    /// `kvo_n` has two EMA chains (`short_period`, `long_period`) over the same
+    /// derived KVO flow source, making it a non-vacuous same-source packing case.
+    #[test]
+    fn standalone_packed_twin_match_scalar_batch_2_kvo() {
+        use tulip_rs::cse::kernel::registry::{kvo_n, kvo_n_p};
+        use tulip_rs::indicators::kvo::Kvo;
+
+        let cmp = |name: &str,
+                   scalar_rows: Vec<tulip_rs::cse::query::RowRef>,
+                   packed_rows: Vec<tulip_rs::cse::query::RowRef>| {
+            assert_eq!(
+                scalar_rows.len(),
+                packed_rows.len(),
+                "{name}: packed/scalar row count"
+            );
+            for (i, (s, p)) in scalar_rows.iter().zip(packed_rows.iter()).enumerate() {
+                assert_bits(
+                    s.as_slice(),
+                    p.as_slice(),
+                    &format!("{name}: row {i} packed == scalar"),
+                );
+            }
+        };
+
+        for base in [
+            wiggle(),
+            series(680, |i| 100.0 + i as f64 * 0.05),
+            series(700, |_| 100.0),
+        ] {
+            let hi: Vec<f64> = base.iter().map(|v| v + 2.0).collect();
+            let lo: Vec<f64> = base.iter().map(|v| v - 1.0).collect();
+            let vol = volume(base.len());
+            let streams = [
+                hi.as_slice(),
+                lo.as_slice(),
+                base.as_slice(),
+                vol.as_slice(),
+            ];
+            let req = Request::new().add(Kvo::recipe(&[34.0, 55.0]), None);
+            let (_a, _sig, vals, _) = erase_request(&req).unwrap();
+            cmp("kvo_n", kvo_n(&vals, &streams), kvo_n_p(&vals, &streams));
+        }
+    }
+
     /// ADOSC + APO + PPO in one arena, bit-exact against the three HANDS — each
     /// called with its own arity (`Adosc` gets OHLCV, `Apo`/`Ppo` get close
     /// only). This is the test that would fail if the co-request had bound apo/ppo

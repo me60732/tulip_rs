@@ -233,3 +233,37 @@ impl Planable for SmaEnvelope {
         crate::cse::recipes::smaenvelope(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for SmaEnvelope {
+    const KIND: &'static str = "smaenvelope";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let period_from_chain = v.iter().find_map(|s| {
+            if let crate::cse::ChainState::Sma { period, .. } = s {
+                Some(*period as usize)
+            } else {
+                None
+            }
+        });
+
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < 2 {
+            return None;
+        }
+
+        let period = period_from_chain.unwrap_or(real.len() - 1);
+        if period == 0 || real.len() < period {
+            return None;
+        }
+
+        // Fallback when recipe tail does not carry percentage yet.
+        let percentage = 1.0_f64;
+        let state = State::init_state(real, period, percentage);
+        Some(IndicatorState::new(real, state, period))
+    }
+}

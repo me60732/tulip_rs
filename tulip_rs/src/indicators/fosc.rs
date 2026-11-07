@@ -346,3 +346,39 @@ impl Planable for Fosc {
         crate::cse::recipes::fosc(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Fosc {
+    const KIND: &'static str = "fosc";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < 3 {
+            return None;
+        }
+        let period = real.len() - 2;
+        if period == 0 {
+            return None;
+        }
+
+        let mut tsf_line = [0.0_f64];
+        let mut linreg_line = [0.0_f64];
+        let mut slope_line = [0.0_f64];
+        let mut intercept_line = [0.0_f64];
+        let state = State::init_state(
+            real,
+            period,
+            (
+                &mut tsf_line,
+                &mut linreg_line,
+                &mut slope_line,
+                &mut intercept_line,
+            ),
+        );
+        Some(IndicatorState::new(state, real, period))
+    }
+}

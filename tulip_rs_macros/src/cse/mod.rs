@@ -475,6 +475,37 @@ mod tests {
         src.chars().filter(|c| !c.is_whitespace()).collect()
     }
 
+    fn packed_group_count(src: &str) -> usize {
+        (0..32)
+            .filter(|i| src.contains(&format!("g{}_m", i)))
+            .count()
+    }
+
+    /// Phase-3 discovery gate: under CURRENT classifier rules, the candidate
+    /// standalone rows remain vacuous for lane grouping (no `gN_m` declarations).
+    ///
+    /// This is the conservative precondition check before any `_p` row additions:
+    /// if every candidate yields zero groups, Phase 3 proceeds via the no-op path.
+    #[test]
+    fn discovery_phase3_candidates_nonvacuous_gate() {
+        let cases: Vec<(&str, Vec<(&str, Vec<Arg>)>)> = vec![
+            ("donchianchannel", vec![("DonchianChannel", vec![l(20.0)])]),
+            ("willr", vec![("Willr", vec![l(20.0)])]),
+            ("aroon", vec![("Aroon", vec![l(20.0)])]),
+            ("aroon_osc", vec![("AroonOsc", vec![l(20.0)])]),
+            ("stochrsi", vec![("Stochrsi", vec![l(14.0)])]),
+        ];
+
+        for (name, recipes) in cases {
+            let packed_src = canon(codegen::expand(&[build(&recipes, true)]).to_string());
+            let groups = packed_group_count(&packed_src);
+            assert_eq!(
+                groups, 0,
+                "{name}: expected no lane groups under current classifier; found {groups}"
+            );
+        }
+    }
+
     /// STOCH on the real arena: %D rolls the SAME BAR's %K output, so no fused
     /// push can carry both — the plan must refuse, and no fused container may
     /// appear in the kernel. This is the shape the user pointed at in

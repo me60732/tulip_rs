@@ -1,4 +1,4 @@
-use tulip_rs::cse::{restorer_for, ChainState, IndicatorStateBox};
+use tulip_rs::cse::{restorer_for, restorer_for_with_options, ChainState, IndicatorStateBox};
 
 #[test]
 fn restorer_for_maps_new_stateless_variants() {
@@ -234,6 +234,91 @@ fn restorer_for_maps_new_stateful_variants() {
     );
     assert!(matches!(got, IndicatorStateBox::Vosc(_)));
 
+    let chaikinmf = restorer_for("chaikinmf").expect("missing restorer for chaikinmf");
+    let cmf_high = [11.0, 12.0, 13.0];
+    let cmf_low = [10.0, 11.0, 12.0];
+    let cmf_close = [10.5, 11.5, 12.5];
+    let cmf_volume = [100.0, 120.0, 130.0];
+    let got = chaikinmf(
+        vec![
+            ChainState::Sma {
+                sum: 1.0,
+                period: 3,
+            },
+            ChainState::Sma {
+                sum: 350.0,
+                period: 3,
+            },
+        ],
+        &[&cmf_high, &cmf_low, &cmf_close, &cmf_volume],
+    );
+    assert!(matches!(got, IndicatorStateBox::Chaikinmf(_)));
+
+    let mfi = restorer_for("mfi").expect("missing restorer for mfi");
+    let mfi_high = [11.0, 12.0, 13.0];
+    let mfi_low = [10.0, 11.0, 12.0];
+    let mfi_close = [10.5, 11.5, 12.5];
+    let mfi_volume = [100.0, 120.0, 130.0];
+    let got = mfi(
+        vec![
+            ChainState::RollAge {
+                ring: vec![11.5],
+                cursor: 0,
+                n: 1,
+            },
+            ChainState::Sma {
+                sum: 2_500.0,
+                period: 3,
+            },
+            ChainState::Sma {
+                sum: 1_500.0,
+                period: 3,
+            },
+        ],
+        &[&mfi_high, &mfi_low, &mfi_close, &mfi_volume],
+    );
+    assert!(matches!(got, IndicatorStateBox::Mfi(_)));
+
+    let vortex = restorer_for("vortex").expect("missing restorer for vortex");
+    let vx_high = [11.0, 12.0, 13.0, 14.0];
+    let vx_low = [10.0, 11.0, 12.0, 13.0];
+    let vx_close = [10.5, 11.5, 12.5, 13.5];
+    let got = vortex(
+        vec![
+            ChainState::Sma {
+                sum: 3.0,
+                period: 3,
+            },
+            ChainState::Sma {
+                sum: 3.0,
+                period: 3,
+            },
+            ChainState::Sma {
+                sum: 4.5,
+                period: 3,
+            },
+        ],
+        &[&vx_high, &vx_low, &vx_close],
+    );
+    assert!(matches!(got, IndicatorStateBox::Vortex(_)));
+
+    let trima = restorer_for("trima").expect("missing restorer for trima");
+    let trima_real = [100.0, 101.0, 102.0, 103.0, 104.0];
+    let got = trima(
+        vec![
+            ChainState::Sma {
+                sum: 306.0,
+                period: 3,
+            },
+            ChainState::Sma {
+                sum: 306.0,
+                period: 3,
+            },
+        ],
+        &[&trima_real],
+    );
+    assert!(matches!(got, IndicatorStateBox::Trima(_)));
+
     let roc = restorer_for("roc").expect("missing restorer for roc");
     let roc_tail = [100.0, 101.0, 103.0, 102.0];
     let got = roc(vec![], &[&roc_tail]);
@@ -243,11 +328,201 @@ fn restorer_for_maps_new_stateful_variants() {
     let rocr_tail = [100.0, 101.0, 103.0, 102.0];
     let got = rocr(vec![], &[&rocr_tail]);
     assert!(matches!(got, IndicatorStateBox::Rocr(_)));
+
+    let real_long: Vec<f64> = (1..=80).map(|x| x as f64).collect();
+
+    let adaptivemsw = restorer_for("adaptivemsw").expect("missing restorer for adaptivemsw");
+    let got = adaptivemsw(vec![], &[real_long.as_slice()]);
+    assert!(matches!(got, IndicatorStateBox::AdaptiveMsw(_)));
+
+    let cybercycle = restorer_for("cybercycle").expect("missing restorer for cybercycle");
+    let got = cybercycle(
+        vec![ChainState::Mirror { value: 0.07 }],
+        &[real_long.as_slice()],
+    );
+    assert!(matches!(got, IndicatorStateBox::Cybercycle(_)));
+
+    let instantaneoustrendline = restorer_for("instantaneoustrendline")
+        .expect("missing restorer for instantaneoustrendline");
+    let got = instantaneoustrendline(vec![], &[real_long.as_slice()]);
+    assert!(matches!(got, IndicatorStateBox::Instantaneoustrendline(_)));
+
+    let mama = restorer_for("mama").expect("missing restorer for mama");
+    let got = mama(
+        vec![
+            ChainState::Mirror { value: 0.5 },
+            ChainState::Mirror { value: 0.05 },
+        ],
+        &[real_long.as_slice()],
+    );
+    assert!(matches!(got, IndicatorStateBox::Mama(_)));
+
+    let high: Vec<f64> = (1..=80).map(|x| x as f64 + 1.0).collect();
+    let low: Vec<f64> = (1..=80).map(|x| x as f64 - 1.0).collect();
+
+    let psar = restorer_for("psar").expect("missing restorer for psar");
+    let got = psar(
+        vec![
+            ChainState::Mirror { value: 0.02 },
+            ChainState::Mirror { value: 0.2 },
+        ],
+        &[high.as_slice(), low.as_slice()],
+    );
+    assert!(matches!(got, IndicatorStateBox::Psar(_)));
+
+    let trendmode = restorer_for("trendmode").expect("missing restorer for trendmode");
+    let got = trendmode(
+        vec![ChainState::Mirror { value: 0.07 }],
+        &[real_long.as_slice()],
+    );
+    assert!(matches!(got, IndicatorStateBox::Trendmode(_)));
+
+    let ccfisher = restorer_for("ccfisher").expect("missing restorer for ccfisher");
+    let got = ccfisher(
+        vec![ChainState::Mirror { value: 0.07 }],
+        &[real_long.as_slice()],
+    );
+    assert!(matches!(got, IndicatorStateBox::Ccfisher(_)));
+
+    let homodynediscriminator =
+        restorer_for("homodynediscriminator").expect("missing restorer for homodynediscriminator");
+    let got = homodynediscriminator(vec![], &[real_long.as_slice()]);
+    assert!(matches!(got, IndicatorStateBox::Homodynediscriminator(_)));
+
+    let msw = restorer_for("msw").expect("missing restorer for msw");
+    let msw_tail = [100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0];
+    let got = msw(vec![], &[&msw_tail]);
+    assert!(matches!(got, IndicatorStateBox::Msw(_)));
+
+    let linreg = restorer_for("linreg").expect("missing restorer for linreg");
+    let linreg_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
+    let got = linreg(vec![], &[&linreg_tail]);
+    assert!(matches!(got, IndicatorStateBox::Linreg(_)));
+
+    let tsf = restorer_for("tsf").expect("missing restorer for tsf");
+    let tsf_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
+    let got = tsf(vec![], &[&tsf_tail]);
+    assert!(matches!(got, IndicatorStateBox::Tsf(_)));
+
+    let fosc = restorer_for("fosc").expect("missing restorer for fosc");
+    let fosc_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0];
+    let got = fosc(vec![], &[&fosc_tail]);
+    assert!(matches!(got, IndicatorStateBox::Fosc(_)));
+
+    let kama = restorer_for("kama").expect("missing restorer for kama");
+    let kama_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0];
+    let got = kama(vec![], &[&kama_tail]);
+    assert!(matches!(got, IndicatorStateBox::Kama(_)));
+
+    let keltnerchannel =
+        restorer_for("keltnerchannel").expect("missing restorer for keltnerchannel");
+    let kc_high = [11.0, 12.0, 13.0, 14.0, 15.0, 16.0];
+    let kc_low = [9.0, 10.0, 11.0, 12.0, 13.0, 14.0];
+    let kc_close = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
+    let got = keltnerchannel(vec![], &[&kc_high, &kc_low, &kc_close]);
+    assert!(matches!(got, IndicatorStateBox::Keltnerchannel(_)));
+
+    let smaenvelope = restorer_for("smaenvelope").expect("missing restorer for smaenvelope");
+    let se_real = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
+    let got = smaenvelope(
+        vec![ChainState::Sma {
+            sum: 65.0,
+            period: 5,
+        }],
+        &[&se_real],
+    );
+    assert!(matches!(got, IndicatorStateBox::Smaenvelope(_)));
+
+    let vidya = restorer_for("vidya").expect("missing restorer for vidya");
+    let vidya_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0];
+    let got = vidya(vec![], &[&vidya_tail]);
+    assert!(matches!(got, IndicatorStateBox::Vidya(_)));
+}
+
+#[test]
+fn restorer_for_with_options_honors_non_default_options() {
+    let real_long: Vec<f64> = (1..=100).map(|x| x as f64).collect();
+
+    let cybercycle =
+        restorer_for_with_options("cybercycle", &[0.2]).expect("missing option-aware cybercycle");
+    let got = cybercycle(vec![], &[real_long.as_slice()]);
+    match got {
+        IndicatorStateBox::Cybercycle(state) => {
+            let (_coef, d1, _d2) = tulip_rs::indicators::cybercycle::multiplier(0.2);
+            assert!((state.d1 - d1).abs() < 1e-12);
+        }
+        _ => panic!("wrong variant for option-aware cybercycle"),
+    }
+
+    let trendmode =
+        restorer_for_with_options("trendmode", &[0.2]).expect("missing option-aware trendmode");
+    let got = trendmode(vec![], &[real_long.as_slice()]);
+    match got {
+        IndicatorStateBox::Trendmode(state) => assert!((state.alpha - 0.2).abs() < 1e-12),
+        _ => panic!("wrong variant for option-aware trendmode"),
+    }
+
+    let ccfisher =
+        restorer_for_with_options("ccfisher", &[0.2]).expect("missing option-aware ccfisher");
+    let got = ccfisher(vec![], &[real_long.as_slice()]);
+    match got {
+        IndicatorStateBox::Ccfisher(state) => assert!((state.alpha - 0.2).abs() < 1e-12),
+        _ => panic!("wrong variant for option-aware ccfisher"),
+    }
+
+    let mama = restorer_for_with_options("mama", &[0.8, 0.1]).expect("missing option-aware mama");
+    let got = mama(vec![], &[real_long.as_slice()]);
+    match got {
+        IndicatorStateBox::Mama(state) => {
+            assert!((state.fast_limit - 0.8).abs() < 1e-12);
+            assert!((state.slow_limit - 0.1).abs() < 1e-12);
+        }
+        _ => panic!("wrong variant for option-aware mama"),
+    }
+
+    let kc_high: Vec<f64> = (1..=80).map(|x| x as f64 + 1.0).collect();
+    let kc_low: Vec<f64> = (1..=80).map(|x| x as f64 - 1.0).collect();
+    let kc_close: Vec<f64> = (1..=80).map(|x| x as f64).collect();
+
+    let keltner = restorer_for_with_options("keltnerchannel", &[20.0, 3.5])
+        .expect("missing option-aware keltnerchannel");
+    let got = keltner(
+        vec![],
+        &[kc_high.as_slice(), kc_low.as_slice(), kc_close.as_slice()],
+    );
+    match got {
+        IndicatorStateBox::Keltnerchannel(state) => assert!((state.step - 3.5).abs() < 1e-12),
+        _ => panic!("wrong variant for option-aware keltnerchannel"),
+    }
+
+    // Invalid option payloads should fail fast (proves option-aware path is used,
+    // not fallback defaults).
+    let psar = restorer_for_with_options("psar", &[0.2, 0.1]).expect("missing option-aware psar");
+    let psar_high = [11.0, 12.0, 13.0];
+    let psar_low = [9.0, 10.0, 11.0];
+    let got = psar(vec![], &[&psar_high, &psar_low]);
+    assert!(matches!(got, IndicatorStateBox::Other));
+
+    let smaenvelope = restorer_for_with_options("smaenvelope", &[20.0, 0.0])
+        .expect("missing option-aware smaenvelope");
+    let se_real = [
+        10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0,
+        25.0, 26.0, 27.0, 28.0, 29.0, 30.0,
+    ];
+    let got = smaenvelope(vec![], &[&se_real]);
+    assert!(matches!(got, IndicatorStateBox::Other));
+
+    let vidya =
+        restorer_for_with_options("vidya", &[10.0, 20.0, 1.2]).expect("missing option-aware vidya");
+    let vd_real: Vec<f64> = (1..=30).map(|x| x as f64).collect();
+    let got = vidya(vec![], &[vd_real.as_slice()]);
+    assert!(matches!(got, IndicatorStateBox::Other));
 }
 
 #[test]
 fn restorer_for_unknown_kind_is_none() {
     assert!(restorer_for("definitely_not_a_kind").is_none());
+    assert!(restorer_for_with_options("definitely_not_a_kind", &[]).is_none());
 }
 
 #[test]

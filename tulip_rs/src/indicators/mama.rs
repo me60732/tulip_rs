@@ -404,6 +404,48 @@ impl crate::cse::Planable for Mama {
     }
 }
 
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Mama {
+    const KIND: &'static str = "mama";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let mut mirrors = v.iter().filter_map(|s| {
+            if let crate::cse::ChainState::Mirror { value } = s {
+                Some(*value)
+            } else {
+                None
+            }
+        });
+        let fast_limit = mirrors.next().unwrap_or(0.5);
+        let slow_limit = mirrors.next().unwrap_or(0.05);
+        validate_options(&[fast_limit, slow_limit]).ok()?;
+
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < Self::min_data(&[fast_limit, slow_limit]) {
+            return None;
+        }
+
+        let mut mama_line = [0.0_f64];
+        let mut fama_line = [0.0_f64];
+        let mut dc_period_line = [0.0_f64];
+        let mut alpha_line = [0.0_f64];
+        let state = State::init_state(
+            real,
+            fast_limit,
+            slow_limit,
+            &mut mama_line,
+            &mut fama_line,
+            &mut dc_period_line,
+            &mut alpha_line,
+        );
+        Some(state)
+    }
+}
+
 /// Validates MAMA options.
 ///
 /// # Errors

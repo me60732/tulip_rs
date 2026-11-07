@@ -444,3 +444,37 @@ impl crate::cse::Planable for Cybercycle {
         crate::cse::recipes::cybercycle(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Cybercycle {
+    const KIND: &'static str = "cybercycle";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let alpha = v
+            .iter()
+            .find_map(|s| {
+                if let crate::cse::ChainState::Mirror { value } = s {
+                    Some(*value)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.07);
+        if !(alpha > 0.0 && alpha < 1.0) {
+            return None;
+        }
+        let [real] = windows else {
+            return None;
+        };
+        if real.len() < Self::min_data(&[alpha]) {
+            return None;
+        }
+
+        let mut cycle_line = [0.0_f64];
+        let mut trigger_line = [0.0_f64];
+        let state = State::init_state(real, alpha, &mut cycle_line, &mut trigger_line);
+        Some(state)
+    }
+}

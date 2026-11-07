@@ -229,3 +229,33 @@ impl Planable for ChaikinMf {
         crate::cse::recipes::chaikinmf(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for ChaikinMf {
+    const KIND: &'static str = "chaikinmf";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { period, .. }, crate::cse::ChainState::Sma { .. }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        if windows.len() < 4 {
+            return None;
+        }
+
+        let period = *period as usize;
+        let (high, low, close, volume) = (windows[0], windows[1], windows[2], windows[3]);
+        if high.len() < period
+            || low.len() < period
+            || close.len() < period
+            || volume.len() < period
+        {
+            return None;
+        }
+
+        Some(State::init_state((high, low, close, volume), period))
+    }
+}

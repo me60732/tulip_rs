@@ -299,3 +299,30 @@ impl Planable for Vortex {
         crate::cse::recipes::vortex(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Vortex {
+    const KIND: &'static str = "vortex";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { period, .. }, crate::cse::ChainState::Sma { .. }, crate::cse::ChainState::Sma { .. }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        if windows.len() < 3 {
+            return None;
+        }
+
+        let period = *period as usize;
+        let (high, low, close) = (windows[0], windows[1], windows[2]);
+        if high.len() < period + 1 || low.len() < period + 1 || close.len() < period + 1 {
+            return None;
+        }
+
+        let mut tr_scratch = vec![0.0_f64; high.len()];
+        Some(State::init_state(high, low, close, period, &mut tr_scratch))
+    }
+}

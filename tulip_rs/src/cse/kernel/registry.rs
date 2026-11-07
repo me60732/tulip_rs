@@ -73,6 +73,7 @@ tulip_rs_macros::kernel! {
     // KVO = bespoke KvoFlow machine (4-state trend flip-flop + cm accumulator)
     // feeding two EMA chains and a Sub. First vf seeds both EMAs directly at i==1.
     kvo_n: Kvo(short_period, long_period);
+    kvo_n_p: packed Kvo(short_period, long_period);
 
     // TRVI = SeededEma(seed: high-low range, fold: tr) + RollAge, same ring
     // shape as cvi, but the EMA's seed and fold formulas differ (custom-seeded).
@@ -123,8 +124,11 @@ tulip_rs_macros::kernel! {
     // EMA family standalone floors — the base recurrence without sharing.
     ema_n: Ema(p);
     apo_n: Apo(s, l);
+    apo_n_p: packed Apo(s, l);
     ppo_n: Ppo(s, l);
+    ppo_n_p: packed Ppo(s, l);
     macd_n: Macd(s, l, g);
+    macd_n_p: packed Macd(s, l, g);
     // Rolling family standalone floors — each independently recomputes
     // its own mean/roll/stddev over close.
     sma_n: Sma(p);
@@ -232,6 +236,7 @@ tulip_rs_macros::kernel! {
     // failed measurably on; here it costs no new machinery, because a
     // derived-source Ema is the same arm a price-source one uses.
     adosc_s_l: Adosc(s, l);
+    adosc_s_l_p: packed Adosc(s, l);
     // THE CROSS-CONVENTION CO-REQUEST — the shape this registry used to refuse.
     // It used to be authored as ONE hand-owning recipe (`AdoscApoPpo`, which
     // inlined the apo/ppo chains over `Input{2}`) because stream slots were
@@ -440,6 +445,7 @@ tulip_rs_macros::kernel! {
     dpo_n: Dpo(p);
     vwma_n: Vwma(p);
     vosc_s_l: Vosc(s, l);
+    vosc_s_l_p: packed Vosc(s, l);
     // CHAIKIN MONEY FLOW, registered as a HUB with `Ad` rather than as another lone
     // floor, because the two share their column set AND their arithmetic: both are
     // `hlcvol()`, and `chaikinmf.rs::calc_mfv` opens with the same `(high - low)` the AD
