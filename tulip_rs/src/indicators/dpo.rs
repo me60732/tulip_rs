@@ -242,3 +242,28 @@ impl Planable for Dpo {
         crate::cse::recipes::dpo(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Dpo {
+    const KIND: &'static str = "dpo";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
+            return None;
+        };
+        if windows.is_empty() {
+            return None;
+        }
+
+        let period = *period as usize;
+        if windows[0].len() < period {
+            return None;
+        }
+
+        let state = State(SmaState::new(*sum, period).into_warm());
+        let dpo_period = period / 2 + 1;
+        Some(IndicatorState::new(windows[0], state, period, dpo_period))
+    }
+}

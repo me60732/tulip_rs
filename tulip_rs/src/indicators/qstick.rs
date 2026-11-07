@@ -219,3 +219,28 @@ impl Planable for QStick {
         crate::cse::recipes::qstick(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for QStick {
+    const KIND: &'static str = "qstick";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
+            return None;
+        };
+        if windows.len() < 2 {
+            return None;
+        }
+
+        let period = *period as usize;
+        let (open, close) = (windows[0], windows[1]);
+        if open.len() < period || close.len() < period {
+            return None;
+        }
+
+        let state = State(SmaState::new(*sum, period).into_warm());
+        Some(IndicatorState::new(open, close, state, period))
+    }
+}

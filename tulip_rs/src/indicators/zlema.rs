@@ -187,3 +187,39 @@ impl Planable for Zlema {
         crate::cse::recipes::zlema(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Zlema {
+    const KIND: &'static str = "zlema";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Ema {
+            value: zlema,
+            period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        if windows.is_empty() {
+            return None;
+        }
+
+        let period = *period as usize;
+        let lag = ((period.saturating_sub(1)) / 2).max(1);
+        if windows[0].len() < lag {
+            return None;
+        }
+
+        let (multiplier, per) = multiplier(period);
+        let state = State::<Warm> {
+            zlema: *zlema,
+            per,
+            multiplier,
+            state: std::marker::PhantomData,
+        };
+
+        Some(IndicatorState::new(windows[0], state, lag))
+    }
+}

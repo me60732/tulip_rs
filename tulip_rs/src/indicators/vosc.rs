@@ -276,3 +276,41 @@ impl Planable for Vosc {
         crate::cse::recipes::vosc(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Vosc {
+    const KIND: &'static str = "vosc";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma {
+            sum: short_sum,
+            period: short_period,
+        }, crate::cse::ChainState::Sma {
+            sum: long_sum,
+            period: long_period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        if windows.is_empty() {
+            return None;
+        }
+
+        let (short_period, long_period) = (*short_period as usize, *long_period as usize);
+        if short_period >= long_period || windows[0].len() < long_period {
+            return None;
+        }
+
+        let state = State {
+            short_state: SmaState::new(*short_sum, short_period).into_warm(),
+            long_state: SmaState::new(*long_sum, long_period).into_warm(),
+        };
+        Some(IndicatorState::new(
+            windows[0],
+            state,
+            (short_period, long_period),
+        ))
+    }
+}

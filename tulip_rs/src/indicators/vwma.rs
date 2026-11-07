@@ -230,3 +230,35 @@ impl Planable for Vwma {
         crate::cse::recipes::vwma(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Vwma {
+    const KIND: &'static str = "vwma";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Sma { sum, period }, crate::cse::ChainState::Sma {
+            sum: vol_sum,
+            period: period2,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        if windows.len() < 2 {
+            return None;
+        }
+
+        let period = *period as usize;
+        if *period2 as usize != period || windows[0].len() < period || windows[1].len() < period {
+            return None;
+        }
+
+        let state = State::<Warm> {
+            sum: *sum,
+            vol_sum: *vol_sum,
+            state: std::marker::PhantomData,
+        };
+        Some(IndicatorState::new(windows[0], windows[1], state, period))
+    }
+}

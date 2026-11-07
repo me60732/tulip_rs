@@ -208,6 +208,28 @@ pub enum IndicatorStateBox {
     Apo(crate::indicators::apo::State<Warm>),
     Macd(crate::indicators::macd::State<Warm>),
     Ppo(crate::indicators::ppo::State<Warm>),
+    AvgPrice(crate::indicators::avgprice::IndicatorState),
+    Typprice(crate::indicators::typprice::IndicatorState),
+    WcPrice(crate::indicators::wcprice::IndicatorState),
+    Bop(crate::indicators::bop::IndicatorState),
+    Marketfi(crate::indicators::marketfi::IndicatorState),
+    Dema(crate::indicators::dema::IndicatorState),
+    Tema(crate::indicators::tema::IndicatorState),
+    Trix(crate::indicators::trix::IndicatorState),
+    Roc(crate::indicators::roc::IndicatorState),
+    Rocr(crate::indicators::rocr::IndicatorState),
+    Qstick(crate::indicators::qstick::IndicatorState),
+    Zlema(crate::indicators::zlema::IndicatorState),
+    Highpass(crate::indicators::highpass::IndicatorState),
+    Supersmoother(crate::indicators::supersmoother::IndicatorState),
+    Roofingfilter(crate::indicators::roofingfilter::IndicatorState),
+    Dpo(crate::indicators::dpo::IndicatorState),
+    Emv(crate::indicators::emv::IndicatorState),
+    Obv(crate::indicators::obv::IndicatorState),
+    Wad(crate::indicators::wad::IndicatorState),
+    Vwap(crate::indicators::vwap::IndicatorState),
+    Vwma(crate::indicators::vwma::IndicatorState),
+    Vosc(crate::indicators::vosc::IndicatorState),
     /// E3 rolling recurrences — the hand's full continuable `IndicatorState`
     /// (`{real, state, period}`): the window `restore_state` now receives as its
     /// `window: &[f64]` argument is stitched in here, not left for the caller.
@@ -294,6 +316,39 @@ pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
                 .map(IndicatorStateBox::Ppo)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
+        k if k == <crate::indicators::avgprice::AvgPrice as Restorable<4, 0>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::avgprice::AvgPrice as Restorable<4, 0>>::restore_state(v, w)
+                    .map(IndicatorStateBox::AvgPrice)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::typprice::Typprice as Restorable<3, 0>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::typprice::Typprice as Restorable<3, 0>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Typprice)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::wcprice::WcPrice as Restorable<3, 0>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::wcprice::WcPrice as Restorable<3, 0>>::restore_state(v, w)
+                    .map(IndicatorStateBox::WcPrice)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::bop::Bop as Restorable<4, 0>>::KIND => Some(|v, w| {
+            <crate::indicators::bop::Bop as Restorable<4, 0>>::restore_state(v, w)
+                .map(IndicatorStateBox::Bop)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::marketfi::Marketfi as Restorable<3, 0>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::marketfi::Marketfi as Restorable<3, 0>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Marketfi)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
         k if k == <crate::indicators::wilders::Wilders as Restorable<1, 1>>::KIND => {
             Some(|v, w| {
                 <crate::indicators::wilders::Wilders as Restorable<1, 1>>::restore_state(v, w)
@@ -381,6 +436,97 @@ pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
         k if k == <crate::indicators::cmo::Cmo as Restorable<1, 1>>::KIND => Some(|v, w| {
             <crate::indicators::cmo::Cmo as Restorable<1, 1>>::restore_state(v, w)
                 .map(IndicatorStateBox::Cmo)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::dema::Dema as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::dema::Dema as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Dema)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::tema::Tema as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::tema::Tema as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Tema)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::trix::Trix as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::trix::Trix as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Trix)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::roc::Roc as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::roc::Roc as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Roc)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::rocr::Rocr as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::rocr::Rocr as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Rocr)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::qstick::QStick as Restorable<2, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::qstick::QStick as Restorable<2, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Qstick)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::zlema::Zlema as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::zlema::Zlema as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Zlema)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::highpass::HighPass as Restorable<1, 1>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::highpass::HighPass as Restorable<1, 1>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Highpass)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::supersmoother::SuperSmoother as Restorable<1, 1>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::supersmoother::SuperSmoother as Restorable<1, 1>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Supersmoother)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::roofingfilter::RoofingFilter as Restorable<1, 2>>::KIND => {
+            Some(|v, w| {
+                <crate::indicators::roofingfilter::RoofingFilter as Restorable<1, 2>>::restore_state(v, w)
+                    .map(IndicatorStateBox::Roofingfilter)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::dpo::Dpo as Restorable<1, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::dpo::Dpo as Restorable<1, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Dpo)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::emv::Emv as Restorable<3, 0>>::KIND => Some(|v, w| {
+            <crate::indicators::emv::Emv as Restorable<3, 0>>::restore_state(v, w)
+                .map(IndicatorStateBox::Emv)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::obv::Obv as Restorable<2, 0>>::KIND => Some(|v, w| {
+            <crate::indicators::obv::Obv as Restorable<2, 0>>::restore_state(v, w)
+                .map(IndicatorStateBox::Obv)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::wad::Wad as Restorable<3, 0>>::KIND => Some(|v, w| {
+            <crate::indicators::wad::Wad as Restorable<3, 0>>::restore_state(v, w)
+                .map(IndicatorStateBox::Wad)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::vwap::Vwap as Restorable<4, 0>>::KIND => Some(|v, w| {
+            <crate::indicators::vwap::Vwap as Restorable<4, 0>>::restore_state(v, w)
+                .map(IndicatorStateBox::Vwap)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::vwma::Vwma as Restorable<2, 1>>::KIND => Some(|v, w| {
+            <crate::indicators::vwma::Vwma as Restorable<2, 1>>::restore_state(v, w)
+                .map(IndicatorStateBox::Vwma)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::vosc::Vosc as Restorable<1, 2>>::KIND => Some(|v, w| {
+            <crate::indicators::vosc::Vosc as Restorable<1, 2>>::restore_state(v, w)
+                .map(IndicatorStateBox::Vosc)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         _ => None,

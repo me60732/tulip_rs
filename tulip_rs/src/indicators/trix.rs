@@ -261,3 +261,29 @@ impl Planable for Trix {
         crate::cse::recipes::trix(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Trix {
+    const KIND: &'static str = "trix";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Ema {
+            value: ema1,
+            period,
+        }, crate::cse::ChainState::Ema { value: ema2, .. }, crate::cse::ChainState::Ema { value: ema3, .. }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+
+        Some(State(TemaState {
+            dema_state: crate::indicators::dema::State {
+                ema_state: crate::indicators::ema::State::new(*ema1, *period as usize).into_warm(),
+                ema2: *ema2,
+            },
+            ema3: *ema3,
+        }))
+    }
+}

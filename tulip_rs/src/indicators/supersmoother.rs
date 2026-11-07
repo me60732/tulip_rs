@@ -227,3 +227,32 @@ impl Planable for SuperSmoother {
         crate::cse::recipes::supersmoother(_options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for SuperSmoother {
+    const KIND: &'static str = "supersmoother";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::SuperSmoother {
+            y1,
+            y2,
+            prev_real,
+            period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+
+        let (a1, a2, b0) = multiplier(*period as usize);
+        Some(State {
+            y1: *y1,
+            y2: *y2,
+            prev_real: *prev_real,
+            a1,
+            a2,
+            b0,
+        })
+    }
+}

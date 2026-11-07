@@ -208,3 +208,42 @@ impl Planable for Vwap {
         crate::cse::recipes::vwap(_options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Vwap {
+    const KIND: &'static str = "vwap";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Mirror { value: pv_sum }, crate::cse::ChainState::Mirror { value: vol_sum }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        Some(State {
+            pv_sum: *pv_sum,
+            vol_sum: *vol_sum,
+        })
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for Vwap {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> crate::indicator_types::SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        let mut all_outputs = Vec::with_capacity(N);
+        let mut all_states = Vec::with_capacity(N);
+
+        for option in options.iter() {
+            let (outputs, state) = Self::indicator(inputs, option, optional_outputs)?;
+            all_outputs.push(outputs);
+            all_states.push(state);
+        }
+
+        Ok((all_outputs, all_states))
+    }
+}

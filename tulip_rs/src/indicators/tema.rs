@@ -254,3 +254,29 @@ impl Planable for Tema {
         crate::cse::recipes::tema(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Tema {
+    const KIND: &'static str = "tema";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Ema {
+            value: ema1,
+            period,
+        }, crate::cse::ChainState::Ema { value: ema2, .. }, crate::cse::ChainState::Ema { value: ema3, .. }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+
+        Some(State {
+            dema_state: DemaState {
+                ema_state: crate::indicators::ema::State::new(*ema1, *period as usize).into_warm(),
+                ema2: *ema2,
+            },
+            ema3: *ema3,
+        })
+    }
+}

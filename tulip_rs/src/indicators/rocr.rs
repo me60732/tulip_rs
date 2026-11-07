@@ -159,3 +159,21 @@ impl Planable for Rocr {
         crate::cse::recipes::rocr(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Rocr {
+    const KIND: &'static str = "rocr";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        if !v.is_empty() || windows.is_empty() {
+            return None;
+        }
+        let period = windows[0].len();
+        if period == 0 {
+            return None;
+        }
+        Some(IndicatorState::new(windows[0], period))
+    }
+}

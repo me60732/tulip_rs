@@ -235,3 +235,47 @@ impl Planable for RoofingFilter {
         crate::cse::recipes::roofingfilter(_options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for RoofingFilter {
+    const KIND: &'static str = "roofingfilter";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::SuperSmoother {
+            y1: ss_y1,
+            y2: ss_y2,
+            prev_real: ss_prev_real,
+            period: ss_period,
+        }, crate::cse::ChainState::HighPass {
+            y1: hp_y1,
+            prev_real: hp_prev_real,
+            period: hp_period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+
+        let (hp_a1, hp_a2) = crate::indicators::highpass::multiplier(*hp_period as usize);
+        let (ss_a1, ss_a2, ss_b0) =
+            crate::indicators::supersmoother::multiplier(*ss_period as usize);
+
+        Some(State {
+            hp_state: HpState {
+                y1: *hp_y1,
+                prev_real: *hp_prev_real,
+                a1: hp_a1,
+                a2: hp_a2,
+            },
+            ss_state: SsState {
+                y1: *ss_y1,
+                y2: *ss_y2,
+                prev_real: *ss_prev_real,
+                a1: ss_a1,
+                a2: ss_a2,
+                b0: ss_b0,
+            },
+        })
+    }
+}

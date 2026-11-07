@@ -150,6 +150,26 @@ impl crate::cse::Planable for Ad {
     }
 }
 
+#[cfg(feature = "simd_options")]
+impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for Ad {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> crate::indicator_types::SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        let mut all_outputs = Vec::with_capacity(N);
+        let mut all_states = Vec::with_capacity(N);
+
+        for option in options.iter() {
+            let (outputs, state) = Self::indicator(inputs, option, optional_outputs)?;
+            all_outputs.push(outputs);
+            all_states.push(state);
+        }
+
+        Ok((all_outputs, all_states))
+    }
+}
+
 /// Rebuild `ad::State`: the recipe's one `Mirror{src: Node::Accum}` wrapping
 /// the running AD total.
 impl crate::cse::Restorable<INPUTS, OPTIONS> for Ad {

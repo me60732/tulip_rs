@@ -211,3 +211,29 @@ impl Planable for HighPass {
         crate::cse::recipes::highpass(_options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for HighPass {
+    const KIND: &'static str = "highpass";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::HighPass {
+            y1,
+            prev_real,
+            period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+
+        let (a1, a2) = multiplier(*period as usize);
+        Some(State {
+            y1: *y1,
+            prev_real: *prev_real,
+            a1,
+            a2,
+        })
+    }
+}

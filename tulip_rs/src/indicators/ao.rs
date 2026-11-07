@@ -273,6 +273,26 @@ impl crate::cse::Planable for Ao {
     }
 }
 
+#[cfg(feature = "simd_options")]
+impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for Ao {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> crate::indicator_types::SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        let mut all_outputs = Vec::with_capacity(N);
+        let mut all_states = Vec::with_capacity(N);
+
+        for option in options.iter() {
+            let (outputs, state) = Self::indicator(inputs, option, optional_outputs)?;
+            all_outputs.push(outputs);
+            all_states.push(state);
+        }
+
+        Ok((all_outputs, all_states))
+    }
+}
+
 /// `Ao::IndicatorState` IS `ao::State<Warm>` directly — no `{real, state, period}`
 /// wrapper like every other restorer here. So there is no `ChainState` to
 /// destructure at all: the hand's whole state (the shared `medprice` ring +

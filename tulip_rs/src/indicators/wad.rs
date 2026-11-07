@@ -151,3 +151,43 @@ impl Planable for Wad {
         crate::cse::recipes::wad(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Wad {
+    const KIND: &'static str = "wad";
+
+    fn restore_state(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::Mirror { value: wad }] = v.as_slice() else {
+            return None;
+        };
+        if windows.len() < 3 || windows[2].is_empty() {
+            return None;
+        }
+        Some(State {
+            prev_close: *windows[2].last().unwrap_or(&0.0),
+            wad: *wad,
+        })
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for Wad {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> crate::indicator_types::SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        let mut all_outputs = Vec::with_capacity(N);
+        let mut all_states = Vec::with_capacity(N);
+
+        for option in options.iter() {
+            let (outputs, state) = Self::indicator(inputs, option, optional_outputs)?;
+            all_outputs.push(outputs);
+            all_states.push(state);
+        }
+
+        Ok((all_outputs, all_states))
+    }
+}
