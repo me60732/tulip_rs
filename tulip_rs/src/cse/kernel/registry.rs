@@ -606,4 +606,9 @@ tulip_rs_macros::kernel! {
     // Outputs: mama (primary), fama (secondary sink), dc_period/alpha (optionals).
     // Options: fast_limit=0.5 (Ehlers default), slow_limit=0.05 (Ehlers default).
     mama_n: Mama(0.5, 0.05);
+
+    // adaptivemsw_n: AdaptiveMSW() — HD-derived adaptive period feeding a
+    // per-bar variable-window DFT over raw price history. Outputs sine +
+    // lead_sine, optional dc_period.
+    adaptivemsw_n: AdaptiveMSW();
 }

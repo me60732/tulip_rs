@@ -16,13 +16,13 @@
 //! * `Max` = IEEE maxNum via `f64::max` (the hand's own NaN rule).
 
 use crate::cse::signature::{
-    Signature, Values, K_ABS, K_ACCUM, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA, K_HIGHPASS, K_HMA,
-    K_HOMODYNEDISCRIMINATOR, K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED, K_IIRCLAMPEDPLAIN,
-    K_INPUT, K_KVOFLOW, K_LAG, K_LINREGFLOW, K_LN, K_MAX, K_MEANABSDEV, K_MIN, K_MIRROR, K_MUL,
-    K_NVI, K_PREV, K_PSAR, K_PVI, K_ROLLAGE, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SDFTLEAD,
-    K_SDFTROTATE, K_SEEDEDEMA, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERSMOOTHER, K_SUPERTREND,
-    K_TRAIL, K_VARIABLEALPHA, K_WHEREGE, K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS, K_WMA, MAX,
-    MAX_SINKS,
+    Signature, Values, K_ABS, K_ACCUM, K_ADAPTIVEMSW, K_ADD, K_CONST, K_DIV, K_EMA, K_FMA,
+    K_HIGHPASS, K_HMA, K_HOMODYNEDISCRIMINATOR, K_HTINPHASE, K_HTQUADRATURE, K_IIR, K_IIRCLAMPED,
+    K_IIRCLAMPEDPLAIN, K_INPUT, K_KVOFLOW, K_LAG, K_LINREGFLOW, K_LN, K_MAX, K_MEANABSDEV, K_MIN,
+    K_MIRROR, K_MUL, K_NVI, K_PREV, K_PSAR, K_PVI, K_ROLLAGE, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM,
+    K_SDFTLEAD, K_SDFTROTATE, K_SEEDEDEMA, K_SMA, K_SQRT, K_STDDEV, K_SUB, K_SUPERSMOOTHER,
+    K_SUPERTREND, K_TRAIL, K_VARIABLEALPHA, K_WHEREGE, K_WHEREGT, K_WHERELE, K_WHERELT, K_WILDERS,
+    K_WMA, MAX, MAX_SINKS,
 };
 use crate::ring_buffer::buffer::BufferElement;
 use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
@@ -1730,6 +1730,27 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                     } else {
                         let owner_k = SIG.a[k] as usize;
                         kvacc[owner_k][2]
+                    }
+                }
+                K_ADAPTIVEMSW => {
+                    // Adaptive MESA Sine Wave DFT over a live per-bar period
+                    // (`Node::AdaptiveMsw`): period from dc node, window over
+                    // raw stream history [t+1-period ..= t], then phase->sine.
+                    let f = vals.feeds[k] as usize;
+                    if t < f {
+                        0.0
+                    } else {
+                        let s = SIG.a[SIG.a[k] as usize] as usize;
+                        let dc = v[SIG.b[k] as usize];
+                        let period = ((dc + 0.5) as usize).clamp(6, (t + 1).min(50));
+                        let start = t + 1 - period;
+                        let window = &streams[s][start..=t];
+                        let (cos_tw, sin_tw) = crate::indicators::msw::twiddles_for_period(period);
+                        let (rp, ip) =
+                            crate::indicators::msw::dot_product_simd::<8>(window, cos_tw, sin_tw);
+                        let (sine, lead) = crate::indicators::msw::phase_from_rp_ip(rp, ip);
+                        kvacc[k][2] = lead;
+                        sine
                     }
                 }
                 crate::cse::signature::K_CYBERCYCLE => {

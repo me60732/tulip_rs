@@ -1298,6 +1298,28 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
                     };
                 });
             }
+            Kind::AdaptiveMsw => {
+                let ki = k;
+                let ss = stream_slot(node.a);
+                let dc = ev(node.b, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let dc_arr = #dc.to_array();
+                        let out: [f64; L] = std::array::from_fn(|a| {
+                            let t_abs = gate + i;
+                            let period = ((dc_arr[a] + 0.5) as usize).clamp(6, (t_abs + 1).min(50));
+                            let start = t_abs + 1 - period;
+                            let window = &streams[a][#ss][start..=t_abs];
+                            let (cos_tw, sin_tw) = crate::indicators::msw::twiddles_for_period(period);
+                            let (rp, ip) = crate::indicators::msw::dot_product_simd::<8>(window, cos_tw, sin_tw);
+                            let (sine, lead) = crate::indicators::msw::phase_from_rp_ip(rp, ip);
+                            kvaccw[a][#ki][2] = lead;
+                            sine
+                        });
+                        Simd::<f64, L>::from_array(out)
+                    };
+                });
+            }
             Kind::SdftLead => {
                 let owner_ki = node.a;
                 body.push(quote! {

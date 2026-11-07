@@ -146,6 +146,11 @@ pub fn mama(options: &[f64]) -> Recipe {
     cycle_ehlers::mama(options)
 }
 
+/// `AdaptiveMSW()` — true adaptive MESA Sine Wave with HD-driven period.
+pub fn adaptivemsw(options: &[f64]) -> Recipe {
+    cycle_ehlers::adaptivemsw(options)
+}
+
 /// `MEDPRICE = 0.5 * (high + low)` -- stateless, every bar publishes
 /// (`Sink::iface`, lead 0). Streams: 0 = high, 1 = low.
 pub fn medprice(_options: &[f64]) -> Recipe {

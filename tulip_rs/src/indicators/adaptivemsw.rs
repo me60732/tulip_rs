@@ -335,3 +335,11 @@ impl Indicator<INPUTS, OPTIONS> for AdaptiveMSW {
         )
     }
 }
+
+impl crate::cse::Planable for AdaptiveMSW {
+    /// The graph is leaf data — `crate::cse::recipes::adaptivemsw`:
+    /// `HomodyneDiscriminator(real)` + `AdaptiveMsw{src: real, dc}` + `SdftLead`.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        crate::cse::recipes::adaptivemsw(options)
+    }
+}

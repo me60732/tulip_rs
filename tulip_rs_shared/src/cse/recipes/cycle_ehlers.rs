@@ -90,6 +90,41 @@ pub fn mama(options: &[f64]) -> Recipe {
     r
 }
 
+/// `AdaptiveMSW()` — true adaptive MESA Sine Wave:
+/// `dc = HomodyneDiscriminator(real)`, then an adaptive-period DFT over
+/// `real[t+1-period..=t]` where `period = clamp(round(dc), 6, min(50, t+1))`.
+///
+/// `Node::AdaptiveMsw` publishes `sine` and caches `lead_sine` in
+/// `kvacc[k][2]` for the companion `Node::SdftLead` node.
+///
+/// Outputs (Info order): `sine`, `lead_sine`.
+/// Optional outputs: `dc_period` (the HD node output).
+/// First published bar is 22 (`min_data=23`), so lead = 22.
+pub fn adaptivemsw(options: &[f64]) -> Recipe {
+    let mut r = Recipe::price();
+    let real = r.add(Node::Input { stream: 0 });
+    r.tag(real, "real");
+
+    let hd = r.add(Node::HomodyneDiscriminator { src: real });
+    r.tag(hd, "dc_period");
+
+    let amsw = r.add(Node::AdaptiveMsw { src: real, dc: hd });
+    r.tag(amsw, "sine");
+
+    let lead = r.add(Node::SdftLead { owner: amsw });
+    r.tag(lead, "lead_sine");
+
+    r.kind = "adaptivemsw";
+    r.options = options.to_vec();
+    // Carry state lives in the HD node. AdaptiveMsw itself is pure per-bar
+    // recomputation plus same-bar lead cache for SdftLead.
+    r.tail_inputs = vec![hd];
+    r.outputs.push(Sink::iface_lead(amsw, 22));
+    r.outputs.push(Sink::iface_lead(lead, 22));
+    r.optional_outputs.push(Sink::iface_lead(hd, 22));
+    r
+}
+
 /// `Hilbert(hp, ss)` = `ht(ss(hp(real)))` split into I and Q — the last
 /// indicator-side graph, moved here because the graph is ENGINE data: when the
 /// node vocabulary changes this file changes, not the indicator module.

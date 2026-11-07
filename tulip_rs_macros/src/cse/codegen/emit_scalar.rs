@@ -1479,6 +1479,26 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     };
                 });
             }
+            Kind::AdaptiveMsw => {
+                // Adaptive MESA Sine Wave DFT over a live period from `dc`.
+                // `node.a` = raw source Input slot, `node.b` = dc node slot.
+                let ki = k;
+                let stream_s = p.nodes[node.a].a;
+                let dc = ev(node.b, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let t_abs = gate + i;
+                        let period = ((#dc + 0.5) as usize).clamp(6, (t_abs + 1).min(50));
+                        let start = t_abs + 1 - period;
+                        let window = &streams[#stream_s][start..=t_abs];
+                        let (cos_tw, sin_tw) = crate::indicators::msw::twiddles_for_period(period);
+                        let (rp, ip) = crate::indicators::msw::dot_product_simd::<8>(window, cos_tw, sin_tw);
+                        let (sine, lead) = crate::indicators::msw::phase_from_rp_ip(rp, ip);
+                        kvacc[#ki][2] = lead;
+                        sine
+                    };
+                });
+            }
             Kind::SdftLead => {
                 // Thin companion read of its owner's cached lead_sine -- the
                 // owner (node.a, an arena id) always has a FRESH kvacc value

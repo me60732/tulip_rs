@@ -5956,6 +5956,34 @@ mod tests {
     }
 
     #[test]
+    fn adaptivemsw_planable_bit_exact() {
+        use tulip_rs::indicators::adaptivemsw::AdaptiveMSW;
+        let req = Request::new().add(AdaptiveMSW::recipe(&[]), Some(&[true]));
+        for n in [23usize, 60, 700] {
+            let prices = series(n, |i| (i as f64 * 0.31).sin() * 8.0 + 105.0);
+            let streams = [prices.as_slice()];
+            let out = run_registered(&req, &streams).expect("adaptivemsw via Planable registered");
+            let inp = [prices.as_slice()];
+            let (results, _state) = AdaptiveMSW::indicator(&inp, &[], Some(&[true])).unwrap();
+            assert_bits(
+                &out.rows[0],
+                &results[0],
+                &format!("adaptivemsw sine row [Planable] n={}", n),
+            );
+            assert_bits(
+                &out.rows[1],
+                &results[1],
+                &format!("adaptivemsw lead row [Planable] n={}", n),
+            );
+            assert_bits(
+                &out.rows[2],
+                &results[2],
+                &format!("adaptivemsw dc_period row [Planable] n={}", n),
+            );
+        }
+    }
+
+    #[test]
     fn trendmode_planable_bit_exact() {
         use tulip_rs::indicators::trendmode::TrendMode;
         for alpha in [0.07, 0.2] {

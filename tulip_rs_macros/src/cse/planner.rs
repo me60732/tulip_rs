@@ -169,6 +169,9 @@ pub enum Kind {
     /// Ehlers FAMA following EMA - secondary output from Mama node.
     /// Reads Mama's output (`v[src]`) and alpha from Mama's `st[src]` slot.
     Fama,
+    /// Adaptive MESA Sine Wave DFT over a variable period from live dc input.
+    /// Scalar-only, a=src raw stream, b=dc node.
+    AdaptiveMsw,
 }
 
 impl Kind {
@@ -230,6 +233,7 @@ impl Kind {
             Kind::InstantaneousTrendline => 53,
             Kind::Mama => 54,
             Kind::Fama => 55,
+            Kind::AdaptiveMsw => 56,
         }
     }
 }
@@ -500,6 +504,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "CcFisher" => recipes::ccfisher(&opts),
             "InstantaneousTrendline" => recipes::instantaneoustrendline(&opts),
             "Mama" => recipes::mama(&opts),
+            "AdaptiveMSW" => recipes::adaptivemsw(&opts),
             "Volatility" => recipes::volatility(&opts),
             other => panic!("kernel!: unknown recipe {other}"),
         };
@@ -726,6 +731,10 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             Node::Fama { src } => {
                 // FAMA node: reads Mama's output (src) and alpha from st[src].
                 ANode::new_simple(Kind::Fama, src as usize, 0)
+            }
+            Node::AdaptiveMsw { src, dc } => {
+                // AdaptiveMSW DFT: structure = raw source stream + dc node input.
+                ANode::new_simple(Kind::AdaptiveMsw, src as usize, dc as usize)
             }
         };
         nodes.push(a);

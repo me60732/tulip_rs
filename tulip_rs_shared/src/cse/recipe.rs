@@ -645,6 +645,26 @@ pub enum Node {
     InstantaneousTrendline {
         src: Id,
     },
+    /// Adaptive MESA Sine Wave DFT (`adaptivemsw`): computes one bar's
+    /// `(sine, lead_sine)` from the raw source stream and a live DC-period
+    /// input (`dc`, usually `Node::HomodyneDiscriminator`).
+    ///
+    /// Per bar at absolute index `t`:
+    /// `period = clamp(round(dc), 6, min(50, t+1))`,
+    /// `window = src[t+1-period ..= t]` (oldest first),
+    /// then DFT dot-products against `msw::twiddles_for_period(period)` and
+    /// `msw::dot_product_simd::<8>`, finally
+    /// `msw::phase_from_rp_ip(rp, ip)`.
+    ///
+    /// Publishes `sine` and caches `lead_sine` in `kvacc[k][2]` for
+    /// `Node::SdftLead { owner: this }`.
+    ///
+    /// Scalar-only (same standing as `SdftRotate`/`HomodyneDiscriminator`):
+    /// each bar reads a variable-length raw stream window.
+    AdaptiveMsw {
+        src: Id,
+        dc: Id,
+    },
     Mama {
         src: Id,
         fast_limit_bits: u64,

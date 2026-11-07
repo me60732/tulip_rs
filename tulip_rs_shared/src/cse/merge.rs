@@ -248,6 +248,9 @@ impl Merged {
                 // Mama: uses embedded HomodyneDiscriminator pipeline, then adaptive EMA.
                 // First output at bar 22 (min_data=23). Lead = src_lead + 22.
                 Node::Mama { src, .. } => leads[src as usize] + 22,
+                // AdaptiveMSW: first output aligns with HD output (bar 22), and in
+                // general cannot publish before either src or dc is defined.
+                Node::AdaptiveMsw { src, dc } => leads[src as usize].max(leads[dc as usize]),
                 // Fama: secondary output from Mama node, same warmup/lead as Mama.
                 Node::Fama { src } => leads[src as usize],
             };
@@ -683,6 +686,9 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         // Mama/FAMA adaptive EMA recurrence: bespoke with embedded HD. Scalar-only,
         // same standing as Cybercycle/HomodyneDiscriminator/InstantaneousTrendline.
         Mama { .. } => (0, 0),
+        // AdaptiveMSW: per-bar variable-length DFT over raw stream window,
+        // scalar-only, same standing as SdftRotate/HomodyneDiscriminator.
+        AdaptiveMsw { .. } => (0, 0),
         Fama { .. } => (0, 0),
     }
 }
@@ -717,6 +723,7 @@ fn lane_warmup(node: &Node) -> u8 {
         PeakDecay { .. } => 0,  // no warmup bars
         InstantaneousTrendline { .. } => 0, // steady recurrence (no fold phase)
         Mama { .. } => 0,       // steady recurrence (no fold phase)
+        AdaptiveMsw { .. } => 0, // steady recurrence (no fold phase)
         Fama { .. } => 0,       // steady recurrence (no fold phase)
         _ => 0,
     }
@@ -1068,6 +1075,10 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             fast_limit_bits,
             slow_limit_bits,
         },
+        AdaptiveMsw { src, dc } => AdaptiveMsw {
+            src: g(src),
+            dc: g(dc),
+        },
         Fama { src } => Fama { src: g(src) },
     }
 }
@@ -1236,6 +1247,10 @@ pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         PeakDecay { src, .. } => visit(*src),
         InstantaneousTrendline { src } => visit(*src),
         Mama { src, .. } => visit(*src),
+        AdaptiveMsw { src, dc } => {
+            visit(*src);
+            visit(*dc);
+        }
         Fama { src } => visit(*src),
     }
 }

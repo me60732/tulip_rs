@@ -235,6 +235,10 @@ pub const K_MAMA: u8 = 54;
 
 /// FAMA secondary EMA - reads Mama's output (`v[src]`) and alpha (`st[src]`).
 pub const K_FAMA: u8 = 55;
+/// Adaptive MESA Sine Wave DFT over a variable period from a live dc input.
+/// `a`=src (raw stream), `b`=dc node, publishes sine and caches lead_sine in
+/// `kvacc[k][2]` for `K_SDFTLEAD` companions.
+pub const K_ADAPTIVEMSW: u8 = 56;
 
 /// The erased structure. Integers only — a `const` generic parameter must
 /// compare structurally, and every f64/period/lead lives in [`Values`].
@@ -990,6 +994,13 @@ pub fn erase(
                 dd = 0u32; // d/e unused at runtime for Mama
                 ee = 0u32; // d/e unused at runtime for Mama
                 (K_MAMA, src, 0, 0)
+            }
+            Node::AdaptiveMsw { src, dc } => {
+                if !matches!(arena.nodes[src as usize], Node::Input { .. }) {
+                    panic!("Node::AdaptiveMsw: src must be a raw Node::Input stream");
+                }
+                vals.feeds[k] = leads[src as usize].max(leads[dc as usize]);
+                (K_ADAPTIVEMSW, src, dc, 0)
             }
             Node::Fama { src } => {
                 if !matches!(arena.nodes[src as usize], Node::Mama { .. }) {
