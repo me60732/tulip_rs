@@ -22,6 +22,7 @@ use tulip_rs::indicators::ema::Ema;
 use tulip_rs::indicators::ichimoku::Ichimoku;
 use tulip_rs::indicators::macd::Macd;
 use tulip_rs::indicators::max::Max;
+use tulip_rs::indicators::medprice::Medprice;
 use tulip_rs::indicators::min::Min;
 use tulip_rs::indicators::natr::Natr;
 use tulip_rs::indicators::ppo::Ppo;
@@ -88,6 +89,38 @@ fn lanes_match_scalar<const L: usize>(req: &Request, assets: &[&[&[f64]]; L], la
                 }
             }
             unreachable!();
+        }
+    }
+}
+
+fn lanes_match_hand<const L: usize, const I: usize, const O: usize, T>(
+    req: &Request,
+    assets: &[&[&[f64]]; L],
+    options: &[f64; O],
+    optional_outputs: Option<&[bool]>,
+    label: &str,
+) where
+    T: Indicator<I, O>,
+{
+    let out = run_assets_registered(req, assets).unwrap_or_else(|| panic!("{label}: no lane hit"));
+    assert_eq!(out.per_asset.len(), L, "{label}: lane count");
+    for a in 0..L {
+        let inputs: [&[f64]; I] = assets[a]
+            .try_into()
+            .unwrap_or_else(|_| panic!("{label}: asset {a} input arity mismatch"));
+        let (want, _) = T::indicator(&inputs, options, optional_outputs)
+            .unwrap_or_else(|e| panic!("{label}: hand run failed on asset {a}: {e:?}"));
+        assert_eq!(
+            out.per_asset[a].rows.len(),
+            want.len(),
+            "{label}: asset {a} row count"
+        );
+        for (r, row) in want.iter().enumerate() {
+            assert_eq!(
+                out.per_asset[a].rows[r].as_slice(),
+                row.as_slice(),
+                "{label}: asset {a} row {r}"
+            );
         }
     }
 }
@@ -392,6 +425,216 @@ fn lanes_ichimoku() {
     let a3 = [l3.as_slice(), h0.as_slice()];
     let a: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
     lanes_match_scalar(&req, &a, "ichimoku");
+}
+
+// ── standalone row coverage (try_run_assets floor) ───────────────────────
+
+#[test]
+fn lanes_price_family_standalone_rows() {
+    use tulip_rs::indicators::stochrsi::StochRsi;
+
+    let p = prices();
+    let a0 = [p[0].as_slice()];
+    let a1 = [p[1].as_slice()];
+    let a2 = [p[2].as_slice()];
+    let a3 = [p[3].as_slice()];
+    let assets4: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
+    let assets2: [&[&[f64]]; 2] = [&a0, &a3];
+
+    let req = Request::new().add(Ema::recipe(&[14.0]), None);
+    lanes_match_scalar(&req, &assets4, "ema_n L4");
+    lanes_match_scalar(&req, &assets2, "ema_n L2");
+    lanes_match_hand::<4, 1, 1, Ema>(&req, &assets4, &[14.0], None, "ema_n hand L4");
+    lanes_match_hand::<2, 1, 1, Ema>(&req, &assets2, &[14.0], None, "ema_n hand L2");
+
+    let req = Request::new().add(Apo::recipe(&[12.0, 26.0]), None);
+    lanes_match_scalar(&req, &assets4, "apo_n L4");
+    lanes_match_scalar(&req, &assets2, "apo_n L2");
+    lanes_match_hand::<4, 1, 2, Apo>(&req, &assets4, &[12.0, 26.0], None, "apo_n hand L4");
+    lanes_match_hand::<2, 1, 2, Apo>(&req, &assets2, &[12.0, 26.0], None, "apo_n hand L2");
+
+    let req = Request::new().add(Ppo::recipe(&[12.0, 26.0]), None);
+    lanes_match_scalar(&req, &assets4, "ppo_n L4");
+    lanes_match_scalar(&req, &assets2, "ppo_n L2");
+    lanes_match_hand::<4, 1, 2, Ppo>(&req, &assets4, &[12.0, 26.0], None, "ppo_n hand L4");
+    lanes_match_hand::<2, 1, 2, Ppo>(&req, &assets2, &[12.0, 26.0], None, "ppo_n hand L2");
+
+    let req = Request::new().add(Macd::recipe(&[12.0, 26.0, 9.0]), None);
+    lanes_match_scalar(&req, &assets4, "macd_n L4");
+    lanes_match_scalar(&req, &assets2, "macd_n L2");
+    lanes_match_hand::<4, 1, 3, Macd>(&req, &assets4, &[12.0, 26.0, 9.0], None, "macd_n hand L4");
+    lanes_match_hand::<2, 1, 3, Macd>(&req, &assets2, &[12.0, 26.0, 9.0], None, "macd_n hand L2");
+
+    let req = Request::new().add(Sma::recipe(&[14.0]), None);
+    lanes_match_scalar(&req, &assets4, "sma_n L4");
+    lanes_match_scalar(&req, &assets2, "sma_n L2");
+    lanes_match_hand::<4, 1, 1, Sma>(&req, &assets4, &[14.0], None, "sma_n hand L4");
+    lanes_match_hand::<2, 1, 1, Sma>(&req, &assets2, &[14.0], None, "sma_n hand L2");
+
+    let req = Request::new().add(StdDev::recipe(&[14.0]), Some(&[true]));
+    lanes_match_scalar(&req, &assets4, "stddev_n L4");
+    lanes_match_scalar(&req, &assets2, "stddev_n L2");
+    lanes_match_hand::<4, 1, 1, StdDev>(&req, &assets4, &[14.0], Some(&[true]), "stddev_n hand L4");
+    lanes_match_hand::<2, 1, 1, StdDev>(&req, &assets2, &[14.0], Some(&[true]), "stddev_n hand L2");
+
+    let req = Request::new().add(Wma::recipe(&[14.0]), Some(&[true]));
+    lanes_match_scalar(&req, &assets4, "wma_n L4");
+    lanes_match_scalar(&req, &assets2, "wma_n L2");
+    lanes_match_hand::<4, 1, 1, Wma>(&req, &assets4, &[14.0], Some(&[true]), "wma_n hand L4");
+    lanes_match_hand::<2, 1, 1, Wma>(&req, &assets2, &[14.0], Some(&[true]), "wma_n hand L2");
+
+    let req = Request::new().add(BBands::recipe(&[20.0, 2.0]), None);
+    lanes_match_scalar(&req, &assets4, "bbands_n L4");
+    lanes_match_scalar(&req, &assets2, "bbands_n L2");
+    lanes_match_hand::<4, 1, 2, BBands>(&req, &assets4, &[20.0, 2.0], None, "bbands_n hand L4");
+    lanes_match_hand::<2, 1, 2, BBands>(&req, &assets2, &[20.0, 2.0], None, "bbands_n hand L2");
+
+    let req = Request::new().add(Max::recipe(&[14.0]), None);
+    lanes_match_scalar(&req, &assets4, "max_n L4");
+    lanes_match_scalar(&req, &assets2, "max_n L2");
+    lanes_match_hand::<4, 1, 1, Max>(&req, &assets4, &[14.0], None, "max_n hand L4");
+    lanes_match_hand::<2, 1, 1, Max>(&req, &assets2, &[14.0], None, "max_n hand L2");
+
+    let req = Request::new().add(Min::recipe(&[14.0]), None);
+    lanes_match_scalar(&req, &assets4, "min_n L4");
+    lanes_match_scalar(&req, &assets2, "min_n L2");
+    lanes_match_hand::<4, 1, 1, Min>(&req, &assets4, &[14.0], None, "min_n hand L4");
+    lanes_match_hand::<2, 1, 1, Min>(&req, &assets2, &[14.0], None, "min_n hand L2");
+
+    let req = Request::new().add(StochRsi::recipe(&[14.0]), Some(&[true]));
+    lanes_match_scalar(&req, &assets4, "stochrsi_n L4");
+    lanes_match_scalar(&req, &assets2, "stochrsi_n L2");
+    lanes_match_hand::<4, 1, 1, StochRsi>(
+        &req,
+        &assets4,
+        &[14.0],
+        Some(&[true]),
+        "stochrsi_n hand L4",
+    );
+    lanes_match_hand::<2, 1, 1, StochRsi>(
+        &req,
+        &assets2,
+        &[14.0],
+        Some(&[true]),
+        "stochrsi_n hand L2",
+    );
+}
+
+#[test]
+fn lanes_hl_family_standalone_rows() {
+    let (h0, h1, h2, h3) = (hi(0), hi(1), hi(2), hi(3));
+    let (l0, l1, l2, l3) = (lo(0), lo(1), lo(2), lo(3));
+
+    let a0 = [h0.as_slice(), l0.as_slice()];
+    let a1 = [h1.as_slice(), l1.as_slice()];
+    let a2 = [h2.as_slice(), l2.as_slice()];
+    let a3 = [h3.as_slice(), l3.as_slice()];
+    let assets4: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
+    let assets2: [&[&[f64]]; 2] = [&a0, &a3];
+
+    let req = Request::new().add(Aroon::recipe(&[14.0]), None);
+    lanes_match_scalar(&req, &assets4, "aroon_n L4");
+    lanes_match_scalar(&req, &assets2, "aroon_n L2");
+    lanes_match_hand::<4, 2, 1, Aroon>(&req, &assets4, &[14.0], None, "aroon_n hand L4");
+    lanes_match_hand::<2, 2, 1, Aroon>(&req, &assets2, &[14.0], None, "aroon_n hand L2");
+
+    let req = Request::new().add(AroonOsc::recipe(&[14.0]), Some(&[true, true]));
+    lanes_match_scalar(&req, &assets4, "aroon_osc_n L4");
+    lanes_match_scalar(&req, &assets2, "aroon_osc_n L2");
+    lanes_match_hand::<4, 2, 1, AroonOsc>(
+        &req,
+        &assets4,
+        &[14.0],
+        Some(&[true, true]),
+        "aroon_osc_n hand L4",
+    );
+    lanes_match_hand::<2, 2, 1, AroonOsc>(
+        &req,
+        &assets2,
+        &[14.0],
+        Some(&[true, true]),
+        "aroon_osc_n hand L2",
+    );
+
+    let req = Request::new().add(DonchianChannel::recipe(&[14.0]), None);
+    lanes_match_scalar(&req, &assets4, "donchianchannel_n L4");
+    lanes_match_scalar(&req, &assets2, "donchianchannel_n L2");
+    lanes_match_hand::<4, 2, 1, DonchianChannel>(
+        &req,
+        &assets4,
+        &[14.0],
+        None,
+        "donchianchannel_n hand L4",
+    );
+    lanes_match_hand::<2, 2, 1, DonchianChannel>(
+        &req,
+        &assets2,
+        &[14.0],
+        None,
+        "donchianchannel_n hand L2",
+    );
+
+    let req = Request::new().add(Medprice::recipe(&[]), None);
+    lanes_match_scalar(&req, &assets4, "medprice_n L4");
+    lanes_match_scalar(&req, &assets2, "medprice_n L2");
+    lanes_match_hand::<4, 2, 0, Medprice>(&req, &assets4, &[], None, "medprice_n hand L4");
+    lanes_match_hand::<2, 2, 0, Medprice>(&req, &assets2, &[], None, "medprice_n hand L2");
+}
+
+#[test]
+fn lanes_hlc_family_standalone_rows() {
+    let (h0, h1, h2, h3) = (hi(0), hi(1), hi(2), hi(3));
+    let (l0, l1, l2, l3) = (lo(0), lo(1), lo(2), lo(3));
+    let (p0, p1, p2, p3) = (price(0), price(1), price(2), price(3));
+
+    let a0 = [h0.as_slice(), l0.as_slice(), p0.as_slice()];
+    let a1 = [h1.as_slice(), l1.as_slice(), p1.as_slice()];
+    let a2 = [h2.as_slice(), l2.as_slice(), p2.as_slice()];
+    let a3 = [h3.as_slice(), l3.as_slice(), p3.as_slice()];
+    let assets4: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
+    let assets2: [&[&[f64]]; 2] = [&a0, &a3];
+
+    let req = Request::new().add(Willr::recipe(&[14.0]), Some(&[true, true]));
+    lanes_match_scalar(&req, &assets4, "willr_n L4");
+    lanes_match_scalar(&req, &assets2, "willr_n L2");
+    lanes_match_hand::<4, 3, 1, Willr>(
+        &req,
+        &assets4,
+        &[14.0],
+        Some(&[true, true]),
+        "willr_n hand L4",
+    );
+    lanes_match_hand::<2, 3, 1, Willr>(
+        &req,
+        &assets2,
+        &[14.0],
+        Some(&[true, true]),
+        "willr_n hand L2",
+    );
+
+    let req = Request::new().add(Natr::recipe(&[14.0]), None);
+    lanes_match_scalar(&req, &assets4, "natr_n L4");
+    lanes_match_scalar(&req, &assets2, "natr_n L2");
+    lanes_match_hand::<4, 3, 1, Natr>(&req, &assets4, &[14.0], None, "natr_n hand L4");
+    lanes_match_hand::<2, 3, 1, Natr>(&req, &assets2, &[14.0], None, "natr_n hand L2");
+
+    let req = Request::new().add(SuperTrend::recipe(&[14.0, 3.0]), None);
+    lanes_match_scalar(&req, &assets4, "supertrend_n L4");
+    lanes_match_scalar(&req, &assets2, "supertrend_n L2");
+    lanes_match_hand::<4, 3, 2, SuperTrend>(
+        &req,
+        &assets4,
+        &[14.0, 3.0],
+        None,
+        "supertrend_n hand L4",
+    );
+    lanes_match_hand::<2, 3, 2, SuperTrend>(
+        &req,
+        &assets2,
+        &[14.0, 3.0],
+        None,
+        "supertrend_n hand L2",
+    );
 }
 
 // ── dispatch honesty ──────────────────────────────────────────────────────

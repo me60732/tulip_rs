@@ -131,3 +131,14 @@ impl Planable for Bop {
         crate::cse::recipes::bop(_options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Bop {
+    const KIND: &'static str = "bop";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        Some(IndicatorState)
+    }
+}

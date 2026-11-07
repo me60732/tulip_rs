@@ -119,3 +119,14 @@ impl Planable for AvgPrice {
         crate::cse::recipes::avgprice(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for AvgPrice {
+    const KIND: &'static str = "avgprice";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        Some(IndicatorState)
+    }
+}

@@ -12,6 +12,14 @@ tulip_rs_macros::kernel! {
     // apo + ppo over the same pair.
     apo_ppo_shared_sl: Apo(s, l), Ppo(s, l);
     //apo_ppo_shared_sl_p: packed Apo(s, l), Ppo(s, l);
+    // NATR standalone floor — diagnostics, not shipping (the engine's
+    // unit is the merge; this is what `natr_supertrend_shared_p` above is measured
+    // against). Each independently recomputes its own atr/Div/Mul subgraph.
+    natr_n: Natr(p);
+    // SuperTrend standalone floor — diagnostics, not shipping (the engine's
+    // unit is the merge; this is what `natr_supertrend_shared_p` above is measured
+    // against). Each independently recomputes its own atr/Wilders/Div/Mul subgraph.
+    supertrend_n: Supertrend(p, 3.0);
     // ATR family: atr = wilders(tr(p)), natr = (atr/close)*100 sharing tr+wilders
     atr_natr_shared_p: Atr(p), Natr(p);
     //natr_supertrend_shared_p: packed Atr(p), Natr(p);
@@ -97,14 +105,32 @@ tulip_rs_macros::kernel! {
     max_min_shared_p: Max(p), Min(p);
     // The aroon showcase: aroonosc costs ONE extra fsub + store on the
     // interned graph (the hand runs a second full pass over both columns).
+    // Aroon + AroonOsc standalone floors — each independently recomputes
+    // its own max/min roll over close.
+    aroon_n: Aroon(p);
+    aroon_osc_n: AroonOsc(p);
     aroon_osc_shared_p: Aroon(p), AroonOsc(p);
     // willr + donchian: the same canonical (p, p−1) roll pair, four output
     // rows off two rolls, one Add/Abs/Div glue set.
+    willr_n: Willr(p);
+    donchianchannel_n: DonchianChannel(p);
     willr_donchian_shared_p: Willr(p), DonchianChannel(p);
     // The densest hub: six rolls (two columns × three windows), four
     // combines, one pass.
     ichimoku_s_m: Ichimoku(s, m);
 
+    // ── lone price-sourced rolling indicators (diagnostics, not shipping) ─
+    // EMA family standalone floors — the base recurrence without sharing.
+    ema_n: Ema(p);
+    apo_n: Apo(s, l);
+    ppo_n: Ppo(s, l);
+    macd_n: Macd(s, l, g);
+    // Rolling family standalone floors — each independently recomputes
+    // its own mean/roll/stddev over close.
+    sma_n: Sma(p);
+    stddev_n: Stddev(p);
+    wma_n: Wma(p);
+    bbands_n: Bbands(p, m);
     // ── ring-backed derived rolls ───────────────────────────────────────
     // AO: two mean RollSums over the ONE interned medprice column — the
     // first shape whose ring is a derived-source `Buffer<Cold>` (the hand's
@@ -358,12 +384,20 @@ tulip_rs_macros::kernel! {
     // `Div`s and nothing else. The identity that makes it intern: `roc`'s optional row
     // (hand `Info.optional_outputs: ["mom"]`) IS the standalone `Mom` request's node.
     mom_roc_rocr_shared_p: Mom(p), Roc(p), Rocr(p);
+    // MEDPRICE standalone floor — diagnostics, not shipping (the engine's
+    // unit is the merge; this is what the calculated-input hubs above are
+    // measured against).
+    medprice_n: Medprice();
     // MEDPRICE + TYPPRICE + WCPPRICE: the three calculated-input composites all build
     // the SAME `Add{high, low}` — medprice scales it by 0.5, wcprice feeds it to the
     // `Fma` as the `c` operand, typprice adds close and scales by `1.0/3.0`. One add,
     // three outputs. This is the `E8` calculated-inputs family, where co-requesting is
     // the cheapest way to stop paying for the same composite three times.
     medprice_typprice_wcprice: Medprice(), Typprice(), WcPrice();
+    // StochRSI standalone floor — diagnostics, not shipping (the engine's
+    // unit is the merge; this is what `rsi_stochrsi_shared_p` above is measured
+    // against). The hand runs one pass; CSE would intern the whole RSI chain.
+    stochrsi_n: Stochrsi(p);
     // THE LONE FLOORS for the same family — DIAGNOSTICS, not shipping options (the
     // engine's unit is the merge, so these are what the two hubs above are measured
     // AGAINST). `bop_n` doubles as something new: it is the registry's first pattern
@@ -431,6 +465,11 @@ tulip_rs_macros::kernel! {
     // TWO ring rescans instead of paying four -- the merge win, measured by the arena-count
     // gate rather than asserted here.
     vhf_n: Vhf(p);
+    // Max + Min standalone floors — diagnostics, not shipping (the engine's
+    // unit is the merge; this is what `max_min_vhf_shared_p` above is measured
+    // against). Each independently recomputes its own ring roll over close.
+    max_n: Max(p);
+    min_n: Min(p);
     max_min_vhf_shared_p: Max(p), Min(p), Vhf(p);
     // VWAP IS THE CALCULATED-INPUTS HUB THAT ARRIVES WITHOUT ANY NEW MACHINERY. The hand
     // `vwap.rs:44` computes `tp` by CALLING `typprice::calc`, and `recipes::vwap` spells

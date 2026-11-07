@@ -135,3 +135,14 @@ impl Planable for Typprice {
         crate::cse::recipes::typprice(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Typprice {
+    const KIND: &'static str = "typprice";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        Some(IndicatorState)
+    }
+}

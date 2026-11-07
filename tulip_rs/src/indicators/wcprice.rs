@@ -127,3 +127,14 @@ impl Planable for WcPrice {
         crate::cse::recipes::wcprice(options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for WcPrice {
+    const KIND: &'static str = "wcprice";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        Some(IndicatorState)
+    }
+}

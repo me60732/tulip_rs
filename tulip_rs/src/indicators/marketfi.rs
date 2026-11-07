@@ -119,3 +119,14 @@ impl Planable for Marketfi {
         crate::cse::recipes::marketfi(_options)
     }
 }
+
+impl crate::cse::Restorable<INPUTS, OPTIONS> for Marketfi {
+    const KIND: &'static str = "marketfi";
+
+    fn restore_state(
+        _v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+    ) -> Option<Self::IndicatorState> {
+        Some(IndicatorState)
+    }
+}
