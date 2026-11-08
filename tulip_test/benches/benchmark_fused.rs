@@ -775,6 +775,20 @@ fn bench_fused(c: &mut Criterion) {
 
     let (_rsk, sig_rsk, vals_rsk, _osk) =
         erase_request(&Request::new().add(Stoch::recipe(&[14.0, 3.0, 3.0]), None)).unwrap();
+    let n_stoch = hlc3.iter().map(|s| s.len()).min().unwrap_or(0);
+    let gate_stoch = (vals_rsk.max_gate as usize + 1).min(n_stoch);
+    let warm_only_len = gate_stoch;
+    let warm_plus1_len = gate_stoch.saturating_add(1).min(n_stoch);
+    let hlc3_warm: [&[f64]; 3] = [
+        &h0[..warm_only_len],
+        &l0[..warm_only_len],
+        &c0[..warm_only_len],
+    ];
+    let hlc3_warm_plus1: [&[f64]; 3] = [
+        &h0[..warm_plus1_len],
+        &l0[..warm_plus1_len],
+        &c0[..warm_plus1_len],
+    ];
     g.bench_function("generated_runonly_stoch_kd", |b| {
         b.iter(|| {
             let rows = try_run(&sig_rsk, &vals_rsk, &hlc3).expect("stoch template");
@@ -790,6 +804,28 @@ fn bench_fused(c: &mut Criterion) {
     g.bench_function("generated_runonly_stoch_kd_direct", |b| {
         b.iter(|| {
             let rows = tulip_rs::cse::kernel::registry::stoch_kd(&vals_rsk, &hlc3);
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function("generated_runonly_stoch_kd_fast_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry_probe::probe_stoch_kd_fast(&vals_rsk, &hlc3);
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
+    // Warmup-share diagnostics: same generated direct kernel, shorter inputs.
+    // warmonly: exactly [0, gate) bars (interpreter warm path only, no steady bars)
+    // warmplus1: [0, gate] bars (one steady bar after warmup)
+    g.bench_function("generated_runonly_stoch_kd_direct_warmonly", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::stoch_kd(&vals_rsk, &hlc3_warm);
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
+    g.bench_function("generated_runonly_stoch_kd_direct_warmplus1", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::stoch_kd(&vals_rsk, &hlc3_warm_plus1);
             black_box(rows[0].len() + rows[1].len())
         })
     });

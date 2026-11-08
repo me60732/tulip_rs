@@ -862,7 +862,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                             .collect();
                         body.push(quote! {
                             let #src_var = #leader_src;
-                            rings.feed(#leader_gk, gate + i, #src_var);
+                            rings.feed(#leader_gk, t, #src_var);
                             #( #leave_binds )*
                         });
                     }
@@ -882,9 +882,9 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     } else {
                         quote! {
                             if #evi {
-                                rings.feed_take_evicted(#gk, gate + i, x)
+                                rings.feed_take_evicted(#gk, t, x)
                             } else {
-                                rings.feed_take_at(#gk, gate + i, x, #pk)
+                                rings.feed_take_at(#gk, t, x, #pk)
                             }
                         }
                     };
@@ -927,7 +927,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 let leave = if ring_single_feeder[k] {
                     quote! { rings.feed_unique_take_at(#ki, diff, #mm1) }
                 } else {
-                    quote! { rings.feed_take_at(#ki, gate + i, diff, #mm1) }
+                    quote! { rings.feed_take_at(#ki, t, diff, #mm1) }
                 };
                 body.push(quote! {
                     let #xk = {
@@ -1036,7 +1036,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     let feed = if ring_single_feeder[k] {
                         quote! { rings.feed_unique(#gk, current); }
                     } else {
-                        quote! { rings.feed(#gk, gate + i, current); }
+                        quote! { rings.feed(#gk, t, current); }
                     };
                     body.push(quote! {
                         let #xk = {
@@ -1192,7 +1192,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     quote! { #ck = #ck.mul_add(1.0 - #w, #src * #w); #ck }
                 } else {
                     quote! {
-                        #ck = if gate + i == vals.feeds[#ki] as usize + 1 {
+                        #ck = if t == vals.feeds[#ki] as usize + 1 {
                             (#src - #ck) * #w + #ck
                         } else {
                             (#src - #ck).mul_add(#w, #ck)
@@ -1350,7 +1350,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 let leave = if ring_single_feeder[k] {
                     quote! { rings.feed_unique_take_evicted(g, x) }
                 } else {
-                    quote! { rings.feed_take_evicted(g, gate + i, x) }
+                    quote! { rings.feed_take_evicted(g, t, x) }
                 };
                 body.push(quote! {
                     let #xk = {
@@ -1367,7 +1367,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 let mid = if ring_single_feeder[k] {
                     quote! { rings.feed_unique_take_at(g, x, 3) }
                 } else {
-                    quote! { rings.feed_take_at(g, gate + i, x, 3) }
+                    quote! { rings.feed_take_at(g, t, x, 3) }
                 };
                 body.push(quote! {
                     let #xk = {
@@ -1388,7 +1388,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 let feed = if ring_single_feeder[k] {
                     quote! { rings.feed_unique(g, x); }
                 } else {
-                    quote! { rings.feed(g, gate + i, x); }
+                    quote! { rings.feed(g, t, x); }
                 };
                 body.push(quote! {
                     let #xk = {
@@ -1416,7 +1416,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                             let sma = #sma_v;
                             let mult = 1.0 / p as f64;
                             let base = unsafe { streams[#stream_idx].as_ptr() };
-                            let start = gate + i + 1 - p;
+                            let start = t + 1 - p;
                             let window = unsafe { std::slice::from_raw_parts(base.add(start), p) };
                             crate::indicators::md::calc_md_simd::<4>(window, sma, mult)
                         };
@@ -1426,7 +1426,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     let feed = if ring_single_feeder[k] {
                         quote! { rings.feed_unique(g, x); }
                     } else {
-                        quote! { rings.feed(g, gate + i, x); }
+                        quote! { rings.feed(g, t, x); }
                     };
                     body.push(quote! {
                         let #xk = {
@@ -1625,7 +1625,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 let dc = ev(node.b, &idents);
                 body.push(quote! {
                     let #xk = {
-                        let t_abs = gate + i;
+                        let t_abs = t;
                         let period = ((#dc + 0.5) as usize).clamp(6, (t_abs + 1).min(50));
                         let start = t_abs + 1 - period;
                         let window = &streams[#stream_s][start..=t_abs];

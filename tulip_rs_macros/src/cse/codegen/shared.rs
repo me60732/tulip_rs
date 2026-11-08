@@ -311,6 +311,7 @@ pub(super) fn steady_with_optional_groups(
     if opt_group_ids.is_empty() {
         quote! {
             for i in 0..(n - gate) {
+                let t = gate + i;
                 #( #body )*
                 #( #always_stores )*
             }
@@ -327,12 +328,14 @@ pub(super) fn steady_with_optional_groups(
             let any_opt = #any_opt;
             if any_opt {
                 for i in 0..(n - gate) {
+                    let t = gate + i;
                     #( #body )*
                     #( #always_stores )*
                     #( #opt_stores )*
                 }
             } else {
                 for i in 0..(n - gate) {
+                    let t = gate + i;
                     #( #body_plain )*
                     #( #stores_plain )*
                 }
