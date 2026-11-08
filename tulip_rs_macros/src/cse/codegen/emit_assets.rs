@@ -723,6 +723,7 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
                 let (mm, mm1) = (format_ident!("{ik}_m"), format_ident!("{ik}_m1s"));
                 let (pv1, pv2) = (format_ident!("{ik}_pv1"), format_ident!("{ik}_pv2"));
                 let ki = k;
+                let takes_mirror = p.plan.takes_mirror(k);
                 body.push(quote! {
                     let #xk = {
                         let old1 = Simd::<f64, L>::from_array(std::array::from_fn(
@@ -744,7 +745,13 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
                         #ss = #ss + diff;
                         let ds = diff.to_array();
                         for a in 0..L {
-                            ringw[a].feed(#ki, #mm, gate + i, ds[a]);
+                            ringw[a].feed(
+                                #ki,
+                                #mm,
+                                gate + i,
+                                ds[a],
+                                #takes_mirror,
+                            );
                         }
                         let out = #wss / #ww;
                         #wss = #wss - #ss;
@@ -1042,13 +1049,20 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
             }
             Kind::RollAge => {
                 let ki = k;
+                let takes_mirror = p.plan.takes_mirror(k);
                 body.push(quote! {
                     let #xk = {
                         let x_arr = #ea.to_array();
                         let g = vals.ring_of[#ki] as usize;
                         let cap = vals.ring_cap[g] as usize;
                         let out: [f64; L] = std::array::from_fn(|a| {
-                            ringw[a].feed(g, cap, gate + i, x_arr[a]);
+                            ringw[a].feed(
+                                g,
+                                cap,
+                                gate + i,
+                                x_arr[a],
+                                #takes_mirror,
+                            );
                             ringw[a].evicted(g).unwrap_or(0.0)
                         });
                         Simd::<f64, L>::from_array(out)
@@ -1057,13 +1071,20 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
             }
             Kind::HtInPhase => {
                 let ki = k;
+                let takes_mirror = p.plan.takes_mirror(k);
                 body.push(quote! {
                     let #xk = {
                         let x_arr = #ea.to_array();
                         let g = vals.ring_of[#ki] as usize;
                         let cap = vals.ring_cap[g] as usize;
                         let out: [f64; L] = std::array::from_fn(|a| {
-                            ringw[a].feed(g, cap, gate + i, x_arr[a]);
+                            ringw[a].feed(
+                                g,
+                                cap,
+                                gate + i,
+                                x_arr[a],
+                                #takes_mirror,
+                            );
                             ringw[a].at(g, 3)
                         });
                         Simd::<f64, L>::from_array(out)
@@ -1072,13 +1093,20 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
             }
             Kind::HtQuadrature => {
                 let ki = k;
+                let takes_mirror = p.plan.takes_mirror(k);
                 body.push(quote! {
                     let #xk = {
                         let x_arr = #ea.to_array();
                         let g = vals.ring_of[#ki] as usize;
                         let cap = vals.ring_cap[g] as usize;
                         let out: [f64; L] = std::array::from_fn(|a| {
-                            ringw[a].feed(g, cap, gate + i, x_arr[a]);
+                            ringw[a].feed(
+                                g,
+                                cap,
+                                gate + i,
+                                x_arr[a],
+                                #takes_mirror,
+                            );
                             let q1 = 0.0962_f64.mul_add(ringw[a].at(g, 0), 0.5769 * ringw[a].at(g, 2));
                             let q2 = (-0.5769_f64).mul_add(ringw[a].at(g, 4), -0.0962 * ringw[a].at(g, 6));
                             q1 + q2
@@ -1089,6 +1117,7 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
             }
             Kind::MeanAbsDev => {
                 let ki = k;
+                let takes_mirror = p.plan.takes_mirror(k);
                 if p.nodes[node.a].kind == Kind::Input {
                     let s = stream_slot(node.a);
                     let sfa = format_ident!("sp{}", s);
@@ -1117,7 +1146,13 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
                             let g = vals.ring_of[#ki] as usize;
                             let cap = vals.ring_cap[g] as usize;
                             let out: [f64; L] = std::array::from_fn(|a| {
-                                ringw[a].feed(g, cap, gate + i, x_arr[a]);
+                                ringw[a].feed(
+                                    g,
+                                    cap,
+                                    gate + i,
+                                    x_arr[a],
+                                    #takes_mirror,
+                                );
                                 let window = ringw[a].window(g, p);
                                 crate::indicators::md::calc_md_simd::<4>(window, sma_arr[a], mult)
                             });
@@ -1460,6 +1495,195 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
     let steady =
         steady_with_optional_groups(&ctx.opt_group_ids, &body, &always_stores, &opt_stores);
 
+    // Warmup scratch families that can be pattern-pruned (assets path).
+    let needs_supertrend = p.nodes.iter().any(|n| n.kind == Kind::SuperTrend);
+    let needs_stddev = p.nodes.iter().any(|n| n.kind == Kind::Stddev);
+    let needs_wma = p.nodes.iter().any(|n| n.kind == Kind::Wma);
+    let needs_hma = p.nodes.iter().any(|n| n.kind == Kind::Hma);
+    let needs_highpass = p.nodes.iter().any(|n| n.kind == Kind::HighPass);
+    let needs_supersmoother = p.nodes.iter().any(|n| n.kind == Kind::SuperSmoother);
+    let needs_hdacc = p.nodes.iter().any(|n| {
+        matches!(
+            n.kind,
+            Kind::HomodyneDiscriminator | Kind::InstantaneousTrendline | Kind::Mama
+        )
+    });
+
+    // Keep full local scratch for extrema-heavy shapes to avoid dummy-borrow
+    // overhead on roll-max/roll-min families.
+    let force_full_scratch = p
+        .nodes
+        .iter()
+        .any(|n| matches!(n.kind, Kind::RollMax | Kind::RollMin));
+
+    let needs_supertrend = needs_supertrend || force_full_scratch;
+    let needs_stddev = needs_stddev || force_full_scratch;
+    let needs_wma = needs_wma || force_full_scratch;
+    let needs_hma = needs_hma || force_full_scratch;
+    let needs_highpass = needs_highpass || force_full_scratch;
+    let needs_supersmoother = needs_supersmoother || force_full_scratch;
+    let needs_hdacc = needs_hdacc || force_full_scratch;
+
+    let stbw_decl = if needs_supertrend {
+        quote! {
+            let mut stbw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            let mut stcubw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            let mut stlbw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+        }
+    } else {
+        quote! {}
+    };
+    let sumsqw_decl = if needs_stddev {
+        quote! {
+            let mut sumsqw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+        }
+    } else {
+        quote! {}
+    };
+    let wsumw_decl = if needs_wma {
+        quote! {
+            let mut wsumw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+        }
+    } else {
+        quote! {}
+    };
+    let haccw_decl = if needs_hma {
+        quote! {
+            let mut haccw: Vec<[[f64; 7]; crate::cse::MAX]> = vec![[[0.0f64; 7]; crate::cse::MAX]; L];
+        }
+    } else {
+        quote! {}
+    };
+    let hp_accw_decl = if needs_highpass {
+        quote! {
+            let mut hp_accw: Vec<[[f64; 2]; crate::cse::MAX]> = vec![[[0.0f64; 2]; crate::cse::MAX]; L];
+        }
+    } else {
+        quote! {}
+    };
+    let ss_accw_decl = if needs_supersmoother {
+        quote! {
+            let mut ss_accw: Vec<[[f64; 3]; crate::cse::MAX]> = vec![[[0.0f64; 3]; crate::cse::MAX]; L];
+        }
+    } else {
+        quote! {}
+    };
+    let hdaccw_decl = if needs_hdacc {
+        quote! {
+            let mut hdaccw: Vec<[[f64; 38]; crate::cse::MAX]> = vec![[[0.0f64; 38]; crate::cse::MAX]; L];
+        }
+    } else {
+        quote! {}
+    };
+
+    let stbw_arg = if needs_supertrend {
+        quote! { &mut stbw[a] }
+    } else {
+        quote! { &mut __dummies.stb }
+    };
+    let stcubw_arg = if needs_supertrend {
+        quote! { &mut stcubw[a] }
+    } else {
+        quote! { &mut __dummies.stc_ub }
+    };
+    let stlbw_arg = if needs_supertrend {
+        quote! { &mut stlbw[a] }
+    } else {
+        quote! { &mut __dummies.stlb }
+    };
+    let sumsqw_arg = if needs_stddev {
+        quote! { &mut sumsqw[a] }
+    } else {
+        quote! { &mut __dummies.sumsq }
+    };
+    let wsumw_arg = if needs_wma {
+        quote! { &mut wsumw[a] }
+    } else {
+        quote! { &mut __dummies.wsum }
+    };
+    let haccw_arg = if needs_hma {
+        quote! { &mut haccw[a] }
+    } else {
+        quote! { &mut __dummies.hacc }
+    };
+    let hp_accw_arg = if needs_highpass {
+        quote! { &mut hp_accw[a] }
+    } else {
+        quote! { &mut __dummies.hp_acc }
+    };
+    let ss_accw_arg = if needs_supersmoother {
+        quote! { &mut ss_accw[a] }
+    } else {
+        quote! { &mut __dummies.ss_acc }
+    };
+    let hdaccw_arg = if needs_hdacc {
+        quote! { &mut hdaccw[a] }
+    } else {
+        quote! { &mut __dummies.hd_acc }
+    };
+
+    let use_dummy_scratch = !needs_supertrend
+        || !needs_stddev
+        || !needs_wma
+        || !needs_hma
+        || !needs_highpass
+        || !needs_supersmoother
+        || !needs_hdacc;
+
+    let warm_exec_call = if use_dummy_scratch {
+        quote! {
+            crate::cse::kernel::warmup::with_exec_scratch_dummies(|__dummies| {
+                crate::cse::kernel::exec::<#sig, true>(
+                    vals,
+                    streams[a],
+                    0,
+                    gate,
+                    &mut stw[a],
+                    #stbw_arg,
+                    #stcubw_arg,
+                    #stlbw_arg,
+                    #sumsqw_arg,
+                    #wsumw_arg,
+                    &mut trailw[a],
+                    &mut ringw[a],
+                    #haccw_arg,
+                    &mut kvaccw[a],
+                    #hp_accw_arg,
+                    #ss_accw_arg,
+                    #hdaccw_arg,
+                    &mut v,
+                    &mut ptrs,
+                    &vals.sink_lead,
+                );
+            });
+        }
+    } else {
+        quote! {
+            crate::cse::kernel::exec::<#sig, true>(
+                vals,
+                streams[a],
+                0,
+                gate,
+                &mut stw[a],
+                #stbw_arg,
+                #stcubw_arg,
+                #stlbw_arg,
+                #sumsqw_arg,
+                #wsumw_arg,
+                &mut trailw[a],
+                &mut ringw[a],
+                #haccw_arg,
+                &mut kvaccw[a],
+                #hp_accw_arg,
+                #ss_accw_arg,
+                #hdaccw_arg,
+                &mut v,
+                &mut ptrs,
+                &vals.sink_lead,
+            );
+        }
+    };
+
     quote! {
         #[allow(unused_variables, unused_mut, unused_parens, clippy::needless_range_loop)]
         pub fn #name<const L: usize>(
@@ -1501,56 +1725,29 @@ pub(super) fn run_assets_fn(p: &Pattern) -> TokenStream {
             let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
             // Warm [0, gate): the SAME scalar interpreter, once per asset
             let mut stw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
-            let mut stbw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
-            let mut stcubw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
-            let mut stlbw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
-            let mut sumsqw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
-            let mut wsumw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            #stbw_decl
+            #sumsqw_decl
+            #wsumw_decl
             let mut trailw: Vec<[usize; crate::cse::MAX]> = vec![[0usize; crate::cse::MAX]; L];
             // The ring/HMA carry states are PERSISTENT per asset
             let mut ringw: Vec<crate::cse::kernel::warmup::RingSet> =
                 (0..L)
                     .map(|_| crate::cse::kernel::warmup::RingSet::new())
                     .collect();
-            let mut haccw: Vec<[[f64; 7]; crate::cse::MAX]> =
-                vec![[[0.0f64; 7]; crate::cse::MAX]; L];
+            #haccw_decl
             // Shared 3-field bespoke carry (kind-specific meaning per node).
             let mut kvaccw: Vec<[[f64; 3]; crate::cse::MAX]> =
                 vec![[[0.0f64; 3]; crate::cse::MAX]; L];
-            let mut hp_accw: Vec<[[f64; 2]; crate::cse::MAX]> =
-                vec![[[0.0f64; 2]; crate::cse::MAX]; L];
-            let mut ss_accw: Vec<[[f64; 3]; crate::cse::MAX]> =
-                vec![[[0.0f64; 3]; crate::cse::MAX]; L];
-            let mut hdaccw: Vec<[[f64; 38]; crate::cse::MAX]> =
-                vec![[[0.0f64; 38]; crate::cse::MAX]; L];
+            #hp_accw_decl
+            #ss_accw_decl
+            #hdaccw_decl
             if n > 0 {
                 for a in 0..L {
                     let mut ptrs: [*mut f64; crate::cse::MAX_SINKS] =
                         [::core::ptr::null_mut(); crate::cse::MAX_SINKS];
                     #( #warm_ptrs )*
                     let mut v = [0.0f64; crate::cse::MAX];
-                    crate::cse::kernel::exec::<#sig, true>(
-                        vals,
-                        streams[a],
-                        0,
-                        gate,
-                        &mut stw[a],
-                        &mut stbw[a],
-                        &mut stcubw[a],
-                        &mut stlbw[a],
-                        &mut sumsqw[a],
-                        &mut wsumw[a],
-                        &mut trailw[a],
-                        &mut ringw[a],
-                        &mut haccw[a],
-                        &mut kvaccw[a],
-                        &mut hp_accw[a],
-                        &mut ss_accw[a],
-                        &mut hdaccw[a],
-                        &mut v,
-                        &mut ptrs,
-                        &vals.sink_lead,
-                    );
+                    #warm_exec_call
                 }
             }
             if gate >= n {

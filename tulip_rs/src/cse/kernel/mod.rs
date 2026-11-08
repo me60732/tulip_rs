@@ -16,6 +16,8 @@
 //!   interpret a whole series at runtime.
 
 pub mod registry;
+#[cfg(feature = "cse_kernel_probe")]
+pub mod registry_probe;
 pub mod warmup;
 
 pub use warmup::{exec, RingSet};

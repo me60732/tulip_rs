@@ -189,6 +189,19 @@ fn bench_fused(c: &mut Criterion) {
             black_box(a.0[0].len())
         })
     });
+    g.bench_function("generated_runonly_ao_s_m_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::ao_s_m(&vals_ra, &hl);
+            black_box(rows[0].len())
+        })
+    });
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function("generated_runonly_ao_s_m_fast_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry_probe::probe_ao_s_m_fast(&vals_ra, &hl);
+            black_box(rows[0].len())
+        })
+    });
 
     let (_rh, sig_rh, vals_rh, _oh) =
         erase_request(&Request::new().add(Hma::recipe(&[9.0]), None)).unwrap();
@@ -204,6 +217,12 @@ fn bench_fused(c: &mut Criterion) {
             black_box(h.0[0].len())
         })
     });
+    g.bench_function("generated_runonly_hma_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::hma_n(&vals_rh, &cl);
+            black_box(rows[0].len())
+        })
+    });
 
     let (_rf, sig_rf, vals_rf, _of) =
         erase_request(&Request::new().add(Fisher::recipe(&[9.0]), None)).unwrap();
@@ -217,6 +236,12 @@ fn bench_fused(c: &mut Criterion) {
         b.iter(|| {
             let f = Fisher::indicator(&hl, &[9.0], None).unwrap();
             black_box(f.0[0].len() + f.0[1].len())
+        })
+    });
+    g.bench_function("generated_runonly_fisher_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::fisher_n(&vals_rf, &hl);
+            black_box(rows[0].len() + rows[1].len())
         })
     });
 
@@ -269,6 +294,12 @@ fn bench_fused(c: &mut Criterion) {
         b.iter(|| {
             let u = Ultosc::indicator(&hlc3, &[7.0, 14.0, 28.0], None).unwrap();
             black_box(u.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_ultosc_s_m_l_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::ultosc_s_m_l(&vals_run_ult, &hlc3);
+            black_box(rows[0].len())
         })
     });
 
@@ -394,6 +425,12 @@ fn bench_fused(c: &mut Criterion) {
             black_box(d.0[0].len() + d.0[1].len())
         })
     });
+    g.bench_function("generated_runonly_dm_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::dm_n(&vals_dm_n, &hl);
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
 
     let (_r2, sig_di_n, vals_di_n, _o2) =
         erase_request(&Request::new().add(Di::recipe(&[14.0]), None)).unwrap();
@@ -407,6 +444,12 @@ fn bench_fused(c: &mut Criterion) {
         b.iter(|| {
             let d = Di::indicator(&hlc3, &[14.0], None).unwrap();
             black_box(d.0[0].len() + d.0[1].len())
+        })
+    });
+    g.bench_function("generated_runonly_di_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::di_n(&vals_di_n, &hlc3);
+            black_box(rows[0].len() + rows[1].len())
         })
     });
 
@@ -424,6 +467,12 @@ fn bench_fused(c: &mut Criterion) {
             black_box(d.0[0].len())
         })
     });
+    g.bench_function("generated_runonly_dx_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::dx_n(&vals_dx_n, &hlc3);
+            black_box(rows[0].len())
+        })
+    });
 
     let (_r4, sig_adx_n, vals_adx_n, _o4) =
         erase_request(&Request::new().add(Adx::recipe(&[14.0]), None)).unwrap();
@@ -437,6 +486,12 @@ fn bench_fused(c: &mut Criterion) {
         b.iter(|| {
             let a = Adx::indicator(&hlc3, &[14.0], None).unwrap();
             black_box(a.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_adx_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::adx_n(&vals_adx_n, &hlc3);
+            black_box(rows[0].len())
         })
     });
 
@@ -551,6 +606,12 @@ fn bench_fused(c: &mut Criterion) {
             black_box(m.0[0].len())
         })
     });
+    g.bench_function("generated_runonly_mass_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::mass_n(&vals_run_mass, &hl);
+            black_box(rows[0].len())
+        })
+    });
 
     let (_ru3, sig_run_ad, vals_run_ad, _ou3) =
         erase_request(&Request::new().add(Ad::recipe(&[]), None)).unwrap();
@@ -564,6 +625,12 @@ fn bench_fused(c: &mut Criterion) {
         b.iter(|| {
             let a = Ad::indicator(&hlc4, &[], None).unwrap();
             black_box(a.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_ad_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::ad(&vals_run_ad, &hlc4);
+            black_box(rows[0].len())
         })
     });
 
@@ -581,6 +648,12 @@ fn bench_fused(c: &mut Criterion) {
             black_box(a.0[0].len())
         })
     });
+    g.bench_function("generated_runonly_adosc_s_l_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::adosc_s_l(&vals_run_adosc, &hlc4);
+            black_box(rows[0].len())
+        })
+    });
 
     let (_ru5, sig_run_mom, vals_run_mom, _ou5) =
         erase_request(&Request::new().add(Mom::recipe(&[10.0]), None)).unwrap();
@@ -594,6 +667,12 @@ fn bench_fused(c: &mut Criterion) {
         b.iter(|| {
             let m = Mom::indicator(&cl, &[10.0], None).unwrap();
             black_box(m.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_mom_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::mom_n(&vals_run_mom, &cl);
+            black_box(rows[0].len())
         })
     });
 
@@ -708,6 +787,12 @@ fn bench_fused(c: &mut Criterion) {
             black_box(s.0[0].len() + s.0[1].len())
         })
     });
+    g.bench_function("generated_runonly_stoch_kd_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::stoch_kd(&vals_rsk, &hlc3);
+            black_box(rows[0].len() + rows[1].len())
+        })
+    });
 
     // Flagship single-asset pair: ONE pass of the engine vs the hand's THREE
     // — stoch's (14,13) roll pair IS willr's and donchian's.
@@ -758,6 +843,12 @@ fn bench_fused(c: &mut Criterion) {
             black_box(r.0[0].len())
         })
     });
+    g.bench_function("generated_runonly_rsi_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::rsi_n(&vals_r1, &cl);
+            black_box(rows[0].len())
+        })
+    });
     // THE grafted-chain flagship: Rsi + StochRsi co-requested — the entire
     // movement chain + both Wilders chains + division intern once, the
     // optional rsi row aliases the primary. Hand rival runs the two full
@@ -799,6 +890,19 @@ fn bench_fused(c: &mut Criterion) {
         b.iter(|| {
             let c = Cmo::indicator(&cl, &[14.0], None).unwrap();
             black_box(c.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_cmo_n_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::cmo_n(&vals_c1, &cl);
+            black_box(rows[0].len())
+        })
+    });
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function("generated_runonly_cmo_n_fast_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry_probe::probe_cmo_n_fast(&vals_c1, &cl);
+            black_box(rows[0].len())
         })
     });
     let (_rc, sig_rc, vals_rc, _oc) = erase_request(
@@ -1133,6 +1237,12 @@ fn bench_fused_atr(c: &mut Criterion) {
             black_box(rows[0].len() + rows[2].len() + rows[4].len())
         })
     });
+    g.bench_function("generated_runonly_atr_multi_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::atr_multi(&vals_am, &three);
+            black_box(rows[0].len() + rows[2].len() + rows[4].len())
+        })
+    });
     g.bench_function("generated_runonly_atr_multi_packed", |b| {
         b.iter(|| {
             let rows = tulip_rs::cse::atr_multi_p(&vals_am, &three);
@@ -1258,6 +1368,12 @@ fn bench_fused_wide(c: &mut Criterion) {
     g.bench_function("generated_runonly_ema_chains", |b| {
         b.iter(|| {
             let rows = try_run(&sig_ec, &vals_ec, &inputs).expect("ema_chains template");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_ema_chains_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::ema_chains(&vals_ec, &inputs);
             black_box(rows.iter().map(|r| r.len()).sum::<usize>())
         })
     });
@@ -1413,6 +1529,12 @@ fn bench_fused_rolling(c: &mut Criterion) {
     g.bench_function("generated_runonly_sma_six", |b| {
         b.iter(|| {
             let rows = try_run(&sig_6, &vals_6, &inputs).expect("sma_six scalar template");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_sma_six_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::sma_six(&vals_6, &inputs);
             black_box(rows.iter().map(|r| r.len()).sum::<usize>())
         })
     });
@@ -1650,6 +1772,12 @@ fn bench_fused_roll(c: &mut Criterion) {
     g.bench_function("generated_runonly_ichimoku_s_m", |b| {
         b.iter(|| {
             let rows = try_run(&sig_ic, &vals_ic, &s2).expect("ichimoku template");
+            black_box(rows[0].len() + rows[3].len())
+        })
+    });
+    g.bench_function("generated_runonly_ichimoku_s_m_direct", |b| {
+        b.iter(|| {
+            let rows = tulip_rs::cse::kernel::registry::ichimoku_s_m(&vals_ic, &s2);
             black_box(rows[0].len() + rows[3].len())
         })
     });

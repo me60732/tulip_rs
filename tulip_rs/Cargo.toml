@@ -44,6 +44,9 @@ default = ["simd_options", "simd_assets"] #, "candle_deep_analysis"]
 portable_simd = []
 simd_options = []
 simd_assets = []
+# Probe-only mini kernel registry for generated-vs-hand code shape inspection.
+# Not part of production routing; disabled by default.
+cse_kernel_probe = []
 # Lane-width cap reserved for a future lane-packed JIT (vector `fma` groups,
 # `cse/jit.rs` step E1); nothing reads it yet.
 avx512 = []

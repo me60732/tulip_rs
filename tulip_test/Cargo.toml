@@ -34,6 +34,7 @@ vector-ta = { version = "0.3", features = [] } #["nightly-avx"] }
 [features]
 default = []
 talib = []
+cse_kernel_probe = ["tulip_rs/cse_kernel_probe"]
 
 [[bench]]
 name = "benchmark_cybercycle"

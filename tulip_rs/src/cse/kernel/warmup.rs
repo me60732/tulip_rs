@@ -30,7 +30,55 @@ use crate::ring_buffer::multi_buffer::multi_mirror_buffer::MultiMirrorBuffer;
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer;
 use crate::types::{Cold, Warm};
+use std::cell::RefCell;
 use std::simd::Simd;
+
+/// Thread-local dummy scratch for optional warmup state arrays.
+///
+/// Generated kernels may borrow these fields when a pattern provably cannot
+/// execute node kinds that touch the corresponding state family. This avoids
+/// per-call zero-initialization of large arrays for singleton/focused shapes
+/// while keeping `exec` call-surface stable.
+pub struct ExecScratchDummies {
+    pub stb: [f64; MAX],
+    pub stc_ub: [f64; MAX],
+    pub stlb: [f64; MAX],
+    pub sumsq: [f64; MAX],
+    pub wsum: [f64; MAX],
+    pub hacc: [[f64; 7]; MAX],
+    pub hp_acc: [[f64; 2]; MAX],
+    pub ss_acc: [[f64; 3]; MAX],
+    pub hd_acc: [[f64; 38]; MAX],
+}
+
+impl Default for ExecScratchDummies {
+    fn default() -> Self {
+        Self {
+            stb: [0.0; MAX],
+            stc_ub: [0.0; MAX],
+            stlb: [0.0; MAX],
+            sumsq: [0.0; MAX],
+            wsum: [0.0; MAX],
+            hacc: [[0.0; 7]; MAX],
+            hp_acc: [[0.0; 2]; MAX],
+            ss_acc: [[0.0; 3]; MAX],
+            hd_acc: [[0.0; 38]; MAX],
+        }
+    }
+}
+
+thread_local! {
+    static EXEC_SCRATCH_DUMMIES: RefCell<ExecScratchDummies> =
+        RefCell::new(ExecScratchDummies::default());
+}
+
+#[inline(always)]
+pub fn with_exec_scratch_dummies<R>(f: impl FnOnce(&mut ExecScratchDummies) -> R) -> R {
+    EXEC_SCRATCH_DUMMIES.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        f(&mut guard)
+    })
+}
 
 /// Rings for DERIVED-source rolls (`K_ROLLSUM`): one ring per GROUP —
 /// interning already collapsed the shared source structurally, the leader
@@ -49,8 +97,15 @@ use std::simd::Simd;
 /// eviction correct for every arena order of the group's members. M1's
 /// resume inherits the hand's serde from the buffer type.
 #[derive(Clone)]
+enum ScalarRingColdBuf {
+    Plain(Buffer<Cold, f64>),
+    Mirror(MirrorBuffer<Cold>),
+}
+
+#[derive(Clone)]
 pub struct RingSlot {
-    buf: MirrorBuffer<Cold>,
+    buf: ScalarRingColdBuf,
+    mirror: bool,
     last_t: usize,
     evicted: Option<f64>,
 }
@@ -72,24 +127,36 @@ impl RingSet {
         Self::default()
     }
     #[inline(always)]
-    fn entry(&mut self, g: usize, cap: usize) -> &mut RingSlot {
+    fn entry(&mut self, g: usize, cap: usize, mirror: bool) -> &mut RingSlot {
         while self.slots.len() <= g {
             self.slots.push(None);
         }
         self.slots[g].get_or_insert_with(|| RingSlot {
-            buf: MirrorBuffer::new(cap.max(1)),
+            buf: if mirror {
+                ScalarRingColdBuf::Mirror(MirrorBuffer::new(cap.max(1)))
+            } else {
+                ScalarRingColdBuf::Plain(Buffer::new(cap.max(1)))
+            },
+            mirror,
             last_t: usize::MAX,
             evicted: None,
         })
     }
     /// Feed this bar's value into group `g`'s ring: the bar's first caller
     /// pushes (recording the eviction); later group members are no-ops.
+    ///
+    /// `mirror` must match the group's published ring class
+    /// (`RCLASS_RESCAN` => true). We assert that once and keep the slot shape.
     #[inline(always)]
-    pub fn feed(&mut self, g: usize, cap: usize, t: usize, v: f64) {
-        let s = self.entry(g, cap);
+    pub fn feed(&mut self, g: usize, cap: usize, t: usize, v: f64, mirror: bool) {
+        let s = self.entry(g, cap, mirror);
+        debug_assert_eq!(s.mirror, mirror, "ring group mirror-class mismatch");
         if s.last_t != t {
             s.last_t = t;
-            s.evicted = s.buf.push_with_info(v);
+            s.evicted = match &mut s.buf {
+                ScalarRingColdBuf::Plain(b) => b.push_with_info(v),
+                ScalarRingColdBuf::Mirror(b) => b.push_with_info(v),
+            };
         }
     }
     /// This bar's eviction for the group, once the fill-cap passed
@@ -107,29 +174,34 @@ impl RingSet {
     #[inline(always)]
     pub fn at(&self, g: usize, age: usize) -> f64 {
         match &self.slots[g] {
-            Some(s) => s.buf.get_by_period(age),
+            Some(s) => match &s.buf {
+                ScalarRingColdBuf::Plain(b) => b.get_by_period(age),
+                ScalarRingColdBuf::Mirror(b) => b.get_by_period(age),
+            },
             // Only reachable before any feed; every read bar feeds first.
             None => 0.0,
         }
     }
     /// The group ring's newest `len` values as ONE contiguous,
-    /// chronologically-ordered slice (oldest first) — the mirror invariant
-    /// exists for this: an extremum rescan walks it with the SAME
-    /// branchless `find_*_simd` the pointer rolls run on the raw stream
-    /// slice. Callers guarantee the window is complete (`len <= count`) —
-    /// the fold region never reads it.
+    /// chronologically-ordered slice (oldest first) — only legal for mirror
+    /// groups (`RCLASS_RESCAN`).
     #[inline(always)]
     pub fn window(&self, g: usize, len: usize) -> &[f64] {
         match &self.slots[g] {
-            Some(s) => s.buf.get_slice_by_period(len),
+            Some(s) => match &s.buf {
+                ScalarRingColdBuf::Mirror(b) => b.get_slice_by_period(len),
+                ScalarRingColdBuf::Plain(_) => {
+                    debug_assert!(false, "window() requested from non-mirror scalar ring");
+                    &[]
+                }
+            },
             None => &[],
         }
     }
     /// Seam transition for the SCALAR steady loop: every group `exec` filled
     /// becomes a `Warm` ring, so no steady bar drives a `Cold` buffer.
     /// `into_full` debug-asserts `is_full` per group, which turns the ring
-    /// fullness at `gate` from an unchecked hope (today's never-fired
-    /// `.expect("cap roll steps on an evicting bar")`) into a checked fact.
+    /// fullness at `gate` from an unchecked hope into a checked fact.
     pub fn into_warm(self) -> WarmMirrorRingSet {
         WarmMirrorRingSet {
             slots: self
@@ -137,7 +209,13 @@ impl RingSet {
                 .into_iter()
                 .map(|s| {
                     s.map(|s| WarmMirrorSlot {
-                        buf: s.buf.into_full(),
+                        buf: match s.buf {
+                            ScalarRingColdBuf::Plain(b) => ScalarRingWarmBuf::Plain(b.into_full()),
+                            ScalarRingColdBuf::Mirror(b) => {
+                                ScalarRingWarmBuf::Mirror(b.into_full())
+                            }
+                        },
+                        mirror: s.mirror,
                         last_t: s.last_t,
                         evicted: 0.0,
                     })
@@ -147,19 +225,28 @@ impl RingSet {
     }
 }
 
+#[derive(Clone)]
+enum ScalarRingWarmBuf {
+    Plain(Buffer<Warm, f64>),
+    Mirror(MirrorBuffer<Warm, f64>),
+}
+
 /// A `Warm` scalar ring slot: full by construction, so the eviction is a bare
 /// `f64` — no `Option` tag, no fill-state branch.
 #[derive(Clone)]
 pub struct WarmMirrorSlot {
-    buf: MirrorBuffer<Warm, f64>,
+    buf: ScalarRingWarmBuf,
+    mirror: bool,
     last_t: usize,
     evicted: f64,
 }
 
-/// The SCALAR steady-loop authority. Mirror-based (like `RingSet`) because the
-/// scalar path's derived extrema walk `window()`; a pure-sum scalar group pays
-/// the mirror's second store here, and dropping it means splitting the scalar
-/// authority by group class (queued — the lane path already splits that way).
+/// The SCALAR steady-loop authority.
+///
+/// Split by group class:
+/// - sum/bespoke groups use plain rings (one store per push)
+/// - rescan groups use mirror rings (contiguous window scan support)
+///
 /// Same group discipline as `RingSet`: `feed` idempotent per bar, first caller
 /// pushes and takes the eviction, reads see the ring AFTER this bar's push.
 #[derive(Clone)]
@@ -176,15 +263,98 @@ impl WarmMirrorRingSet {
         if let Some(s) = self.slots[g].as_mut() {
             if s.last_t != t {
                 s.last_t = t;
-                s.evicted = s.buf.push_with_info(v);
+                s.evicted = match &mut s.buf {
+                    ScalarRingWarmBuf::Plain(b) => b.push_with_info(v),
+                    ScalarRingWarmBuf::Mirror(b) => b.push_with_info(v),
+                };
             }
         }
     }
+
+    /// Fast path for groups with exactly one feeder node in the generated
+    /// steady loop: no per-bar idempotency check (`last_t`) is needed.
+    #[inline(always)]
+    pub fn feed_unique(&mut self, g: usize, v: f64) {
+        let s = self.slots[g]
+            .as_mut()
+            .expect("warm scalar ring group missing at seam");
+        s.evicted = match &mut s.buf {
+            ScalarRingWarmBuf::Plain(b) => b.push_with_info(v),
+            ScalarRingWarmBuf::Mirror(b) => b.push_with_info(v),
+        };
+    }
+
+    /// Idempotent push (`feed`) + eviction read in one call.
+    #[inline(always)]
+    pub fn feed_take_evicted(&mut self, g: usize, t: usize, v: f64) -> f64 {
+        if let Some(s) = self.slots[g].as_mut() {
+            if s.last_t != t {
+                s.last_t = t;
+                s.evicted = match &mut s.buf {
+                    ScalarRingWarmBuf::Plain(b) => b.push_with_info(v),
+                    ScalarRingWarmBuf::Mirror(b) => b.push_with_info(v),
+                };
+            }
+            s.evicted
+        } else {
+            0.0
+        }
+    }
+
+    /// Idempotent push (`feed`) + age read in one call.
+    #[inline(always)]
+    pub fn feed_take_at(&mut self, g: usize, t: usize, v: f64, age: usize) -> f64 {
+        if let Some(s) = self.slots[g].as_mut() {
+            if s.last_t != t {
+                s.last_t = t;
+                s.evicted = match &mut s.buf {
+                    ScalarRingWarmBuf::Plain(b) => b.push_with_info(v),
+                    ScalarRingWarmBuf::Mirror(b) => b.push_with_info(v),
+                };
+            }
+            match &s.buf {
+                ScalarRingWarmBuf::Plain(b) => b.get_by_period(age),
+                ScalarRingWarmBuf::Mirror(b) => b.get_by_period(age),
+            }
+        } else {
+            0.0
+        }
+    }
+
+    /// Unique-feeder push + eviction read in one call.
+    #[inline(always)]
+    pub fn feed_unique_take_evicted(&mut self, g: usize, v: f64) -> f64 {
+        let s = self.slots[g]
+            .as_mut()
+            .expect("warm scalar ring group missing at seam");
+        s.evicted = match &mut s.buf {
+            ScalarRingWarmBuf::Plain(b) => b.push_with_info(v),
+            ScalarRingWarmBuf::Mirror(b) => b.push_with_info(v),
+        };
+        s.evicted
+    }
+
+    /// Unique-feeder push + age read in one call.
+    #[inline(always)]
+    pub fn feed_unique_take_at(&mut self, g: usize, v: f64, age: usize) -> f64 {
+        let s = self.slots[g]
+            .as_mut()
+            .expect("warm scalar ring group missing at seam");
+        match &mut s.buf {
+            ScalarRingWarmBuf::Plain(b) => {
+                s.evicted = b.push_with_info(v);
+                b.get_by_period(age)
+            }
+            ScalarRingWarmBuf::Mirror(b) => {
+                s.evicted = b.push_with_info(v);
+                b.get_by_period(age)
+            }
+        }
+    }
+
     /// This bar's eviction — the cap window's leaving bar. A hole reads `0.0`,
     /// the same convention as `at` below (every read bar feeds first, so a hole
-    /// is a construction bug, not a fill-state question). THIS is the branch the
-    /// fill-state law exists to delete: the `Cold` authority handed back an
-    /// `Option` and the arm carried a per-bar `.expect`.
+    /// is a construction bug, not a fill-state question).
     #[inline(always)]
     pub fn evicted(&self, g: usize) -> f64 {
         match &self.slots[g] {
@@ -196,16 +366,25 @@ impl WarmMirrorRingSet {
     #[inline(always)]
     pub fn at(&self, g: usize, age: usize) -> f64 {
         match &self.slots[g] {
-            Some(s) => s.buf.get_by_period(age),
+            Some(s) => match &s.buf {
+                ScalarRingWarmBuf::Plain(b) => b.get_by_period(age),
+                ScalarRingWarmBuf::Mirror(b) => b.get_by_period(age),
+            },
             None => 0.0,
         }
     }
     /// The group ring's newest `len` values as ONE contiguous chronological
-    /// slice — the derived-extrema rescan walk, unchanged from `Cold`.
+    /// slice — legal only for mirror groups.
     #[inline(always)]
     pub fn window(&self, g: usize, len: usize) -> &[f64] {
         match &self.slots[g] {
-            Some(s) => s.buf.get_slice_by_period(len),
+            Some(s) => match &s.buf {
+                ScalarRingWarmBuf::Mirror(b) => b.get_slice_by_period(len),
+                ScalarRingWarmBuf::Plain(_) => {
+                    debug_assert!(!s.mirror, "window() requested from non-mirror warm ring");
+                    &[]
+                }
+            },
             None => &[],
         }
     }
@@ -780,18 +959,12 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
     out: &mut [*mut f64; MAX_SINKS],
     leads: &[u32; MAX_SINKS],
 ) {
-    // Iteration over the CONST capacity with a const `break` per slot: every
-    // iteration's `k` is a literal for the optimizer, so `SIG.kinds[k]` folds
-    // to a constant and the `match` collapses to its single arm WITHOUT
-    // relying on unroll heuristics (the M0 lesson: LLVM's heuristics refused
-    // to unroll this body over the runtime `SIG.len`, leaving the dispatch
-    // loop intact — 1.16x SLOWER than hand). `break` bounds it to the real
-    // arena; the tail is dead code.
+    // Iteration over the CONST signature length: `SIG` is a const generic, so
+    // `SIG.len` is monomorphized per kernel and the `k` domain is fixed to the
+    // real arena width. This keeps the warm loop on the same per-signature
+    // constant-shape path while dropping the per-iteration `k == len` guard.
     for t in t0..t1 {
-        for k in 0..MAX {
-            if k == SIG.len as usize {
-                break;
-            }
+        for k in 0..(SIG.len as usize) {
             v[k] = match SIG.kinds[k] {
                 K_INPUT => streams[SIG.a[k] as usize][t],
                 K_CONST => vals.consts[k],
@@ -1020,7 +1193,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let g = vals.ring_of[k] as usize;
                         let cap = vals.ring_cap[g] as usize;
                         let x = v[SIG.a[k] as usize];
-                        rings.feed(g, cap, t, x);
+                        rings.feed(
+                            g,
+                            cap,
+                            t,
+                            x,
+                            SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                        );
                         let fold = f + vals.skip[k] as usize;
                         if t < fold {
                             0.0
@@ -1100,7 +1279,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         if t < n + m {
                             wss += diff * vals.st_step[k];
                             ss += diff;
-                            rings.feed(g, m, t, diff);
+                            rings.feed(
+                                g,
+                                m,
+                                t,
+                                diff,
+                                SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                            );
                             wss -= ss;
                             if t == n {
                                 fd = diff;
@@ -1112,7 +1297,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         } else {
                             wss += diff * vals.st_step[k];
                             ss += diff;
-                            rings.feed(g, m, t, diff);
+                            rings.feed(
+                                g,
+                                m,
+                                t,
+                                diff,
+                                SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                            );
                             let out = wss / vals.consts[k];
                             wss -= ss;
                             ss -= rings.at(g, m - 1);
@@ -1191,7 +1382,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                             let g = vals.ring_of[k] as usize;
                             let cap = vals.ring_cap[g] as usize;
                             let x = v[SIG.a[k] as usize];
-                            rings.feed(g, cap, t, x);
+                            rings.feed(
+                                g,
+                                cap,
+                                t,
+                                x,
+                                SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                            );
                             roll_step_ring::<true>(
                                 rings,
                                 g,
@@ -1219,7 +1416,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                             let g = vals.ring_of[k] as usize;
                             let cap = vals.ring_cap[g] as usize;
                             let x = v[SIG.a[k] as usize];
-                            rings.feed(g, cap, t, x);
+                            rings.feed(
+                                g,
+                                cap,
+                                t,
+                                x,
+                                SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                            );
                             roll_step_ring::<false>(
                                 rings,
                                 g,
@@ -1327,7 +1530,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let g = vals.ring_of[k] as usize;
                         let cap = vals.ring_cap[g] as usize;
                         let x = v[SIG.a[k] as usize];
-                        rings.feed(g, cap, t, x);
+                        rings.feed(
+                            g,
+                            cap,
+                            t,
+                            x,
+                            SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                        );
                         rings.at(g, 3)
                     }
                 }
@@ -1339,7 +1548,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let g = vals.ring_of[k] as usize;
                         let cap = vals.ring_cap[g] as usize;
                         let x = v[SIG.a[k] as usize];
-                        rings.feed(g, cap, t, x);
+                        rings.feed(
+                            g,
+                            cap,
+                            t,
+                            x,
+                            SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                        );
                         let q1 = 0.0962_f64.mul_add(rings.at(g, 0), 0.5769 * rings.at(g, 2));
                         let q2 = (-0.5769_f64).mul_add(rings.at(g, 4), -0.0962 * rings.at(g, 6));
                         q1 + q2
@@ -1401,7 +1616,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                         let g = vals.ring_of[k] as usize;
                         let cap = vals.ring_cap[g] as usize;
                         let x = v[SIG.a[k] as usize];
-                        rings.feed(g, cap, t, x);
+                        rings.feed(
+                            g,
+                            cap,
+                            t,
+                            x,
+                            SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                        );
                         rings.evicted(g).unwrap_or(0.0)
                     }
                 }
@@ -1458,7 +1679,13 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                             let g = vals.ring_of[k] as usize;
                             let cap = vals.ring_cap[g] as usize;
                             let x = v[SIG.a[k] as usize];
-                            rings.feed(g, cap, t, x);
+                            rings.feed(
+                                g,
+                                cap,
+                                t,
+                                x,
+                                SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
+                            );
                             let window = rings.window(g, p);
                             crate::indicators::md::calc_md_simd::<4>(window, sma, mult)
                         }

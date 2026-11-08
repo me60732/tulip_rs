@@ -164,25 +164,44 @@ fn build_scalar_hoists(
     // bar (`prevp` = the pre-sliced stream pointer moved back one period,
     // so the steady leaving read is `prevp.add(i)` — one add, one load,
     // the hand's `real[j]` shape exactly).
+    let mut ring_single_feeder: Vec<bool> = vec![false; p.nodes.len()];
+    for g in p.plan.leaders(p.nodes.len()) {
+        let members = p.plan.members_of(g, p.nodes.len());
+        if members.len() == 1 {
+            ring_single_feeder[members[0]] = true;
+        }
+    }
+
     let mut roll_hoists = Vec::new();
     for (k, node) in p.nodes.iter().enumerate() {
         if node.kind == Kind::RollSum {
             let ident_k = idents[k].clone();
             let ck = format_ident!("{}_carry", ident_k);
             let mk = format_ident!("{}_mult", ident_k);
-            let pk = format_ident!("{}_p", ident_k);
             let gk = format_ident!("{}_grp", ident_k);
-            let cp = format_ident!("{}_cap", ident_k);
-            let evi = format_ident!("{}_evi", ident_k);
             let ki = k;
-            roll_hoists.push(quote! {
-                let mut #ck = st[#ki];
-                let #mk = vals.mults[#ki];
-                let #pk = vals.periods[#ki] as usize;
-                let #gk = vals.ring_of[#ki] as usize;
-                let #cp = vals.ring_cap[#gk] as usize;
-                let #evi = #pk == #cp;
-            });
+            if ring_single_feeder[k] {
+                // Single-feeder groups (e.g. stoch's two RollSum chains) are
+                // structural cap owners in steady mode. Keep only the fields
+                // actually used by that path.
+                roll_hoists.push(quote! {
+                    let mut #ck = st[#ki];
+                    let #mk = vals.mults[#ki];
+                    let #gk = vals.ring_of[#ki] as usize;
+                });
+            } else {
+                let pk = format_ident!("{}_p", ident_k);
+                let cp = format_ident!("{}_cap", ident_k);
+                let evi = format_ident!("{}_evi", ident_k);
+                roll_hoists.push(quote! {
+                    let mut #ck = st[#ki];
+                    let #mk = vals.mults[#ki];
+                    let #pk = vals.periods[#ki] as usize;
+                    let #gk = vals.ring_of[#ki] as usize;
+                    let #cp = vals.ring_cap[#gk] as usize;
+                    let #evi = #pk == #cp;
+                });
+            }
             continue;
         }
         if node.kind == Kind::Hma {
@@ -500,6 +519,42 @@ fn build_scalar_hoists(
 /// Build scalar body: the main computation loop for all node kinds.
 fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> Vec<TokenStream> {
     let mut body = Vec::new();
+
+    // Lockstep RollSum groups with >1 members can share one ring feed per bar.
+    // We precompute leader/member maps so the first member emits the shared
+    // feed+leave block and siblings just consume their precomputed `leave`.
+    let mut rollsum_group_members: Vec<Option<Vec<usize>>> = vec![None; p.nodes.len()];
+    let mut rollsum_group_leader_of: Vec<Option<usize>> = vec![None; p.nodes.len()];
+    for g in p.plan.leaders(p.nodes.len()) {
+        if !p.plan.is_lockstep(g) {
+            continue;
+        }
+        let members: Vec<usize> = p
+            .plan
+            .members_of(g, p.nodes.len())
+            .into_iter()
+            .filter(|&m| p.nodes[m].kind == Kind::RollSum)
+            .collect();
+        if members.len() <= 1 {
+            continue;
+        }
+        let leader = members[0];
+        rollsum_group_members[leader] = Some(members.clone());
+        for m in members {
+            rollsum_group_leader_of[m] = Some(leader);
+        }
+    }
+
+    // Ring groups with exactly one member have exactly one feeder per bar;
+    // steady code can call the no-idempotency-check fast path.
+    let mut ring_single_feeder: Vec<bool> = vec![false; p.nodes.len()];
+    for g in p.plan.leaders(p.nodes.len()) {
+        let members = p.plan.members_of(g, p.nodes.len());
+        if members.len() == 1 {
+            ring_single_feeder[members[0]] = true;
+        }
+    }
+
     for (k, node) in p.nodes.iter().enumerate() {
         let xk = format_ident!("{}", idents[k]);
         match node.kind {
@@ -765,32 +820,87 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 // form `st += x − leave; st·mult`. The ring object is
                 // exec's from the warm phase — the fold/eviction state
                 // carries over, bit-continuous across the seam.
+                //
+                // Optimization (engine-native): for lockstep RollSum groups
+                // with multiple members, emit exactly one `feed` on the first
+                // member and materialize all member leaves once. Siblings then
+                // reuse those leaves instead of repeating idempotent `feed`
+                // calls.
                 let ident_k = idents[k].clone();
                 let ck = format_ident!("{}_carry", ident_k);
                 let mk = format_ident!("{}_mult", ident_k);
                 let pk = format_ident!("{}_p", ident_k);
                 let gk = format_ident!("{}_grp", ident_k);
                 let evi = format_ident!("{}_evi", ident_k);
-                let src = ev(node.a, &idents);
-                body.push(quote! {
-                    let #xk = {
-                        let x = #src;
-                        // One push per group per bar (idempotent feed —
-                        // exec's warm phase obeys the same rule); then the
-                        // hand's post-push read: eviction for the cap owner,
-                        // age read for shorter siblings. The authority is
-                        // `Warm` past the seam, so the eviction is a bare f64
-                        // — no `Option`, no per-bar `expect`, no fill branch.
-                        rings.feed(#gk, gate + i, x);
-                        let leave = if #evi {
-                            rings.evicted(#gk)
-                        } else {
-                            rings.at(#gk, #pk)
+
+                if let Some(group_leader) = rollsum_group_leader_of[k] {
+                    let group_members = rollsum_group_members[group_leader]
+                        .as_ref()
+                        .expect("rollsum group leader must have members");
+                    let leader_ident = idents[group_leader].clone();
+                    let leader_gk = format_ident!("{}_grp", leader_ident);
+                    let src_var = format_ident!("roll_src_{}", group_leader);
+                    let leave_k = format_ident!("roll_leave_{}", k);
+
+                    if k == group_leader {
+                        let leader_src = ev(p.nodes[group_leader].a, idents);
+                        let leave_binds: Vec<TokenStream> = group_members
+                            .iter()
+                            .map(|&m| {
+                                let mid = idents[m].clone();
+                                let mp = format_ident!("{}_p", mid);
+                                let mevi = format_ident!("{}_evi", mid);
+                                let mleave = format_ident!("roll_leave_{}", m);
+                                quote! {
+                                    let #mleave = if #mevi {
+                                        rings.evicted(#leader_gk)
+                                    } else {
+                                        rings.at(#leader_gk, #mp)
+                                    };
+                                }
+                            })
+                            .collect();
+                        body.push(quote! {
+                            let #src_var = #leader_src;
+                            rings.feed(#leader_gk, gate + i, #src_var);
+                            #( #leave_binds )*
+                        });
+                    }
+
+                    body.push(quote! {
+                        let #xk = {
+                            let x = #src_var;
+                            let leave = #leave_k;
+                            #ck += x - leave;
+                            #ck * #mk
                         };
-                        #ck += x - leave;
-                        #ck * #mk
+                    });
+                } else {
+                    let src = ev(node.a, &idents);
+                    let leave = if ring_single_feeder[k] {
+                        quote! { rings.feed_unique_take_evicted(#gk, x) }
+                    } else {
+                        quote! {
+                            if #evi {
+                                rings.feed_take_evicted(#gk, gate + i, x)
+                            } else {
+                                rings.feed_take_at(#gk, gate + i, x, #pk)
+                            }
+                        }
                     };
-                });
+                    body.push(quote! {
+                        let #xk = {
+                            let x = #src;
+                            // One push per group per bar (idempotent feed for
+                            // shared groups, unique-feed fast path for single
+                            // feeders), then the hand's post-push leave value:
+                            // eviction for cap owner, age read for siblings.
+                            let leave = #leave;
+                            #ck += x - leave;
+                            #ck * #mk
+                        };
+                    });
+                }
             }
             Kind::Hma => {
                 // Hand `hma.rs::calc` warm region, statement for statement
@@ -814,6 +924,11 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 let (pv1, pv2) = (format_ident!("{ik}_pv1"), format_ident!("{ik}_pv2"));
                 let src = ev(node.a, &idents);
                 let ki = k;
+                let leave = if ring_single_feeder[k] {
+                    quote! { rings.feed_unique_take_at(#ki, diff, #mm1) }
+                } else {
+                    quote! { rings.feed_take_at(#ki, gate + i, diff, #mm1) }
+                };
                 body.push(quote! {
                     let #xk = {
                         let x = #src;
@@ -830,10 +945,10 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                         let diff = 2.0 * o2 - o1;
                         #wss += diff * #mp;
                         #ss += diff;
-                        rings.feed(#ki, gate + i, diff);
+                        let leave = #leave;
                         let out = #wss / #ww;
                         #wss -= #ss;
-                        #ss -= rings.at(#ki, #mm1);
+                        #ss -= leave;
                         out
                     };
                 });
@@ -918,10 +1033,15 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     } else {
                         quote! { <= }
                     };
+                    let feed = if ring_single_feeder[k] {
+                        quote! { rings.feed_unique(#gk, current); }
+                    } else {
+                        quote! { rings.feed(#gk, gate + i, current); }
+                    };
                     body.push(quote! {
                         let #xk = {
                             let current = #src;
-                            rings.feed(#gk, gate + i, current);
+                            #feed
                             #tc = #tc + 1;
                             if #pk <= #tc {
                                 let (rv, ri) = #finder(rings.window(#gk, #lbk + 1));
@@ -1227,12 +1347,16 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 // convention as `RollSum`'s steady arm dropping the `Option`).
                 let ki = k;
                 let src = ev(node.a, &idents);
+                let leave = if ring_single_feeder[k] {
+                    quote! { rings.feed_unique_take_evicted(g, x) }
+                } else {
+                    quote! { rings.feed_take_evicted(g, gate + i, x) }
+                };
                 body.push(quote! {
                     let #xk = {
                         let x = #src;
                         let g = vals.ring_of[#ki] as usize;
-                        rings.feed(g, gate + i, x);
-                        rings.evicted(g)
+                        #leave
                     };
                 });
             }
@@ -1240,12 +1364,16 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 // Centre tap of the shared 7-tap ring (`K_HTINPHASE`).
                 let ki = k;
                 let src = ev(node.a, &idents);
+                let mid = if ring_single_feeder[k] {
+                    quote! { rings.feed_unique_take_at(g, x, 3) }
+                } else {
+                    quote! { rings.feed_take_at(g, gate + i, x, 3) }
+                };
                 body.push(quote! {
                     let #xk = {
                         let x = #src;
                         let g = vals.ring_of[#ki] as usize;
-                        rings.feed(g, gate + i, x);
-                        rings.at(g, 3)
+                        #mid
                     };
                 });
             }
@@ -1257,11 +1385,16 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 // the same bar is safe (one push wins, the rest are no-ops).
                 let ki = k;
                 let src = ev(node.a, &idents);
+                let feed = if ring_single_feeder[k] {
+                    quote! { rings.feed_unique(g, x); }
+                } else {
+                    quote! { rings.feed(g, gate + i, x); }
+                };
                 body.push(quote! {
                     let #xk = {
                         let x = #src;
                         let g = vals.ring_of[#ki] as usize;
-                        rings.feed(g, gate + i, x);
+                        #feed
                         let q1 = 0.0962_f64.mul_add(rings.at(g, 0), 0.5769 * rings.at(g, 2));
                         let q2 = (-0.5769_f64).mul_add(rings.at(g, 4), -0.0962 * rings.at(g, 6));
                         q1 + q2
@@ -1290,6 +1423,11 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     });
                 } else {
                     let src_v = ev(node.a, &idents);
+                    let feed = if ring_single_feeder[k] {
+                        quote! { rings.feed_unique(g, x); }
+                    } else {
+                        quote! { rings.feed(g, gate + i, x); }
+                    };
                     body.push(quote! {
                         let #xk = {
                             let p = vals.periods[#ki] as usize;
@@ -1297,7 +1435,7 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                             let mult = 1.0 / p as f64;
                             let g = vals.ring_of[#ki] as usize;
                             let x = #src_v;
-                            rings.feed(g, gate + i, x);
+                            #feed
                             let window = rings.window(g, p);
                             crate::indicators::md::calc_md_simd::<4>(window, sma, mult)
                         };
@@ -1853,6 +1991,185 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     let steady =
         steady_with_optional_groups(&ctx.opt_group_ids, &body, &always_stores, &opt_stores);
 
+    // Warmup scratch families that can be pattern-pruned.
+    let needs_supertrend = p.nodes.iter().any(|n| n.kind == Kind::SuperTrend);
+    let needs_stddev = p.nodes.iter().any(|n| n.kind == Kind::Stddev);
+    let needs_wma = p.nodes.iter().any(|n| n.kind == Kind::Wma);
+    let needs_hma = p.nodes.iter().any(|n| n.kind == Kind::Hma);
+    let needs_highpass = p.nodes.iter().any(|n| n.kind == Kind::HighPass);
+    let needs_supersmoother = p.nodes.iter().any(|n| n.kind == Kind::SuperSmoother);
+    let needs_hdacc = p.nodes.iter().any(|n| {
+        matches!(
+            n.kind,
+            Kind::HomodyneDiscriminator | Kind::InstantaneousTrendline | Kind::Mama
+        )
+    });
+
+    // Heuristic guard (refined): keep full local scratch only for DERIVED
+    // extrema (ring-backed RollMax/RollMin). Price-sourced extrema (e.g. stoch)
+    // can use dummy scratch without paying large local zero-init arrays.
+    let force_full_scratch = p
+        .nodes
+        .iter()
+        .enumerate()
+        .any(|(k, n)| matches!(n.kind, Kind::RollMax | Kind::RollMin) && p.plan.is_ring(k));
+
+    let needs_supertrend = needs_supertrend || force_full_scratch;
+    let needs_stddev = needs_stddev || force_full_scratch;
+    let needs_wma = needs_wma || force_full_scratch;
+    let needs_hma = needs_hma || force_full_scratch;
+    let needs_highpass = needs_highpass || force_full_scratch;
+    let needs_supersmoother = needs_supersmoother || force_full_scratch;
+    let needs_hdacc = needs_hdacc || force_full_scratch;
+
+    let supertrend_decl = if needs_supertrend {
+        quote! {
+            let mut stb = [0.0f64; crate::cse::MAX]; // SuperTrend prev_st
+            let mut stc_ub = [0.0f64; crate::cse::MAX]; // SuperTrend prev_ub
+            let mut stlb = [0.0f64; crate::cse::MAX]; // SuperTrend prev_lb
+        }
+    } else {
+        quote! {}
+    };
+    let sumsq_decl = if needs_stddev {
+        quote! { let mut sumsq = [0.0f64; crate::cse::MAX]; } // Stddev sum-of-squares carry
+    } else {
+        quote! {}
+    };
+    let wsum_decl = if needs_wma {
+        quote! { let mut wsum = [0.0f64; crate::cse::MAX]; } // Wma weighted-sum carry
+    } else {
+        quote! {}
+    };
+    let hacc_decl = if needs_hma {
+        quote! { let mut hacc = [[0.0f64; 7]; crate::cse::MAX]; }
+    } else {
+        quote! {}
+    };
+    let hp_acc_decl = if needs_highpass {
+        quote! { let mut hp_acc = [[0.0f64; 2]; crate::cse::MAX]; }
+    } else {
+        quote! {}
+    };
+    let ss_acc_decl = if needs_supersmoother {
+        quote! { let mut ss_acc = [[0.0f64; 3]; crate::cse::MAX]; }
+    } else {
+        quote! {}
+    };
+    let hdacc_decl = if needs_hdacc {
+        quote! { let mut hdacc = [[0.0f64; 38]; crate::cse::MAX]; }
+    } else {
+        quote! {}
+    };
+
+    let stb_arg = if needs_supertrend {
+        quote! { &mut stb }
+    } else {
+        quote! { &mut __dummies.stb }
+    };
+    let stc_ub_arg = if needs_supertrend {
+        quote! { &mut stc_ub }
+    } else {
+        quote! { &mut __dummies.stc_ub }
+    };
+    let stlb_arg = if needs_supertrend {
+        quote! { &mut stlb }
+    } else {
+        quote! { &mut __dummies.stlb }
+    };
+    let sumsq_arg = if needs_stddev {
+        quote! { &mut sumsq }
+    } else {
+        quote! { &mut __dummies.sumsq }
+    };
+    let wsum_arg = if needs_wma {
+        quote! { &mut wsum }
+    } else {
+        quote! { &mut __dummies.wsum }
+    };
+    let hacc_arg = if needs_hma {
+        quote! { &mut hacc }
+    } else {
+        quote! { &mut __dummies.hacc }
+    };
+    let hp_acc_arg = if needs_highpass {
+        quote! { &mut hp_acc }
+    } else {
+        quote! { &mut __dummies.hp_acc }
+    };
+    let ss_acc_arg = if needs_supersmoother {
+        quote! { &mut ss_acc }
+    } else {
+        quote! { &mut __dummies.ss_acc }
+    };
+    let hdacc_arg = if needs_hdacc {
+        quote! { &mut hdacc }
+    } else {
+        quote! { &mut __dummies.hd_acc }
+    };
+
+    let use_dummy_scratch = !needs_supertrend
+        || !needs_stddev
+        || !needs_wma
+        || !needs_hma
+        || !needs_highpass
+        || !needs_supersmoother
+        || !needs_hdacc;
+
+    let warm_exec = if use_dummy_scratch {
+        quote! {
+            crate::cse::kernel::warmup::with_exec_scratch_dummies(|__dummies| {
+                crate::cse::kernel::exec::<#sig, true>(
+                    vals,
+                    streams,
+                    0,
+                    gate,
+                    &mut st,
+                    #stb_arg,
+                    #stc_ub_arg,
+                    #stlb_arg,
+                    #sumsq_arg,
+                    #wsum_arg,
+                    &mut trail,
+                    &mut rings,
+                    #hacc_arg,
+                    &mut kvacc,
+                    #hp_acc_arg,
+                    #ss_acc_arg,
+                    #hdacc_arg,
+                    &mut v,
+                    &mut ptrs,
+                    &vals.sink_lead,
+                );
+            });
+        }
+    } else {
+        quote! {
+            crate::cse::kernel::exec::<#sig, true>(
+                vals,
+                streams,
+                0,
+                gate,
+                &mut st,
+                #stb_arg,
+                #stc_ub_arg,
+                #stlb_arg,
+                #sumsq_arg,
+                #wsum_arg,
+                &mut trail,
+                &mut rings,
+                #hacc_arg,
+                &mut kvacc,
+                #hp_acc_arg,
+                #ss_acc_arg,
+                #hdacc_arg,
+                &mut v,
+                &mut ptrs,
+                &vals.sink_lead,
+            );
+        }
+    };
+
     quote! {
         #[allow(unused_variables, unused_mut)]
         pub fn #name(vals: &crate::cse::Values, streams: &[&[f64]]) -> Vec<crate::cse::query::RowRef> {
@@ -1892,23 +2209,21 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             #(#stream_hoists)*
 
             let mut st = [0.0f64; crate::cse::MAX];
-            let mut stb = [0.0f64; crate::cse::MAX]; // SuperTrend prev_st
-            let mut stc_ub = [0.0f64; crate::cse::MAX]; // SuperTrend prev_ub
-            let mut stlb = [0.0f64; crate::cse::MAX]; // SuperTrend prev_lb
-            let mut sumsq = [0.0f64; crate::cse::MAX]; // Stddev sum-of-squares carry
-            let mut wsum = [0.0f64; crate::cse::MAX]; // Wma weighted-sum carry
+            #supertrend_decl
+            #sumsq_decl
+            #wsum_decl
             let mut trail = [0usize; crate::cse::MAX]; // roll trail carry
             let mut rings = crate::cse::kernel::warmup::RingSet::new();
-            let mut hacc = [[0.0f64; 7]; crate::cse::MAX];
+            #hacc_decl
             // Shared 3-field bespoke carry (kind-specific meaning; e.g.
             // Mama uses [mama_prev, fama_prev, prev_phase], alpha rides st[k]).
             let mut kvacc = [[0.0f64; 3]; crate::cse::MAX];
-            let mut hp_acc = [[0.0f64; 2]; crate::cse::MAX]; // HighPass's [y1, prev_real]
-            let mut ss_acc = [[0.0f64; 3]; crate::cse::MAX]; // SuperSmoother's [y1, y2, prev_real]
-            let mut hdacc = [[0.0f64; 38]; crate::cse::MAX]; // HomodyneDiscriminator's bespoke cell
+            #hp_acc_decl
+            #ss_acc_decl
+            #hdacc_decl
             let mut v = [0.0f64; crate::cse::MAX];
             // Warm-up bars: shared interpreter, cold path once per request.
-            crate::cse::kernel::exec::<#sig, true>(vals, streams, 0, gate, &mut st, &mut stb, &mut stc_ub, &mut stlb, &mut sumsq, &mut wsum, &mut trail, &mut rings, &mut hacc, &mut kvacc, &mut hp_acc, &mut ss_acc, &mut hdacc, &mut v, &mut ptrs, &vals.sink_lead);
+            #warm_exec
             if gate >= n {
                 return vec![#(#row_refs),*];
             }

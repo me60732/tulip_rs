@@ -93,6 +93,7 @@ pub use kernel::{
 
 // ── Leaf vocabulary (Phase 1 + 2, "recipes as data") ─────────────────────
 // Item paths AND module paths (`crate::cse::signature::K_*`, …) preserved.
+pub use tulip_rs_shared::cse::lowering;
 pub use tulip_rs_shared::cse::{erase, Signature, Values, MAX, MAX_SINKS};
 pub use tulip_rs_shared::cse::{merge, Merged, Resolved};
 pub use tulip_rs_shared::cse::{multipliers, recipe, recipes, signature};
