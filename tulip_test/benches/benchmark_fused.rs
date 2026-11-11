@@ -70,6 +70,244 @@ fn hlc(sym: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     )
 }
 
+fn synth_hlc_trend(n: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut h = Vec::with_capacity(n);
+    let mut l = Vec::with_capacity(n);
+    let mut c = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = i as f64;
+        let close = 80.0 + (0.04 * t) + (t * 0.017).sin() * 0.35;
+        let range = 0.9 + (t * 0.031).cos().abs() * 0.25;
+        c.push(close);
+        h.push(close + range);
+        l.push(close - range);
+    }
+    (h, l, c)
+}
+
+fn synth_hlc_chop(n: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut h = Vec::with_capacity(n);
+    let mut l = Vec::with_capacity(n);
+    let mut c = Vec::with_capacity(n);
+    for i in 0..n {
+        let base = 100.0 + (i as f64 * 0.001);
+        let zig = if i % 2 == 0 { 1.2 } else { -1.2 };
+        let close = base + zig + ((i % 11) as f64 - 5.0) * 0.03;
+        let range = 1.0 + (i % 7) as f64 * 0.04;
+        c.push(close);
+        h.push(close + range);
+        l.push(close - range);
+    }
+    (h, l, c)
+}
+
+fn synth_hlc_flat(n: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut h = Vec::with_capacity(n);
+    let mut l = Vec::with_capacity(n);
+    let mut c = Vec::with_capacity(n);
+    for i in 0..n {
+        let close = 100.0 + ((i % 5) as f64 - 2.0) * 0.002;
+        let range = 0.15 + (i % 3) as f64 * 0.005;
+        c.push(close);
+        h.push(close + range);
+        l.push(close - range);
+    }
+    (h, l, c)
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct HubBranchShapeCounts {
+    input_bars: usize,
+    warm_bars: usize,
+    steady_bars: usize,
+    scanned_bars: usize,
+    wanted_sinks: usize,
+    dm_plus_gt: usize,
+    dm_minus_gt: usize,
+    dm_ties: usize,
+    tr_hl_wins: usize,
+    tr_hpc_wins: usize,
+    tr_lpc_wins: usize,
+    wilders_updates_est: usize,
+    store_writes_est: usize,
+    found_lags: bool,
+}
+
+impl HubBranchShapeCounts {
+    fn csv_header() -> &'static str {
+        "label,input_bars,warm_bars,steady_bars,scanned_bars,wanted_sinks,dm_plus_gt,dm_minus_gt,dm_ties,tr_hl_wins,tr_hpc_wins,tr_lpc_wins,wilders_updates_est,store_writes_est,found_lags"
+    }
+
+    fn csv_record(&self, label: &str) -> String {
+        format!(
+            "{label},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            self.input_bars,
+            self.warm_bars,
+            self.steady_bars,
+            self.scanned_bars,
+            self.wanted_sinks,
+            self.dm_plus_gt,
+            self.dm_minus_gt,
+            self.dm_ties,
+            self.tr_hl_wins,
+            self.tr_hpc_wins,
+            self.tr_lpc_wins,
+            self.wilders_updates_est,
+            self.store_writes_est,
+            self.found_lags
+        )
+    }
+
+    fn json_record(&self, label: &str) -> String {
+        let escaped_label = label.replace('\\', "\\\\").replace('"', "\\\"");
+        format!(
+            r#"{{"label":"{}","input_bars":{},"warm_bars":{},"steady_bars":{},"scanned_bars":{},"wanted_sinks":{},"dm_plus_gt":{},"dm_minus_gt":{},"dm_ties":{},"tr_hl_wins":{},"tr_hpc_wins":{},"tr_lpc_wins":{},"wilders_updates_est":{},"store_writes_est":{},"found_lags":{}}}"#,
+            escaped_label,
+            self.input_bars,
+            self.warm_bars,
+            self.steady_bars,
+            self.scanned_bars,
+            self.wanted_sinks,
+            self.dm_plus_gt,
+            self.dm_minus_gt,
+            self.dm_ties,
+            self.tr_hl_wins,
+            self.tr_hpc_wins,
+            self.tr_lpc_wins,
+            self.wilders_updates_est,
+            self.store_writes_est,
+            self.found_lags
+        )
+    }
+}
+
+fn emit_hub_probe_count_records(records: &[(&str, HubBranchShapeCounts)]) {
+    let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("target")
+        .join("criterion")
+        .join("fused_hub_probe");
+    if let Err(err) = std::fs::create_dir_all(&out_dir) {
+        eprintln!("hub_probe_counts_artifacts_error,create_dir_all,{err}");
+        return;
+    }
+
+    let csv_path = out_dir.join("inferred_counts.csv");
+    let jsonl_path = out_dir.join("inferred_counts.jsonl");
+
+    let mut csv = String::new();
+    csv.push_str(HubBranchShapeCounts::csv_header());
+    csv.push('\n');
+    for (label, c) in records {
+        csv.push_str(&c.csv_record(label));
+        csv.push('\n');
+    }
+
+    let mut jsonl = String::new();
+    for (label, c) in records {
+        jsonl.push_str(&c.json_record(label));
+        jsonl.push('\n');
+    }
+
+    if let Err(err) = std::fs::write(&csv_path, csv) {
+        eprintln!("hub_probe_counts_artifacts_error,write_csv,{err}");
+        return;
+    }
+    if let Err(err) = std::fs::write(&jsonl_path, jsonl) {
+        eprintln!("hub_probe_counts_artifacts_error,write_jsonl,{err}");
+        return;
+    }
+}
+
+fn estimate_sink_store_writes(vals: &tulip_rs::cse::Values, n: usize, from_bar: usize) -> usize {
+    vals.sink_want
+        .iter()
+        .zip(vals.sink_lead.iter())
+        .filter(|(want, _)| **want)
+        .map(|(_, lead)| n.saturating_sub(from_bar.max(*lead as usize)))
+        .sum()
+}
+
+fn infer_hub_branch_shape_counts(
+    sig: &tulip_rs::cse::Signature,
+    vals: &tulip_rs::cse::Values,
+    streams: &[&[f64]; 3],
+) -> HubBranchShapeCounts {
+    use tulip_rs::cse::signature::K_LAG;
+
+    let n = streams.iter().map(|s| s.len()).min().unwrap_or(0);
+    let gate = (vals.max_gate as usize + 1).min(n);
+    let mut out = HubBranchShapeCounts {
+        input_bars: n,
+        warm_bars: gate,
+        steady_bars: n.saturating_sub(gate),
+        wanted_sinks: vals.sink_want.iter().filter(|w| **w).count(),
+        ..HubBranchShapeCounts::default()
+    };
+
+    let mut lag_high = None;
+    let mut lag_low = None;
+    let mut lag_close = None;
+    for k in 0..(sig.len as usize) {
+        if sig.kinds[k] != K_LAG {
+            continue;
+        }
+        let src = sig.a[k] as usize;
+        let stream = sig.a[src] as usize;
+        match stream {
+            0 if lag_high.is_none() => lag_high = Some(vals.lag_n[k] as usize),
+            1 if lag_low.is_none() => lag_low = Some(vals.lag_n[k] as usize),
+            2 if lag_close.is_none() => lag_close = Some(vals.lag_n[k] as usize),
+            _ => {}
+        }
+    }
+
+    let (lag_high_n, lag_low_n, lag_close_n) = match (lag_high, lag_low, lag_close) {
+        (Some(h), Some(l), Some(c)) => (h, l, c),
+        _ => return out,
+    };
+    out.found_lags = true;
+
+    for i in gate..n {
+        if i < lag_high_n || i < lag_low_n || i < lag_close_n {
+            continue;
+        }
+
+        let high = streams[0][i];
+        let low = streams[1][i];
+        let close_prev = streams[2][i - lag_close_n];
+        let prev_high = streams[0][i - lag_high_n];
+        let prev_low = streams[1][i - lag_low_n];
+
+        let up_move = high - prev_high;
+        let down_move = prev_low - low;
+        if up_move > down_move {
+            out.dm_plus_gt += 1;
+        } else if down_move > up_move {
+            out.dm_minus_gt += 1;
+        } else {
+            out.dm_ties += 1;
+        }
+
+        let tr_hl = high - low;
+        let tr_hpc = (high - close_prev).abs();
+        let tr_lpc = (low - close_prev).abs();
+        if tr_hl >= tr_hpc && tr_hl >= tr_lpc {
+            out.tr_hl_wins += 1;
+        } else if tr_hpc >= tr_lpc {
+            out.tr_hpc_wins += 1;
+        } else {
+            out.tr_lpc_wins += 1;
+        }
+
+        out.scanned_bars += 1;
+    }
+
+    out.wilders_updates_est = out.scanned_bars * 4;
+    out.store_writes_est = estimate_sink_store_writes(vals, n, gate);
+    out
+}
+
 fn apo_ppo_macd_shared_sl_req() -> Request {
     Request::new()
         .add(Apo::recipe(&APO), None)
@@ -311,7 +549,11 @@ fn bench_fused(c: &mut Criterion) {
     // the engine exists for, not a lone-indicator floor. The packed twin shares
     // the Signature, so `try_run` reaches the scalar and the twin is called
     // DIRECTLY (same-binary A/B, per the twin convention).
-    use tulip_rs::cse::kernel::registry::dm_di_dx_adx_shared_p_p;
+    use tulip_rs::cse::kernel::registry::{
+        dm_di_dx_adx_atr_natr_supertrend_shared_p, dm_di_dx_adx_shared_p, dm_di_dx_adx_shared_p_p,
+    };
+    #[cfg(feature = "cse_kernel_probe")]
+    use tulip_rs::cse::kernel::registry_probe::probe_dm_di_dx_adx_shared_p_fast;
     use tulip_rs::indicators::adx::Adx;
     use tulip_rs::indicators::di::Di;
     use tulip_rs::indicators::dm::Dm;
@@ -326,6 +568,19 @@ fn bench_fused(c: &mut Criterion) {
     g.bench_function("generated_runonly_dm_di_dx_adx_shared_p", |b| {
         b.iter(|| {
             let rows = try_run(&sig_hub, &vals_hub, &hlc3).expect("hub scalar template");
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_dm_di_dx_adx_shared_p_direct", |b| {
+        b.iter(|| {
+            let rows = dm_di_dx_adx_shared_p(&vals_hub, &hlc3);
+            black_box(rows[0].len())
+        })
+    });
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function("generated_runonly_dm_di_dx_adx_shared_p_fast_direct", |b| {
+        b.iter(|| {
+            let rows = probe_dm_di_dx_adx_shared_p_fast(&vals_hub, &hlc3);
             black_box(rows[0].len())
         })
     });
@@ -373,6 +628,16 @@ fn bench_fused(c: &mut Criterion) {
             })
         },
     );
+    g.bench_function(
+        "generated_runonly_dm_di_dx_adx_atr_natr_supertrend_shared_p_direct",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &hlc3);
+                black_box(rows[0].len())
+            })
+        },
+    );
+
     g.bench_function(
         "hand_runonly_dm_di_dx_adx_atr_natr_supertrend_shared_p",
         |b| {
@@ -1324,6 +1589,504 @@ fn bench_fused_atr(c: &mut Criterion) {
             black_box(out.iter().flatten().map(|r| r.len()).sum::<usize>())
         })
     });
+    g.finish();
+}
+
+/// Direct-kernel probe pass for the directional hub and full dashboard.
+/// Dispatch has already been priced out; this group focuses on kernel-internal
+/// cost shape: component ladders, warmup-vs-steady slices, and input-shape
+/// sensitivity under identical `vals`.
+fn bench_hub_probe(c: &mut Criterion) {
+    use tulip_rs::cse::kernel::registry::{
+        adx_n, atr_n, atr_natr_shared_p, di_n, dm_di_dx_adx_atr_natr_supertrend_shared_p,
+        dm_di_dx_adx_shared_p, dm_n, dx_n, natr_supertrend_shared_p,
+    };
+    #[cfg(feature = "cse_kernel_probe")]
+    use tulip_rs::cse::kernel::registry_probe::{
+        probe_di_n_fast_recip_locked, probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_fast,
+        probe_dm_di_dx_adx_shared_p_fast,
+    };
+    use tulip_rs::indicators::adx::Adx;
+    use tulip_rs::indicators::di::Di;
+    use tulip_rs::indicators::dm::Dm;
+    use tulip_rs::indicators::dx::Dx;
+
+    let hub_req = Request::new()
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), None)
+        .add(Dx::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None);
+    let (_a, sig_hub, vals_hub, _o) = erase_request(&hub_req).unwrap();
+
+    let dm_req = Request::new().add(Dm::recipe(&[14.0]), None);
+    let di_req = Request::new().add(Di::recipe(&[14.0]), None);
+    let di_opton_req = Request::new().add(Di::recipe(&[14.0]), Some(&[true, true]));
+    let dx_req = Request::new().add(Dx::recipe(&[14.0]), None);
+    let adx_req = Request::new().add(Adx::recipe(&[14.0]), None);
+    let atr_req = Request::new().add(Atr::recipe(&[14.0]), None);
+
+    let (_dm, _sig_dm, vals_dm, _odm) = erase_request(&dm_req).unwrap();
+    let (_di, _sig_di, vals_di, _odi) = erase_request(&di_req).unwrap();
+    let (_dio, _sig_dio, vals_di_opton, _odio) = erase_request(&di_opton_req).unwrap();
+    let (_dx, _sig_dx, vals_dx, _odx) = erase_request(&dx_req).unwrap();
+    let (_adx, _sig_adx, vals_adx, _oadx) = erase_request(&adx_req).unwrap();
+    let (_atr, _sig_atr, vals_atr, _oatr) = erase_request(&atr_req).unwrap();
+
+    let hub7_req = Request::new()
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), None)
+        .add(Dx::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None)
+        .add(Atr::recipe(&[14.0]), None)
+        .add(Natr::recipe(&[14.0]), None)
+        .add(SuperTrend::recipe(&[14.0, 3.0]), None);
+    let (_b, _sig_hub7, vals_hub7, _p) = erase_request(&hub7_req).unwrap();
+
+    let hub_opton_req = Request::new()
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), Some(&[true, true]))
+        .add(Dx::recipe(&[14.0]), Some(&[true, true]))
+        .add(Adx::recipe(&[14.0]), Some(&[true, true, true]));
+    let (_bo, sig_hub_opton, vals_hub_opton, _po) = erase_request(&hub_opton_req).unwrap();
+
+    let (_c, _sig_an, vals_an, _q) = erase_request(&atr_natr_shared_p_req()).unwrap();
+    let (_d, _sig_ns, vals_ns, _r) = erase_request(&natr_supertrend_shared_p_req()).unwrap();
+
+    let (hi, lo, cl) = hlc(0);
+    let real: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+
+    let n = real[0].len();
+    let dm_gate = (vals_dm.max_gate as usize + 1).min(n);
+    let dm_gate_plus1 = dm_gate.saturating_add(1).min(n);
+    let di_gate = (vals_di.max_gate as usize + 1).min(n);
+    let di_gate_plus1 = di_gate.saturating_add(1).min(n);
+    let atr_gate = (vals_atr.max_gate as usize + 1).min(n);
+    let atr_gate_plus1 = atr_gate.saturating_add(1).min(n);
+    let hub_gate = (vals_hub.max_gate as usize + 1).min(n);
+    let hub_gate_plus1 = hub_gate.saturating_add(1).min(n);
+    let hub7_gate = (vals_hub7.max_gate as usize + 1).min(n);
+    let hub7_gate_plus1 = hub7_gate.saturating_add(1).min(n);
+
+    let real_dm_warm: [&[f64]; 3] = [&hi[..dm_gate], &lo[..dm_gate], &cl[..dm_gate]];
+    let real_dm_warm_plus1: [&[f64]; 3] = [
+        &hi[..dm_gate_plus1],
+        &lo[..dm_gate_plus1],
+        &cl[..dm_gate_plus1],
+    ];
+    let real_di_warm: [&[f64]; 3] = [&hi[..di_gate], &lo[..di_gate], &cl[..di_gate]];
+    let real_di_warm_plus1: [&[f64]; 3] = [
+        &hi[..di_gate_plus1],
+        &lo[..di_gate_plus1],
+        &cl[..di_gate_plus1],
+    ];
+    let real_atr_warm: [&[f64]; 3] = [&hi[..atr_gate], &lo[..atr_gate], &cl[..atr_gate]];
+    let real_atr_warm_plus1: [&[f64]; 3] = [
+        &hi[..atr_gate_plus1],
+        &lo[..atr_gate_plus1],
+        &cl[..atr_gate_plus1],
+    ];
+    let real_hub_warm: [&[f64]; 3] = [&hi[..hub_gate], &lo[..hub_gate], &cl[..hub_gate]];
+    let real_hub_warm_plus1: [&[f64]; 3] = [
+        &hi[..hub_gate_plus1],
+        &lo[..hub_gate_plus1],
+        &cl[..hub_gate_plus1],
+    ];
+    let real_hub7_warm: [&[f64]; 3] = [&hi[..hub7_gate], &lo[..hub7_gate], &cl[..hub7_gate]];
+    let real_hub7_warm_plus1: [&[f64]; 3] = [
+        &hi[..hub7_gate_plus1],
+        &lo[..hub7_gate_plus1],
+        &cl[..hub7_gate_plus1],
+    ];
+
+    let (ht, lt, ct) = synth_hlc_trend(n);
+    let (hc, lc, cc) = synth_hlc_chop(n);
+    let (hf, lf, cf) = synth_hlc_flat(n);
+    let trend: [&[f64]; 3] = [ht.as_slice(), lt.as_slice(), ct.as_slice()];
+    let chop: [&[f64]; 3] = [hc.as_slice(), lc.as_slice(), cc.as_slice()];
+    let flat: [&[f64]; 3] = [hf.as_slice(), lf.as_slice(), cf.as_slice()];
+
+    let counts_real = infer_hub_branch_shape_counts(&sig_hub, &vals_hub, &real);
+    let counts_real_opton = infer_hub_branch_shape_counts(&sig_hub_opton, &vals_hub_opton, &real);
+    let counts_trend = infer_hub_branch_shape_counts(&sig_hub, &vals_hub, &trend);
+    let counts_chop = infer_hub_branch_shape_counts(&sig_hub, &vals_hub, &chop);
+    let counts_flat = infer_hub_branch_shape_counts(&sig_hub, &vals_hub, &flat);
+    emit_hub_probe_count_records(&[
+        ("real", counts_real),
+        ("real_opton", counts_real_opton),
+        ("trend", counts_trend),
+        ("chop", counts_chop),
+        ("flat", counts_flat),
+    ]);
+
+    // Correctness checks for probe_di_n_fast_recip_locked on multiple branch-shape inputs.
+    #[cfg(feature = "cse_kernel_probe")]
+    {
+        use tulip_rs::cse::kernel::registry_probe::probe_di_n_fast_recip_locked;
+
+        let check_shape = |label: &str, inputs: &[&[f64]; 3]| {
+            let lock_check = probe_di_n_fast_recip_locked(&vals_di, inputs);
+            let di_generated_once = di_n(&vals_di, inputs);
+            let mut plus_vs_row0 = 0.0f64;
+            let mut minus_vs_row1 = 0.0f64;
+            for (a, b) in lock_check[0].iter().zip(di_generated_once[0].iter()) {
+                if a.is_finite() && b.is_finite() {
+                    plus_vs_row0 = plus_vs_row0.max((a - b).abs());
+                }
+            }
+            for (a, b) in lock_check[1].iter().zip(di_generated_once[1].iter()) {
+                if a.is_finite() && b.is_finite() {
+                    minus_vs_row1 = minus_vs_row1.max((a - b).abs());
+                }
+            }
+            eprintln!(
+                "hub_probe_di_fast_locked_shape_check,label={},rows={},plus_vs_row0={:.12},minus_vs_row1={:.12}",
+                label,
+                lock_check.len(),
+                plus_vs_row0,
+                minus_vs_row1,
+            );
+        };
+
+        check_shape("real", &real);
+        check_shape("trend", &trend);
+        check_shape("chop", &chop);
+        check_shape("flat", &flat);
+
+        let hub7_fast = probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_fast(&vals_hub7, &real);
+        let hub7_base = dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &real);
+        let rows = hub7_fast.len().min(hub7_base.len());
+        let mut max_err = 0.0f64;
+        for r in 0..rows {
+            for (a, b) in hub7_fast[r].iter().zip(hub7_base[r].iter()) {
+                if a.is_finite() && b.is_finite() {
+                    max_err = max_err.max((a - b).abs());
+                }
+            }
+        }
+        eprintln!(
+            "hub_probe_hub7_fast_locked_check,rows_fast={},rows_base={},max_err={:.12}",
+            hub7_fast.len(),
+            hub7_base.len(),
+            max_err,
+        );
+    }
+
+    let mut g = c.benchmark_group("fused_hub_probe");
+    g.sample_size(20);
+
+    // Component ladder on one data shape (real bars): use direct kernels only.
+    // `hub_math_*` rows isolate the Wilders/TR chain progressively to localize
+    // where cost accumulates inside the directional hub.
+    g.bench_function("generated_probe_hub_math_dm_n_direct", |b| {
+        b.iter(|| {
+            let rows = dm_n(&vals_dm, &real);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_atr_n_direct", |b| {
+        b.iter(|| {
+            let rows = atr_n(&vals_atr, &real);
+            black_box(rows[0].len())
+        })
+    });
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function("generated_probe_hub_math_di_n_fast_locked_direct", |b| {
+        b.iter(|| {
+            let rows = probe_di_n_fast_recip_locked(&vals_di, &real);
+            black_box(rows[0].len())
+        })
+    });
+
+    g.bench_function("generated_probe_hub_math_di_n_direct", |b| {
+        b.iter(|| {
+            let rows = di_n(&vals_di, &real);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_di_n_opton_direct", |b| {
+        b.iter(|| {
+            let rows = di_n(&vals_di_opton, &real);
+            black_box(rows[0].len())
+        })
+    });
+
+    // DI shape rows: same length, different branch distributions.
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function(
+        "generated_probe_hub_math_di_n_fast_locked_direct_shape_trend",
+        |b| {
+            b.iter(|| {
+                let rows = probe_di_n_fast_recip_locked(&vals_di, &trend);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function(
+        "generated_probe_hub_math_di_n_fast_locked_direct_shape_chop",
+        |b| {
+            b.iter(|| {
+                let rows = probe_di_n_fast_recip_locked(&vals_di, &chop);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function(
+        "generated_probe_hub_math_di_n_fast_locked_direct_shape_flat",
+        |b| {
+            b.iter(|| {
+                let rows = probe_di_n_fast_recip_locked(&vals_di, &flat);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function("generated_probe_hub_math_di_n_direct_shape_trend", |b| {
+        b.iter(|| {
+            let rows = di_n(&vals_di, &trend);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_di_n_direct_shape_chop", |b| {
+        b.iter(|| {
+            let rows = di_n(&vals_di, &chop);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_di_n_direct_shape_flat", |b| {
+        b.iter(|| {
+            let rows = di_n(&vals_di, &flat);
+            black_box(rows[0].len())
+        })
+    });
+
+    g.bench_function("generated_probe_hub_math_dm_n_warmonly_direct", |b| {
+        b.iter(|| {
+            let rows = dm_n(&vals_dm, &real_dm_warm);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_dm_n_warmplus1_direct", |b| {
+        b.iter(|| {
+            let rows = dm_n(&vals_dm, &real_dm_warm_plus1);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_atr_n_warmonly_direct", |b| {
+        b.iter(|| {
+            let rows = atr_n(&vals_atr, &real_atr_warm);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_atr_n_warmplus1_direct", |b| {
+        b.iter(|| {
+            let rows = atr_n(&vals_atr, &real_atr_warm_plus1);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_di_n_warmonly_direct", |b| {
+        b.iter(|| {
+            let rows = di_n(&vals_di, &real_di_warm);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_di_n_warmplus1_direct", |b| {
+        b.iter(|| {
+            let rows = di_n(&vals_di, &real_di_warm_plus1);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_dx_n_direct", |b| {
+        b.iter(|| {
+            let rows = dx_n(&vals_dx, &real);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_adx_n_direct", |b| {
+        b.iter(|| {
+            let rows = adx_n(&vals_adx, &real);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_hub4_primary_direct", |b| {
+        b.iter(|| {
+            let rows = dm_di_dx_adx_shared_p(&vals_hub, &real);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function("generated_probe_hub_math_hub4_opton_direct", |b| {
+        b.iter(|| {
+            let rows = dm_di_dx_adx_shared_p(&vals_hub_opton, &real);
+            black_box(rows[0].len())
+        })
+    });
+
+    g.bench_function("generated_probe_dm_di_dx_adx_shared_p_direct", |b| {
+        b.iter(|| {
+            let rows = dm_di_dx_adx_shared_p(&vals_hub, &real);
+            black_box(rows[0].len())
+        })
+    });
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_shared_p_direct_primary_storeprobe",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_shared_p(&vals_hub, &real);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function("generated_probe_dm_di_dx_adx_shared_p_direct_opton", |b| {
+        b.iter(|| {
+            let rows = dm_di_dx_adx_shared_p(&vals_hub_opton, &real);
+            black_box(rows[0].len())
+        })
+    });
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function("generated_probe_dm_di_dx_adx_shared_p_fast_direct", |b| {
+        b.iter(|| {
+            let rows = probe_dm_di_dx_adx_shared_p_fast(&vals_hub, &real);
+            black_box(rows[0].len())
+        })
+    });
+
+    #[cfg(feature = "cse_kernel_probe")]
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_fast_direct",
+        |b| {
+            b.iter(|| {
+                let rows = probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_fast(&vals_hub7, &real);
+                black_box(rows[0].len())
+            })
+        },
+    );
+
+    g.bench_function("generated_probe_atr_natr_shared_p_direct", |b| {
+        b.iter(|| {
+            let rows = atr_natr_shared_p(&vals_an, &real);
+            black_box(rows[0].len() + rows[2].len())
+        })
+    });
+    g.bench_function("generated_probe_natr_supertrend_shared_p_direct", |b| {
+        b.iter(|| {
+            let rows = natr_supertrend_shared_p(&vals_ns, &real);
+            black_box(rows[0].len() + rows[3].len())
+        })
+    });
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_direct",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &real);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_direct_primary_storeprobe",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &real);
+                black_box(rows[0].len())
+            })
+        },
+    );
+
+    // Warmup-vs-steady split: [0, gate) vs [0, gate] on the exact same kernels.
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_shared_p_direct_warmonly",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_shared_p(&vals_hub, &real_hub_warm);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_shared_p_direct_warmplus1",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_shared_p(&vals_hub, &real_hub_warm_plus1);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_direct_warmonly",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &real_hub7_warm);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_direct_warmplus1",
+        |b| {
+            b.iter(|| {
+                let rows =
+                    dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &real_hub7_warm_plus1);
+                black_box(rows[0].len())
+            })
+        },
+    );
+
+    // Input-shape sensitivity (same length, synthetic bars).
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_shared_p_direct_shape_trend",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_shared_p(&vals_hub, &trend);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_shared_p_direct_shape_chop",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_shared_p(&vals_hub, &chop);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_shared_p_direct_shape_flat",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_shared_p(&vals_hub, &flat);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_direct_shape_trend",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &trend);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_direct_shape_chop",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &chop);
+                black_box(rows[0].len())
+            })
+        },
+    );
+    g.bench_function(
+        "generated_probe_dm_di_dx_adx_atr_natr_supertrend_shared_p_direct_shape_flat",
+        |b| {
+            b.iter(|| {
+                let rows = dm_di_dx_adx_atr_natr_supertrend_shared_p(&vals_hub7, &flat);
+                black_box(rows[0].len())
+            })
+        },
+    );
+
     g.finish();
 }
 
@@ -3339,6 +4102,7 @@ criterion_group!(
     benches,
     bench_fused,
     bench_fused_atr,
+    bench_hub_probe,
     bench_fused_rolling,
     bench_fused_roll,
     bench_fused_wide,
