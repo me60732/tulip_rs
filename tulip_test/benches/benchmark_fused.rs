@@ -592,11 +592,12 @@ fn bench_fused(c: &mut Criterion) {
     });
     g.bench_function("hand_runonly_dm_di_dx_adx_shared_p", |b| {
         b.iter(|| {
+            // Dx is adx's optional #0 (`adx.rs:164` ["dx","atr","tr"]), so it needs no call of
+            // its own. Dm and Di keep theirs: neither is deliverable from another member.
             let dm = Dm::indicator(&hl, &[14.0], None).unwrap();
             let di = Di::indicator(&hlc3, &[14.0], None).unwrap();
-            let dx = Dx::indicator(&hlc3, &[14.0], None).unwrap();
-            let adx = Adx::indicator(&hlc3, &[14.0], None).unwrap();
-            black_box(dm.0[0].len() + di.0[0].len() + dx.0[0].len() + adx.0[0].len())
+            let adx = Adx::indicator(&hlc3, &[14.0], Some(&[true, false, false])).unwrap();
+            black_box(dm.0[0].len() + di.0[0].len() + adx.0.iter().map(|r| r.len()).sum::<usize>())
         })
     });
 
@@ -642,19 +643,23 @@ fn bench_fused(c: &mut Criterion) {
         "hand_runonly_dm_di_dx_adx_atr_natr_supertrend_shared_p",
         |b| {
             b.iter(|| {
+                // CORRECTED 2026-11-12: the honest floor is the MINIMUM hand calls that produce
+                // all seven values, not one call per indicator. Dx is adx's optional #0 and Atr is
+                // its optional #1 (`adx.rs:164` ["dx","atr","tr"]), so ONE Adx call delivers three
+                // of the seven; Dm, Di, Natr and SuperTrend still need their own passes. The prior
+                // seven-call rival recomputed the TR/Wilders chain twice more than the hand ever
+                // has to — the "distinct request, so not an artifact" note above was wrong: the
+                // test is whether one call's optional already yields the value, not whether the
+                // requests were distinct.
                 let dm = Dm::indicator(&hl, &[14.0], None).unwrap();
                 let di = Di::indicator(&hlc3, &[14.0], None).unwrap();
-                let dx = Dx::indicator(&hlc3, &[14.0], None).unwrap();
-                let adx = Adx::indicator(&hlc3, &[14.0], None).unwrap();
-                let atr = Atr::indicator(&hlc3, &[14.0], None).unwrap();
+                let adx = Adx::indicator(&hlc3, &[14.0], Some(&[true, true, false])).unwrap();
                 let natr = Natr::indicator(&hlc3, &[14.0], None).unwrap();
                 let st = SuperTrend::indicator(&hlc3, &[14.0, 3.0], None).unwrap();
                 black_box(
                     dm.0[0].len()
                         + di.0[0].len()
-                        + dx.0[0].len()
-                        + adx.0[0].len()
-                        + atr.0[0].len()
+                        + adx.0.iter().map(|r| r.len()).sum::<usize>()
                         + natr.0[0].len()
                         + st.0[0].len(),
                 )
@@ -1169,9 +1174,10 @@ fn bench_fused(c: &mut Criterion) {
     });
     g.bench_function("hand_runonly_rsi_stochrsi_shared_p", |b| {
         b.iter(|| {
-            let ri = Rsi::indicator(&cl, &[14.0], None).unwrap();
+            // ONE call: stochrsi's optional #0 IS the rsi row (`stochrsi.rs` ["rsi"]), so the
+            // separate Rsi::indicator pass was work the hand never has to do.
             let sr = StochRsi::indicator(&cl, &[14.0], Some(&[true])).unwrap();
-            black_box(ri.0[0].len() + sr.0[0].len() + sr.0[1].len())
+            black_box(sr.0.iter().map(|r| r.len()).sum::<usize>())
         })
     });
 
@@ -1343,9 +1349,12 @@ fn bench_fused_atr(c: &mut Criterion) {
 
     g.bench_function("hand_runonly_atr_natr_shared_p", |b| {
         b.iter(|| {
-            let a = Atr::indicator(&three, &[14.0], None).unwrap();
-            let n = Natr::indicator(&three, &[14.0], None).unwrap();
-            black_box((a.0[0].len(), n.0[0].len()))
+            // CORRECTED 2026-11-12: ONE call — natr's optional #0 IS the atr row
+            // (`natr.rs:132` optional_outputs ["atr","tr"]). Calling Atr separately made the
+            // hand recompute tr+Wilders a second time, manufacturing a fusion win that does
+            // not exist. Rule: a rival must never recompute what the parent already delivers.
+            let n = Natr::indicator(&three, &[14.0], Some(&[true, false])).unwrap();
+            black_box(n.0.iter().map(|r| r.len()).sum::<usize>())
         })
     });
     g.bench_function("generated_runonly_atr_natr_shared_p", |b| {
@@ -1443,9 +1452,11 @@ fn bench_fused_atr(c: &mut Criterion) {
     ];
     g.bench_function("hand_byassets_atr_natr_shared_p", |b| {
         b.iter(|| {
-            let a = Atr::indicator_by_assets::<4>(&by_assets_3, &[14.0], None).unwrap();
-            let n = Natr::indicator_by_assets::<4>(&by_assets_3, &[14.0], None).unwrap();
-            black_box(a.0[0][0].len() + n.0[0][0].len())
+            // ONE call: natr publishes atr as optional #0, so the separate Atr pass was free
+            // work the hand never has to do.
+            let n = Natr::indicator_by_assets::<4>(&by_assets_3, &[14.0], Some(&[true, false]))
+                .unwrap();
+            black_box(n.0.iter().flatten().map(|r| r.len()).sum::<usize>())
         })
     });
     g.bench_function("hand_byassets_natr_supertrend_shared_p", |b| {
@@ -1478,9 +1489,9 @@ fn bench_fused_atr(c: &mut Criterion) {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &all_three {
-                let a = Atr::indicator(inputs, &[14.0], None).unwrap();
-                let n = Natr::indicator(inputs, &[14.0], None).unwrap();
-                acc += a.0[0].len() + n.0[0].len();
+                // ONE call per asset: natr's optionals publish atr (`natr.rs` ["atr","tr"]).
+                let n = Natr::indicator(inputs, &[14.0], Some(&[true, false])).unwrap();
+                acc += n.0.iter().map(|r| r.len()).sum::<usize>();
             }
             black_box(acc)
         })
@@ -2274,9 +2285,10 @@ fn bench_fused_rolling(c: &mut Criterion) {
 
     g.bench_function("hand_runonly_sma_wma_shared_p", |b| {
         b.iter(|| {
-            let s = Sma::indicator(&inputs, &[14.0], None).unwrap();
-            let w = Wma::indicator(&inputs, &[14.0], None).unwrap();
-            black_box(s.0[0].len() + w.0[0].len())
+            // ONE call: wma's optional #0 IS the sma row (`wma.rs` optional_outputs ["sma"]),
+            // so the hand already computes the mean inside its own pass.
+            let w = Wma::indicator(&inputs, &[14.0], Some(&[true])).unwrap();
+            black_box(w.0.iter().map(|r| r.len()).sum::<usize>())
         })
     });
     g.bench_function("generated_runonly_sma_wma_shared_p", |b| {
@@ -2375,9 +2387,9 @@ fn bench_fused_rolling(c: &mut Criterion) {
         b.iter(|| {
             let mut acc = 0usize;
             for inputs in &allc_inputs {
-                let s = Sma::indicator(inputs, &[14.0], None).unwrap();
-                let w = Wma::indicator(inputs, &[14.0], None).unwrap();
-                acc += s.0[0].len() + w.0[0].len();
+                // ONE call per asset: wma's optional #0 is the sma row.
+                let w = Wma::indicator(inputs, &[14.0], Some(&[true])).unwrap();
+                acc += w.0.iter().map(|r| r.len()).sum::<usize>();
             }
             black_box(acc)
         })
@@ -2394,9 +2406,9 @@ fn bench_fused_rolling(c: &mut Criterion) {
     });
     g.bench_function("hand_byassets_sma_wma_shared_p", |b| {
         b.iter(|| {
-            let s = Sma::indicator_by_assets::<4>(&by_assets_1, &[14.0], None).unwrap();
-            let w = Wma::indicator_by_assets::<4>(&by_assets_1, &[14.0], None).unwrap();
-            black_box(s.0[0][0].len() + w.0[0][0].len())
+            // ONE call: wma publishes sma as optional #0.
+            let w = Wma::indicator_by_assets::<4>(&by_assets_1, &[14.0], Some(&[true])).unwrap();
+            black_box(w.0.iter().flatten().map(|r| r.len()).sum::<usize>())
         })
     });
     let la_r1: [&[&[f64]]; 4] = [
@@ -2531,9 +2543,10 @@ fn bench_fused_roll(c: &mut Criterion) {
     });
     g.bench_function("hand_runonly_aroon_osc_shared_p", |b| {
         b.iter(|| {
-            let a = Aroon::indicator(&s2, &[14.0], None).unwrap();
-            let o = AroonOsc::indicator(&s2, &[14.0], None).unwrap();
-            black_box(a.0[0].len() + o.0[0].len())
+            // ONE call: aroonosc's optionals ARE the two aroon rows (`aroonosc.rs:163`
+            // ["aroon_down","aroon_up"]). Calling Aroon separately double-counted the walk.
+            let o = AroonOsc::indicator(&s2, &[14.0], Some(&[true, true])).unwrap();
+            black_box(o.0.iter().map(|r| r.len()).sum::<usize>())
         })
     });
     g.bench_function("generated_runonly_aroon_osc_shared_p", |b| {
@@ -2667,8 +2680,13 @@ fn bench_fused_roll(c: &mut Criterion) {
         b.iter(|| {
             let mut acc = 0usize;
             for s in &sc2 {
-                acc += Aroon::indicator(s, &[14.0], None).unwrap().0[0].len();
-                acc += AroonOsc::indicator(s, &[14.0], None).unwrap().0[0].len();
+                // ONE call per asset: aroonosc's optionals ARE the two aroon rows.
+                acc += AroonOsc::indicator(s, &[14.0], Some(&[true, true]))
+                    .unwrap()
+                    .0
+                    .iter()
+                    .map(|r| r.len())
+                    .sum::<usize>();
             }
             black_box(acc)
         })
@@ -2685,9 +2703,9 @@ fn bench_fused_roll(c: &mut Criterion) {
     });
     g.bench_function("hand_byassets_aroon_osc_shared_p", |b| {
         b.iter(|| {
-            let a = Aroon::indicator_by_assets::<4>(&ba2, &[14.0], None).unwrap();
-            let o = AroonOsc::indicator_by_assets::<4>(&ba2, &[14.0], None).unwrap();
-            black_box(a.0[0][0].len() + o.0[0][0].len())
+            // ONE call: aroonosc publishes both aroon rows as optionals.
+            let o = AroonOsc::indicator_by_assets::<4>(&ba2, &[14.0], Some(&[true, true])).unwrap();
+            black_box(o.0.iter().flatten().map(|r| r.len()).sum::<usize>())
         })
     });
     g.bench_function("generated_assets4_aroon_osc_shared_p", |b| {
@@ -3143,11 +3161,13 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
     g.bench_function("hand_byassets2x4_atr_natr_shared_p", |b| {
         b.iter(|| {
-            let x0 = Atr::indicator_by_assets::<4>(&bh3a, &[14.0], None).unwrap();
-            let n0 = Natr::indicator_by_assets::<4>(&bh3a, &[14.0], None).unwrap();
-            let x1 = Atr::indicator_by_assets::<4>(&bh3b, &[14.0], None).unwrap();
-            let n1 = Natr::indicator_by_assets::<4>(&bh3b, &[14.0], None).unwrap();
-            black_box(x0.0[0][0].len() + n0.0[0][0].len() + x1.0[0][0].len() + n1.0[0][0].len())
+            // ONE call per batch: natr publishes atr as optional #0.
+            let n0 = Natr::indicator_by_assets::<4>(&bh3a, &[14.0], Some(&[true, false])).unwrap();
+            let n1 = Natr::indicator_by_assets::<4>(&bh3b, &[14.0], Some(&[true, false])).unwrap();
+            black_box(
+                n0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + n1.0.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
         })
     });
 
@@ -3340,11 +3360,15 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
     g.bench_function("hand_byassets2x4_aroon_osc_shared_p", |b| {
         b.iter(|| {
-            let r0 = Aroon::indicator_by_assets::<4>(&bh2a, &[14.0], None).unwrap();
-            let o0 = AroonOsc::indicator_by_assets::<4>(&bh2a, &[14.0], None).unwrap();
-            let r1 = Aroon::indicator_by_assets::<4>(&bh2b, &[14.0], None).unwrap();
-            let o1 = AroonOsc::indicator_by_assets::<4>(&bh2b, &[14.0], None).unwrap();
-            black_box(r0.0[0][0].len() + o0.0[0][0].len() + r1.0[0][0].len() + o1.0[0][0].len())
+            // ONE call per batch: aroonosc publishes both aroon rows.
+            let o0 =
+                AroonOsc::indicator_by_assets::<4>(&bh2a, &[14.0], Some(&[true, true])).unwrap();
+            let o1 =
+                AroonOsc::indicator_by_assets::<4>(&bh2b, &[14.0], Some(&[true, true])).unwrap();
+            black_box(
+                o0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + o1.0.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
         })
     });
 
@@ -3537,11 +3561,13 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
     g.bench_function("hand_byassets2x4_rsi_stochrsi_shared_p", |b| {
         b.iter(|| {
-            let ri0 = Rsi::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
+            // ONE call per batch: stochrsi publishes rsi as optional #0.
             let sr0 = StochRsi::indicator_by_assets::<4>(&bh1a, &[14.0], Some(&[true])).unwrap();
-            let ri1 = Rsi::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
             let sr1 = StochRsi::indicator_by_assets::<4>(&bh1b, &[14.0], Some(&[true])).unwrap();
-            black_box(ri0.0[0][0].len() + ri1.0[0][0].len() + sr0.0[0][0].len() + sr1.0[0][0].len())
+            black_box(
+                sr0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + sr1.0.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
         })
     });
 
@@ -3881,11 +3907,13 @@ fn bench_fused_assets8(c: &mut Criterion) {
     });
     g.bench_function("hand_byassets2x4_sma_wma_shared_p", |b| {
         b.iter(|| {
-            let s0 = Sma::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
-            let w0 = Wma::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
-            let s1 = Sma::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
-            let w1 = Wma::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
-            black_box(s0.0[0][0].len() + w0.0[0][0].len() + s1.0[0][0].len() + w1.0[0][0].len())
+            // ONE call per batch: wma publishes sma as optional #0.
+            let w0 = Wma::indicator_by_assets::<4>(&bh1a, &[14.0], Some(&[true])).unwrap();
+            let w1 = Wma::indicator_by_assets::<4>(&bh1b, &[14.0], Some(&[true])).unwrap();
+            black_box(
+                w0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + w1.0.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
         })
     });
     g.bench_function("generated_scalar_scan8_bbands_wma_shared_p", |b| {
@@ -4098,6 +4126,326 @@ fn bench_fused_assets8(c: &mut Criterion) {
     g.finish();
 }
 
+/// Merged shapes that were registered but had NO hand rival, so they could never
+/// enter the win/loss ranking. Same grammar as the rest of the file:
+/// `hand_runonly_<row>` runs each indicator's own full-series scan per iteration;
+/// `generated_runonly_<row>` resolves plan + erase + dispatch OUTSIDE the loop and
+/// runs ONE fused kernel per iteration. Recipe args and column sets are lifted from
+/// each row's existing bit-exact gate, never re-derived here. `.expect("registered")`
+/// is load-bearing: a registry miss must panic, not silently time the hand fallback.
+fn bench_merged_gap(c: &mut Criterion) {
+    use tulip_rs::cse::Planable;
+    use tulip_rs::indicators::atr::Atr;
+    use tulip_rs::indicators::dema::Dema;
+    use tulip_rs::indicators::dpo::Dpo;
+    use tulip_rs::indicators::ema::Ema;
+    use tulip_rs::indicators::fosc::Fosc;
+    use tulip_rs::indicators::keltnerchannel::KeltnerChannel;
+    use tulip_rs::indicators::linreg::Linreg;
+    use tulip_rs::indicators::max::Max;
+    use tulip_rs::indicators::medprice::Medprice;
+    use tulip_rs::indicators::min::Min;
+    use tulip_rs::indicators::mom::Mom;
+    use tulip_rs::indicators::natr::Natr;
+    use tulip_rs::indicators::roc::Roc;
+    use tulip_rs::indicators::rocr::Rocr;
+    use tulip_rs::indicators::sma::Sma;
+    use tulip_rs::indicators::smaenvelope::SmaEnvelope;
+    use tulip_rs::indicators::stddev::StdDev;
+    use tulip_rs::indicators::tema::Tema;
+    use tulip_rs::indicators::tsf::Tsf;
+    use tulip_rs::indicators::typprice::Typprice;
+    use tulip_rs::indicators::ultosc::Ultosc;
+    use tulip_rs::indicators::vhf::Vhf;
+    use tulip_rs::indicators::vortex::Vortex;
+    use tulip_rs::indicators::wcprice::WcPrice;
+
+    let cl = close(0);
+    let s1: [&[f64]; 1] = [cl.as_slice()];
+    let (hi, lo, hc) = hlc(0);
+    let s2: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let s3: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), hc.as_slice()];
+
+    let r_dema_tema = || {
+        Request::new()
+            .add(Dema::recipe(&[9.0]), None)
+            .add(Tema::recipe(&[9.0]), None)
+    };
+    let r_sma_dpo = || {
+        Request::new()
+            .add(Sma::recipe(&[20.0]), None)
+            .add(Dpo::recipe(&[20.0]), None)
+    };
+    let r_sma_sd = || {
+        Request::new()
+            .add(Sma::recipe(&[14.0]), None)
+            .add(StdDev::recipe(&[14.0]), None)
+    };
+    let r_sma_env = || {
+        Request::new()
+            .add(Sma::recipe(&[9.0]), None)
+            .add(SmaEnvelope::recipe(&[9.0, 5.0]), None)
+    };
+    let r_mom_trio = || {
+        Request::new()
+            .add(Mom::recipe(&[9.0]), None)
+            .add(Roc::recipe(&[9.0]), None)
+            .add(Rocr::recipe(&[9.0]), None)
+    };
+    let r_mm_vhf = || {
+        Request::new()
+            .add(Max::recipe(&[9.0]), None)
+            .add(Min::recipe(&[9.0]), None)
+            .add(Vhf::recipe(&[9.0]), None)
+    };
+    let r_linreg_tsf = || {
+        Request::new()
+            .add(Linreg::recipe(&[14.0]), None)
+            .add(Tsf::recipe(&[14.0]), None)
+    };
+    let r_tsf_fosc = || {
+        Request::new()
+            .add(Tsf::recipe(&[14.0]), None)
+            .add(Fosc::recipe(&[14.0]), None)
+    };
+    let r_trio = || {
+        Request::new()
+            .add(Linreg::recipe(&[14.0]), None)
+            .add(Tsf::recipe(&[14.0]), None)
+            .add(Fosc::recipe(&[14.0]), None)
+    };
+    let r_price3 = || {
+        Request::new()
+            .add(Medprice::recipe(&[]), None)
+            .add(Typprice::recipe(&[]), None)
+            .add(WcPrice::recipe(&[]), None)
+    };
+    let r_atr_vortex = || {
+        Request::new()
+            .add(Atr::recipe(&[14.0]), None)
+            .add(Vortex::recipe(&[14.0]), None)
+    };
+    let r_ema_atr_kc = || {
+        Request::new()
+            .add(Ema::recipe(&[14.0]), None)
+            .add(Atr::recipe(&[14.0]), None)
+            .add(KeltnerChannel::recipe(&[14.0, 2.0]), None)
+    };
+    let r_ultosc_natr = || {
+        Request::new()
+            .add(Ultosc::recipe(&[7.0, 14.0, 28.0]), None)
+            .add(Natr::recipe(&[14.0]), None)
+    };
+
+    let (_a, sg_dt, v_dt, _o) = erase_request(&r_dema_tema()).unwrap();
+    let (_b, sg_sd2, v_sd2, _o) = erase_request(&r_sma_dpo()).unwrap();
+    let (_c, sg_ss, v_ss, _o) = erase_request(&r_sma_sd()).unwrap();
+    let (_d, sg_se, v_se, _o) = erase_request(&r_sma_env()).unwrap();
+    let (_e, sg_mom, v_mom, _o) = erase_request(&r_mom_trio()).unwrap();
+    let (_f, sg_mmv, v_mmv, _o) = erase_request(&r_mm_vhf()).unwrap();
+    let (_g, sg_lt, v_lt, _o) = erase_request(&r_linreg_tsf()).unwrap();
+    let (_h, sg_tf, v_tf, _o) = erase_request(&r_tsf_fosc()).unwrap();
+    let (_i, sg_trio, v_trio, _o) = erase_request(&r_trio()).unwrap();
+    let (_j, sg_p3, v_p3, _o) = erase_request(&r_price3()).unwrap();
+    let (_k, sg_av, v_av, _o) = erase_request(&r_atr_vortex()).unwrap();
+    let (_l, sg_eak, v_eak, _o) = erase_request(&r_ema_atr_kc()).unwrap();
+    let (_m, sg_un, v_un, _o) = erase_request(&r_ultosc_natr()).unwrap();
+
+    let mut g = c.benchmark_group("merged_gap");
+    g.sample_size(20);
+
+    // Each pair: HAND row runs every indicator's own full-series scan; GENERATED row
+    // runs ONE fused kernel per iteration (plan+erase resolved in setup, above).
+    // `.expect(..)` is load-bearing — a registry miss must panic, never silently time
+    // the hand fallback. Column subsets per indicator follow the same convention as
+    // `fused_roll` (each hand call gets only the columns it reads).
+    g.bench_function("hand_runonly_dema_tema_shared_p", |b| {
+        b.iter(|| {
+            // ONE call: tema's optional #0 IS dema (`tema.rs:165` ["dema","ema"]).
+            let t = Tema::indicator(&s1, &[9.0], Some(&[true, false])).unwrap();
+            black_box(t.0.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_dema_tema_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_dt, &v_dt, &s1).expect("dema_tema registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_sma_dpo_shared_p", |b| {
+        b.iter(|| {
+            // ONE call: dpo's optional #0 IS the sma row (`dpo.rs:149`).
+            let a = Dpo::indicator(&s1, &[20.0], Some(&[true])).unwrap();
+            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_sma_dpo_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_sd2, &v_sd2, &s1).expect("sma_dpo registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_sma_stddev_shared_p", |b| {
+        b.iter(|| {
+            // ONE call: stddev's optional #0 IS the mean (`stddev.rs:170`).
+            let a = StdDev::indicator(&s1, &[14.0], Some(&[true])).unwrap();
+            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_sma_stddev_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_ss, &v_ss, &s1).expect("sma_stddev registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_sma_smaenvelope_shared_p", |b| {
+        b.iter(|| {
+            let a = Sma::indicator(&s1, &[9.0], None).unwrap();
+            let b = SmaEnvelope::indicator(&s1, &[9.0, 5.0], None).unwrap();
+            black_box(a.0[0].len() + b.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_sma_smaenvelope_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_se, &v_se, &s1).expect("sma_smaenvelope registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_mom_roc_rocr_shared_p", |b| {
+        b.iter(|| {
+            // TWO calls, not three: roc's optional #0 IS mom (`roc.rs` optional_outputs ["mom"]).
+            // rocr has no such relation to either, so it keeps its own pass.
+            let b = Roc::indicator(&s1, &[9.0], Some(&[true])).unwrap();
+            let c = Rocr::indicator(&s1, &[9.0], None).unwrap();
+            black_box(b.0.iter().map(|r| r.len()).sum::<usize>() + c.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_mom_roc_rocr_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_mom, &v_mom, &s1).expect("mom_roc_rocr registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_max_min_vhf_shared_p", |b| {
+        b.iter(|| {
+            let a = Max::indicator(&s1, &[9.0], None).unwrap();
+            let b = Min::indicator(&s1, &[9.0], None).unwrap();
+            let c = Vhf::indicator(&s1, &[9.0], None).unwrap();
+            black_box(a.0[0].len() + b.0[0].len() + c.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_max_min_vhf_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_mmv, &v_mmv, &s1).expect("max_min_vhf registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    // NOTE (corrected 2026-11-12): the linreg-family rivals below were first written as separate
+    // `Linreg::indicator` + `Tsf::indicator` + `Fosc::indicator` calls. That was WRONG: these
+    // indicators expose their sub-chains as OPTIONAL OUTPUTS (`tsf.rs:146`, `fosc.rs:194`), so the
+    // hand computes them anyway — the mask chooses storage, not calculation. Each rival is now ONE
+    // parent call with the needed optionals on, which also selects the hand's `calc` path, the same
+    // branch the bit-exact gates pin. Consequence: nothing in the linreg/tsf/fosc family is a
+    // FUSION win; the engine can only match the hand there, never beat it.
+    g.bench_function("hand_runonly_linreg_tsf_shared_p", |b| {
+        b.iter(|| {
+            // ONE call: tsf's optional #0 IS the linreg row (`tsf.rs:146`), so the hand
+            // already computes it — calling Linreg separately would double-count the chain.
+            let a = Tsf::indicator(&s1, &[14.0], Some(&[true, false, false])).unwrap();
+            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_linreg_tsf_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_lt, &v_lt, &s1).expect("linreg_tsf registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_tsf_fosc_shared_p", |b| {
+        b.iter(|| {
+            // ONE call: fosc's optional #0 IS tsf (`fosc.rs:194`).
+            let a = Fosc::indicator(&s1, &[14.0], Some(&[true, false, false, false])).unwrap();
+            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_tsf_fosc_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_tf, &v_tf, &s1).expect("tsf_fosc registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_linreg_tsf_fosc_shared_p", |b| {
+        b.iter(|| {
+            // ONE call delivers fosc + tsf + linreg (`fosc.rs:194` optionals 0 and 1).
+            let a = Fosc::indicator(&s1, &[14.0], Some(&[true, true, false, false])).unwrap();
+            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_linreg_tsf_fosc_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_trio, &v_trio, &s1).expect("linreg_tsf_fosc registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_medprice_typprice_wcprice", |b| {
+        b.iter(|| {
+            let a = Medprice::indicator(&s2, &[], None).unwrap();
+            let b = Typprice::indicator(&s3, &[], None).unwrap();
+            let c = WcPrice::indicator(&s3, &[], None).unwrap();
+            black_box(a.0[0].len() + b.0[0].len() + c.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_medprice_typprice_wcprice", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_p3, &v_p3, &s3).expect("price3 registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_atr_vortex_shared_p", |b| {
+        b.iter(|| {
+            let a = Atr::indicator(&s3, &[14.0], None).unwrap();
+            let b = Vortex::indicator(&s3, &[14.0], None).unwrap();
+            black_box(a.0[0].len() + b.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_atr_vortex_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_av, &v_av, &s3).expect("atr_vortex registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_ema_atr_keltner_shared_p", |b| {
+        b.iter(|| {
+            // ATR comes free from keltner (`keltnerchannel.rs:189` optional #0), so only the
+            // close-EMA needs its own call — the atr half of this row is NOT a fusion win.
+            let a = Ema::indicator(&s1, &[14.0], None).unwrap();
+            let c = KeltnerChannel::indicator(&s3, &[14.0, 2.0], Some(&[true, false])).unwrap();
+            black_box(a.0[0].len() + c.0.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_ema_atr_keltner_shared_p", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_eak, &v_eak, &s3).expect("ema_atr_keltner registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("hand_runonly_ultosc_natr_shared_pc", |b| {
+        b.iter(|| {
+            let a = Ultosc::indicator(&s3, &[7.0, 14.0, 28.0], None).unwrap();
+            let b = Natr::indicator(&s3, &[14.0], None).unwrap();
+            black_box(a.0[0].len() + b.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_ultosc_natr_shared_pc", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_un, &v_un, &s3).expect("ultosc_natr registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_fused,
@@ -4107,6 +4455,7 @@ criterion_group!(
     bench_fused_roll,
     bench_fused_wide,
     bench_fused_assets8,
+    bench_merged_gap,
     bench_floor
 );
 criterion_main!(benches);
