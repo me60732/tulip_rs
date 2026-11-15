@@ -55,43 +55,42 @@ fn build_scalar_hoists(
         }
         let w = group_slots.len();
         let is_sma = p.nodes[k0].kind == Kind::Sma;
-        match w {
-            4 if is_sma => {
-                let k2 = group_slots[2];
-                let k3 = group_slots[3];
-                pair_hoists.push(quote! {
-                    let mut #g = Simd::<f64, 4>::from_array([st[#k0], st[#k1], st[#k2], st[#k3]]);
-                    let #gm = Simd::<f64, 4>::from_array([vals.mults[#k0], vals.mults[#k1], vals.mults[#k2], vals.mults[#k3]]);
-                });
-            }
-            4 => {
-                let k2 = group_slots[2];
-                let k3 = group_slots[3];
-                if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
-                    eprintln!(
-                        "codegen hoist 4-lane: k0={},k1={},k2={},k3={}",
-                        k0, k1, k2, k3
-                    );
-                }
-                pair_hoists.push(quote! {
-                    let mut #g = Simd::<f64, 4>::from_array([st[#k0], st[#k1], st[#k2], st[#k3]]);
-                    let #gm = Simd::<f64, 4>::from_array([vals.mults[#k0], vals.mults[#k1], vals.mults[#k2], vals.mults[#k3]]);
-                    let #gi_v = Simd::<f64, 4>::from_array([vals.invms[#k0], vals.invms[#k1], vals.invms[#k2], vals.invms[#k3]]);
-                });
-            }
-            _ if is_sma => {
-                pair_hoists.push(quote! {
-                    let mut #g = Simd::<f64, 2>::from_array([st[#k0], st[#k1]]);
-                    let #gm = Simd::<f64, 2>::from_array([vals.mults[#k0], vals.mults[#k1]]);
-                });
-            }
-            _ => {
-                pair_hoists.push(quote! {
-                    let mut #g = Simd::from_array([st[#k0], st[#k1]]);
-                    let #gm = Simd::from_array([vals.mults[#k0], vals.mults[#k1]]);
-                    let #gi_v = Simd::from_array([vals.invms[#k0], vals.invms[#k1]]);
-                });
-            }
+        // ONE arm for every width: the slot list IS the vector, so a 2-, 3-, 6-
+        // or 64-lane group emits the same shape with N entries. The width used to
+        // be hard-coded to 4 and 2 because that was all `classify_packed` could
+        // chunk into; now the bucket decides it and `w` (a `usize`, which
+        // `ToTokens` renders as an unsuffixed literal) is the const argument.
+        //
+        // Bit-for-bit note: this is NOT a value change. Every lane keeps its own
+        // `st[k]` carry, its own `mults[k]`/`invms[k]` weights and its own
+        // `mul_add`; grouping only decides how many lanes one instruction
+        // carries, which is why `packed_and_scalar_arms_return_the_same_bits`
+        // can hold across any width.
+        let stv: Vec<TokenStream> = group_slots.iter().map(|k| quote! { st[#k] }).collect();
+        let mv: Vec<TokenStream> = group_slots
+            .iter()
+            .map(|k| quote! { vals.mults[#k] })
+            .collect();
+        let iv: Vec<TokenStream> = group_slots
+            .iter()
+            .map(|k| quote! { vals.invms[#k] })
+            .collect();
+        // `usize` interpolation writes `6usize`; generated source is read by
+        // people and grepped by gates, so widths are written as unsuffixed
+        // literals exactly as the old hard-coded `Simd::<f64, 4>` arms did.
+        let wtok = proc_macro2::Literal::usize_unsuffixed(w);
+        let ty = quote! { Simd::<f64, #wtok> };
+        if is_sma {
+            pair_hoists.push(quote! {
+                let mut #g = #ty::from_array([#(#stv),*]);
+                let #gm = #ty::from_array([#(#mv),*]);
+            });
+        } else {
+            pair_hoists.push(quote! {
+                let mut #g = #ty::from_array([#(#stv),*]);
+                let #gm = #ty::from_array([#(#mv),*]);
+                let #gi_v = #ty::from_array([#(#iv),*]);
+            });
         }
     }
 
@@ -572,9 +571,8 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     if lane1 {
                         continue; // bound with lane0's statement
                     }
-                    let (k0, k1, _stream) = classify.groups[gi];
+                    let (k0, _k1, _stream) = classify.groups[gi];
                     let ga = format_ident!("ga{gi}");
-                    let (k0, k1) = (k0, k1);
                     let g = format_ident!("g{gi}");
                     let gm = format_ident!("g{gi}_m");
                     let gi_v = format_ident!("g{gi}_i");
@@ -587,42 +585,26 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                         .collect();
                     group_slots.sort();
                     let w = group_slots.len();
-                    match w {
-                        4 => {
-                            let k2 = group_slots[2];
-                            let k3 = group_slots[3];
-                            // Lane value binds x{k0}/x{k1}/x{k2}/x{k3} must become the idents
-                            let x0 = format_ident!("{}", idents[k0]);
-                            let x1 = format_ident!("{}", idents[k1]);
-                            let x2 = format_ident!("{}", idents[k2]);
-                            let x3 = format_ident!("{}", idents[k3]);
-                            // Splat the bound input local (one load per stream per bar)
-                            // — same source-slot reference rule as the scalar arms.
-                            let srcp = ev(p.nodes[k0].a, &idents);
-                            body.push(quote! {
-                                #g = #g.mul_add(#gi_v, Simd::<f64, 4>::splat(#srcp) * #gm);
-                                let #ga = #g.to_array();
-                                let #x0 = #ga[0];
-                                let #x1 = #ga[1];
-                                let #x2 = #ga[2];
-                                let #x3 = #ga[3];
-                            });
-                        }
-                        _ => {
-                            // Lane value binds x{k0}/x{k1} must become the idents
-                            let x0 = format_ident!("{}", idents[k0]);
-                            let x1 = format_ident!("{}", idents[k1]);
-                            // Splat the bound input local (one load per stream per bar)
-                            // — same source-slot reference rule as the scalar arms.
-                            let srcp = ev(p.nodes[k0].a, &idents);
-                            body.push(quote! {
-                                #g = #g.mul_add(#gi_v, Simd::splat(#srcp) * #gm);
-                                let #ga = #g.to_array();
-                                let #x0 = #ga[0];
-                                let #x1 = #ga[1];
-                            });
-                        }
+                    // Lane idents + their index in the group, for ANY width: the
+                    // old arms spelled 4 and 2 out twice. Each lane keeps its own
+                    // bound local, so downstream consumers are unchanged by the
+                    // group being wider.
+                    let mut lane_idents = Vec::new();
+                    let mut lane_idx: Vec<TokenStream> = Vec::new();
+                    for (l, &ks) in group_slots.iter().enumerate() {
+                        lane_idents.push(format_ident!("{}", idents[ks]));
+                        let l = proc_macro2::Literal::usize_unsuffixed(l);
+                        lane_idx.push(quote! { #l });
                     }
+                    let wtok = proc_macro2::Literal::usize_unsuffixed(w);
+                    // Splat the bound input local (one load per stream per bar)
+                    // — same source-slot reference rule as the scalar arms.
+                    let srcp = ev(p.nodes[k0].a, &idents);
+                    body.push(quote! {
+                        #g = #g.mul_add(#gi_v, Simd::<f64, #wtok>::splat(#srcp) * #gm);
+                        let #ga = #g.to_array();
+                        #( let #lane_idents = #ga[#lane_idx]; )*
+                    });
                 } else {
                     // Get the node's ident at slot k for scalar hoists
                     let ident_k = idents[k].clone();
@@ -736,11 +718,10 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                             quote! { let #id = #ga[#l]; }
                         })
                         .collect();
-                    let ty = if w == 4 {
-                        quote! { Simd::<f64, 4> }
-                    } else {
-                        quote! { Simd::<f64, 2> }
-                    };
+                    // Width from the bucket, same as the chain groups: the binds
+                    // above already iterate `0..w`, so only the type was pinned.
+                    let wtok = proc_macro2::Literal::usize_unsuffixed(w);
+                    let ty = quote! { Simd::<f64, #wtok> };
                     body.push(quote! {
                         #g = #g + (#ty::splat(#price) - #ty::from_array([#(#prevs),*]));
                         let #gv = #g * #gm;
@@ -1229,29 +1210,22 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     let gi_v = format_ident!("g{gi}_i");
                     let ga = format_ident!("ga{gi}");
                     let srcp = ev(node.a, &idents);
-                    if w == 4 {
-                        let x0 = format_ident!("{}", idents[group_slots[0]]);
-                        let x1 = format_ident!("{}", idents[group_slots[1]]);
-                        let x2 = format_ident!("{}", idents[group_slots[2]]);
-                        let x3 = format_ident!("{}", idents[group_slots[3]]);
-                        body.push(quote! {
-                            #g = #g.mul_add(#gm, Simd::<f64, 4>::splat(#srcp) * #gi_v);
-                            let #ga = #g.to_array();
-                            let #x0 = #ga[0];
-                            let #x1 = #ga[1];
-                            let #x2 = #ga[2];
-                            let #x3 = #ga[3];
-                        });
-                    } else {
-                        let x0 = format_ident!("{}", idents[group_slots[0]]);
-                        let x1 = format_ident!("{}", idents[group_slots[1]]);
-                        body.push(quote! {
-                            #g = #g.mul_add(#gm, Simd::splat(#srcp) * #gi_v);
-                            let #ga = #g.to_array();
-                            let #x0 = #ga[0];
-                            let #x1 = #ga[1];
-                        });
+                    // Same width-from-shape rule as the Ema group site; the
+                    // ARRANGEMENT stays swapped (`carry*mults + src*invms`),
+                    // which is why Ema and Wilders lanes never share a group.
+                    let mut lane_idents = Vec::new();
+                    let mut lane_idx: Vec<TokenStream> = Vec::new();
+                    for (l, &ks) in group_slots.iter().enumerate() {
+                        lane_idents.push(format_ident!("{}", idents[ks]));
+                        let l = proc_macro2::Literal::usize_unsuffixed(l);
+                        lane_idx.push(quote! { #l });
                     }
+                    let wtok = proc_macro2::Literal::usize_unsuffixed(w);
+                    body.push(quote! {
+                        #g = #g.mul_add(#gm, Simd::<f64, #wtok>::splat(#srcp) * #gi_v);
+                        let #ga = #g.to_array();
+                        #( let #lane_idents = #ga[#lane_idx]; )*
+                    });
                 } else {
                     // All Wilders now have scalar hoists via the extended scalars map
                     // Get the node's ident at slot k for scalar hoists

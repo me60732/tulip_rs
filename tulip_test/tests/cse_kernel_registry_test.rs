@@ -954,11 +954,6 @@ mod tests {
             .add(Max::recipe(&[14.0]), None)
             .add(Min::recipe(&[14.0]), None)
     }
-    fn aroon_osc_req(o_opt: Option<&[bool]>) -> Request {
-        Request::new()
-            .add(Aroon::recipe(&[14.0]), None)
-            .add(AroonOsc::recipe(&[14.0]), o_opt)
-    }
     fn willr_donch_req(w_opt: Option<&[bool]>) -> Request {
         Request::new()
             .add(Willr::recipe(&[14.0]), w_opt)

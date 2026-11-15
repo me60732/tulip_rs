@@ -337,8 +337,11 @@ mod tests {
     /// The test uses the shape where the question bites: adosc AND apo AND ppo on
     /// the SAME (12,26), so the arena holds four `Ema` chains — two over the
     /// volume-driven `Accum` line, two over the interned close (apo's and ppo's
-    /// pair interning to one). Two buckets of two → exactly two 2-wide groups and
-    /// zero 4-wide, which is what the assertions below pin.
+    /// pair interning to one). Two buckets of two → exactly two 2-lane groups and
+    /// nothing wider, which is what the assertions below pin. (Since 2026-11-15 a
+    /// bucket is emitted as ONE group of its own depth, so a merged cross-source
+    /// group would show up as a 4 in the width list rather than as a shape the
+    /// chunker happens to produce — the claim is stronger for being about widths.)
     ///
     /// WHY SOURCE-KEYED IS KEPT — MEASURED, not assumed. An `xpacked` arm WAS built
     /// (Ema buckets keyed on form alone; the group step reading a per-lane
@@ -421,10 +424,10 @@ mod tests {
         // meaningless zeros that way. Canonicalise by stripping whitespace FIRST,
         // then assert, and keep the positive control so a zero is a finding.
         let adosc = canon(codegen::expand(&[build(&matched(), true)]).to_string());
-        // Positive control, built from its OWN expansion so a 4-wide here can only
-        // come from it: Macd(12,24,9)+Apo(10,20)+Ppo(6,14) are six EMAs over the
-        // ONE interned close Input, so the bucket is six deep and chunking must
-        // emit a 4-wide group.
+        // Positive control, built from its OWN expansion so any width it shows can
+        // only come from it: Macd(12,24,9)+Apo(10,20)+Ppo(6,14) are six EMAs over
+        // the ONE interned close Input, so the bucket is six deep and the 4-then-2
+        // chunker must emit exactly a 4-group and a 2-group for it.
         let control = canon(
             codegen::expand(&[build(
                 &[
@@ -436,37 +439,71 @@ mod tests {
             )])
             .to_string(),
         );
-        // SELF-TEST of the probe: the control's six same-source EMAs must show up
-        // as a 4-wide group in the SAME canonical text the claim below reads. If
-        // this fails, the probe is broken and the negative proves nothing. (An
-        // earlier version OR'ed this with a `contains` so it could never fail —
-        // a self-test that cannot fail is not a self-test.)
-        assert!(
-            control.contains("Simd::<f64,4>::from_array([st["),
-            "the control shape shows no 4-wide group in canonical text, so this probe \
-             cannot see groups at all"
+        // SELF-TEST of the probe, and of the chunking policy itself. Reading the
+        // EMITTED widths is what makes this honest: bucket-sized groups were built
+        // on 2026-11-15 and measured out (a 6-wide group cost `ema_six_p` +16.0%),
+        // so the assertion below is the shipped rule — 4 then 2 — and it would
+        // fail loudly if the chunker were changed back without the measurement
+        // being re-taken. If this reports an empty list instead, the probe cannot
+        // see groups at all and the negative below proves nothing. (An earlier
+        // version OR'ed this with a `contains` so it could never fail — a
+        // self-test that cannot fail is not a self-test.)
+        assert_eq!(
+            group_widths(&control),
+            vec![4, 2],
+            "six same-source EMAs must chunk as one 4-lane group + one 2-lane group; \
+             a single 6-lane group means the rejected bucket-width policy is back"
         );
 
-        // THE CLAIM: the adosc shape never merges the two buckets into one 4-wide
-        // group. Each source's pair gets its own 2-wide step, so the AD line and
-        // the price line are NOT lanes of one vector op.
-        assert!(
-            !adosc.contains("Simd::<f64,4>::from_array([st["),
-            "a 4-wide group appeared for the adosc+apo+ppo arena — cross-source packing \
-             exists now, so the claim this test pins is superseded"
-        );
-        let wide2 = adosc.matches("Simd::from_array([st[").count();
+        // THE CLAIM: the adosc shape never merges the two buckets. Each source's
+        // pair gets its own 2-lane step, so the AD line and the price line are NOT
+        // lanes of one vector op — and reading the WIDTHS (rather than grepping
+        // for a hard-coded 4) makes this stronger than before: it now also rules
+        // out a 6-wide or 8-wide merged group appearing.
         assert_eq!(
-            wide2, 2,
-            "expected exactly two 2-wide lane groups (one per source bucket), found {wide2}"
+            group_widths(&adosc),
+            vec![2, 2],
+            "expected exactly two 2-lane groups (one per source bucket), got \
+             {widths:?} — a wider group means cross-source packing exists now, so \
+             the claim this test pins is superseded",
+            widths = group_widths(&adosc)
         );
         // WHY cross-source packing is impossible today: the group step broadcasts
         // ONE source value to every lane, so a group is N recurrences over one
         // source by construction.
         assert!(
-            adosc.contains("Simd::splat("),
+            adosc.contains("Simd::<f64,2>::splat("),
             "expected the group step to splat a single source"
         );
+    }
+
+    /// Every lane-group width the emitted source builds out of `st`, in order.
+    ///
+    /// The probes above used to grep for `Simd::<f64,4>` and bare
+    /// `Simd::from_array([st[` — strings that were only meaningful while
+    /// `classify_packed` could chunk into 4 and 2 and the renderer spelled both
+    /// literally. Width now comes from the bucket, so the fact worth pinning is
+    /// the LIST of widths, which is what this reads. Non-numeric lane arguments
+    /// (`Simd::<f64, L>`, the asset kernels) are skipped deliberately: they are
+    /// the other axis, not a group.
+    fn group_widths(canon_src: &str) -> Vec<usize> {
+        const M: &str = "Simd::<f64,";
+        let mut out = Vec::new();
+        let mut from = 0usize;
+        while let Some(hit) = canon_src[from..].find(M) {
+            let digits_at = from + hit + M.len();
+            let tail = &canon_src[digits_at..];
+            let end = tail
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(tail.len());
+            if let Ok(n) = tail[..end].parse::<usize>() {
+                if tail[end..].starts_with(">::from_array([st[") {
+                    out.push(n);
+                }
+            }
+            from = digits_at + end;
+        }
+        out
     }
 
     /// Strip whitespace so generated-source probes match at all: a `TokenStream`

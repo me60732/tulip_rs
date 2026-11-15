@@ -850,86 +850,17 @@ mod tests {
         );
     }
 
-    /// Group EMA slots by source Input and chunk into 4/2 lane groups.
-    /// Returns `(width, Vec<slot_indices>)` in bucket-first-appearance order.
-    /// - Same-source Ema slots (a targets Kind::Input) are grouped
-    /// - Chained Ema (a targets non-Input) and Wilders: scalar only
-    /// - Grouping strategy: greedily chunk `[4,4,...,2,2,r]` (prefer 4s)
-    pub fn packed_groups(p: &Pattern) -> Vec<(usize, Vec<usize>)> {
-        if !p.packed {
-            return vec![];
-        }
-
-        // Bucket by source Input slot
-        let mut buckets: std::collections::HashMap<usize, Vec<usize>> =
-            std::collections::HashMap::new();
-        for (k, node) in p.nodes.iter().enumerate() {
-            if node.kind == Kind::Ema && p.nodes[node.a].kind == Kind::Input {
-                // Group by source stream
-                let src_stream = p.nodes[node.a].a;
-                buckets.entry(src_stream).or_default().push(k);
-            }
-        }
-
-        // Sort buckets by first appearance order (source stream index)
-        let mut streams: Vec<usize> = buckets.keys().cloned().collect();
-        streams.sort();
-
-        let mut result = Vec::new();
-        for src in streams {
-            let slots = buckets.remove(&src).unwrap_or_default();
-            if slots.is_empty() {
-                continue;
-            }
-            // Chunk into 4/2 lane groups
-            let mut remaining = slots;
-            while !remaining.is_empty() {
-                if remaining.len() >= 4 {
-                    result.push((4, remaining.drain(0..4).collect()));
-                } else if remaining.len() >= 2 {
-                    result.push((2, remaining.drain(0..2).collect()));
-                } else {
-                    // Remainder 1 → scalar (not packed)
-                    break;
-                }
-            }
-        }
-
-        result
-    }
-
-    /// packed grouping over the six-distinct-EMA shape: buckets of 4 then 2.
-    #[test]
-    fn packed_groups_chunks_4_then_2() {
-        let p = expand(
-            "ema_six_p",
-            &[
-                (
-                    "Macd".to_string(),
-                    vec![
-                        Arg::Name("s1".into()),
-                        Arg::Name("l1".into()),
-                        Arg::Name("g".into()),
-                    ],
-                ),
-                (
-                    "Apo".to_string(),
-                    vec![Arg::Name("s2".into()), Arg::Name("l2".into())],
-                ),
-                (
-                    "Ppo".to_string(),
-                    vec![Arg::Name("s3".into()), Arg::Name("l3".into())],
-                ),
-            ],
-            true,
-        );
-        let groups = packed_groups(&p);
-        assert_eq!(
-            groups.len(),
-            2,
-            "six same-source chains: one 4-group + one 2-group"
-        );
-        assert_eq!(groups[0].0, 4);
-        assert_eq!(groups[1].0, 2);
-    }
+    // `packed_groups` and its test `packed_groups_chunks_4_then_2` were REMOVED
+    // 2026-11-15. They were a SECOND implementation of the lane-chunking rule,
+    // living entirely inside this test module, asserting `groups[0].0 == 4` and
+    // `groups[1].0 == 2` for the six-distinct-EMA shape. Nothing in the build
+    // ever called them — the shipped rule is `codegen::classify_packed`, whose
+    // groups the renderer reads through `slot_group` — so the gate stayed green
+    // while describing behaviour the engine no longer has: exactly the
+    // "authoritative-looking test over dead code" failure this repo has recorded
+    // twice before. The live claim now lives in ONE place,
+    // `cse::tests::ad_line_and_price_emas_do_not_share_a_lane_group`, which reads
+    // the EMITTED widths (`vec![6]` for this same shape, `vec![2, 2]` for the
+    // two-bucket shape) out of `codegen::expand`, so it cannot drift from the
+    // emitter it claims to describe.
 }

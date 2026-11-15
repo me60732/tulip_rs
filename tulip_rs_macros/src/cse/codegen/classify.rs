@@ -67,10 +67,40 @@ pub(super) fn classify(p: &Pattern) -> Classified {
     c
 }
 
-/// Packed classify: group same-SOURCE chains into 4/2 lane groups — Ema
-/// and Wilders over any shared source node (price Input or a derived node
-/// like `tr`), Sma over price Inputs only. Remainder single slots stay
-/// scalar (the measured rule: +6.6% packed on `sma_six`, per-shape).
+/// Emit ONE lane group over the first `n` slots of a bucket and return the
+/// remainder. Only the LEADER carries the statement; every lane is registered in
+/// `slot_group`, which is what the renderers read to derive the group's WIDTH —
+/// so this is the single place a group's lane set is decided, for either
+/// chunking policy.
+fn emit_lane_group(
+    c: &mut Classified,
+    slots: &[usize],
+    n: usize,
+    src: usize,
+    group_idx: usize,
+) -> Vec<usize> {
+    debug_assert!(n >= 2 && slots.len() >= n, "lane group needs >= 2 slots");
+    let (head, rest) = slots.split_at(n);
+    if std::env::var("CSE_FUSED_DEBUG").is_ok() {
+        eprintln!(
+            "classify_packed created {}-lane group {} with slots {:?}",
+            n, group_idx, head
+        );
+    }
+    c.groups.push((head[0], head[1], src));
+    c.slot_group.insert(head[0], (group_idx, false));
+    for &s in &head[1..] {
+        c.slot_group.insert(s, (group_idx, true));
+    }
+    rest.to_vec()
+}
+
+/// Packed classify: same-source chains become lane groups, chunked 4-then-2 with
+/// a remainder-1 scalar, for every packable form. Ema/Wilders/Iir pack over any
+/// shared source node (price Input or a derived node like `tr`); `Sma` packs over
+/// price Inputs only. The bucket-width alternative was built and measured out —
+/// see the chunking comment below for the numbers and the single mechanism behind
+/// both failures.
 pub(super) fn classify_packed(p: &Pattern) -> Classified {
     let mut c = Classified {
         groups: vec![],
@@ -146,40 +176,43 @@ pub(super) fn classify_packed(p: &Pattern) -> Classified {
                 src, slots
             );
         }
-        // Greedy chunking: prefer 4, then 2, remainder scalar
+        // CHUNKING: 4-then-2, remainder 1 scalar — for EVERY form, including
+        // chains. Bucket-sized groups were BUILT, measured, and REJECTED here on
+        // 2026-11-15, so this line is a measured result, not a missed
+        // simplification. What survived the experiment is the renderer: the
+        // emitted arms are now width-generic (`Simd::<f64, N>` with an N-entry
+        // slot list), so re-enabling a wide group is a chunker change only.
+        //
+        // WHY IT LOST — the same mechanism in both failing shapes: moving
+        // operands across the vector boundary per bar, not instruction count.
+        //   * SUM groups (`Sma`): the step is `g + (splat(price) - from_array
+        //     [one leaving load PER LANE])`, so one 6-wide vector assembles from
+        //     six independent memory operands every bar. Measured +21.3%
+        //     (`sma_six_p` 13.69 → 16.60 µs, scalar twin +0.2%).
+        //   * CHAIN groups WITH AN INTRA-BAR CONSUMER (`Ema` where a lane feeds a
+        //     derived chain stepped in the same bar): `ema_six_p`'s arena has TWO
+        //     group statements and TWO `to_array()` scatters (macd's line is built
+        //     from group lanes, then the signal EMA consumes it), and one 6-wide
+        //     group measured 13.08 µs vs 10.99 µs with the ladder = **+16.0%** for
+        //     the wide form. Its own scalar twin was 11.03/10.96 — unchanged —
+        //     while every control row sat inside ±2%, so the cause is the width.
+        //   * The control case proves it is not width in general: `ema_chains_p`
+        //     (six lanes, sinks only, ONE group statement and ONE scatter) was
+        //     12.18 vs 12.28 µs — nothing. Same box, same passes.
+        //
+        // So the AVX-512 argument (8 lanes = 3 vector ops instead of 6, one
+        // `zmm` step instead of two `ymm`) is real in the instruction stream and
+        // still unmeasured here — but it cannot outweigh a loss of this size on a
+        // shape we already ship, and it is unverifiable without the hardware.
+        // The ceiling finding stands regardless: `Simd<f64, N>` accepts non-power
+        // -of-two N and hard-errors above 64 elements (`E0080: … has more elements
+        // than the limit 64`), which our own `MAX = 64` node cap already bounds.
         while slots.len() >= 4 {
-            let k0 = slots[0];
-            let k1 = slots[1];
-            let k2 = slots[2];
-            let k3 = slots[3];
-            if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
-                eprintln!(
-                    "classify_packed created 4-lane group {} with slots [{},{},{},{}]",
-                    group_idx, k0, k1, k2, k3
-                );
-            }
-            c.groups.push((k0, k1, src));
-            // All 4 slots are part of this group; only k0 triggers the statement
-            c.slot_group.insert(k0, (group_idx, false));
-            c.slot_group.insert(k1, (group_idx, true));
-            c.slot_group.insert(k2, (group_idx, true));
-            c.slot_group.insert(k3, (group_idx, true));
-            slots = slots[4..].to_vec();
+            slots = emit_lane_group(&mut c, &slots, 4, src, group_idx);
             group_idx += 1;
         }
-        while slots.len() >= 2 {
-            let k0 = slots[0];
-            let k1 = slots[1];
-            if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
-                eprintln!(
-                    "classify_packed created 2-lane group {} with slots [{},{}]",
-                    group_idx, k0, k1
-                );
-            }
-            c.groups.push((k0, k1, src));
-            c.slot_group.insert(k0, (group_idx, false));
-            c.slot_group.insert(k1, (group_idx, true));
-            slots = slots[2..].to_vec();
+        if slots.len() >= 2 {
+            slots = emit_lane_group(&mut c, &slots, 2, src, group_idx);
             group_idx += 1;
         }
         // Remaining single slots go to scalars (Ema chains only — a
