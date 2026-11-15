@@ -32,10 +32,6 @@ tulip_rs_macros::kernel! {
     ema_six: Macd(s1, l1, g), Apo(s2, l2), Ppo(s3, l3);
     ema_six_p: packed Macd(s1, l1, g), Apo(s2, l2), Ppo(s3, l3);
 
-    // Rolling family, price-sourced: the stddev's optional sma mirror
-    // interns onto the Sma node (one recurrence, two rows per request AND
-    // across the two requests at a shared period).
-    sma_stddev_shared_p: Sma(p), Stddev(p);
     // The two moving averages co-requested on one column: the standalone
     // Sma row interns onto the very Sma node wma mirrors (one arena node,
     // two sinks) — the hand pair pays two full passes over the series.
@@ -110,7 +106,6 @@ tulip_rs_macros::kernel! {
     // its own max/min roll over close.
     aroon_n: Aroon(p);
     aroon_osc_n: AroonOsc(p);
-    aroon_osc_shared_p: Aroon(p), AroonOsc(p);
     // willr + donchian: the same canonical (p, p−1) roll pair, four output
     // rows off two rolls, one Add/Abs/Div glue set.
     willr_n: Willr(p);
@@ -431,10 +426,9 @@ tulip_rs_macros::kernel! {
     // `Node::Sma` and not `RollSum{mean:true}`: the two are DIFFERENT signature
     // kinds (K_SMA=16 vs K_ROLLSUM=24), so as a ring roll the arena would carry the
     // same rolling mean of `real` TWICE and the hub would save nothing. As written,
-    // dpo's roll and the standalone Sma request are one interned node -- which
-    // `sma_dpo_shared_p_interns_one_sma_and_is_bit_exact` measures rather than
-    // asserts in prose.
-    sma_dpo_shared_p: Sma(p), Dpo(p);
+    // dpo's roll and the standalone Sma request are one interned node; the
+    // cross-request interning is observed by the surviving hub gates
+    // (`bbands_wma_sma_mirrors_alias_one_node`, `sma_smaenvelope_shared_interns_one_roll`).
     // Lone floors for the same tranche (diagnostics, not shipping options): the
     // arena-declared arities are the hand's own -- AvgPrice reads open/high/low/
     // close, QStick open/close (`oc()`), Vwma close/volume (`cvol()`), Vosc volume
@@ -561,10 +555,13 @@ tulip_rs_macros::kernel! {
     homodynediscriminator_n: HomodyneDiscriminator();
     // Cybercycle -- standalone, no shared chain (reads real directly).
     cybercycle_n: Cybercycle(alpha);
-    tsf_fosc_shared_p: Tsf(p), Fosc(p);
-    // The whole regression family on one column: THREE requests, ONE moment
-    // chain. Sizes are pinned by `linreg_tsf_fosc_share_one_chain`, not here.
-    linreg_tsf_fosc_shared_p: Linreg(p), Tsf(p), Fosc(p);
+    // The regression family's multi-request hubs are removed (2026-11-12): with the
+    // minimum-call hand rival, `Tsf + Fosc` and `Linreg + Tsf + Fosc` lose on every
+    // axis (0.48 / 0.55 scalar), because fosc PUBLISHES tsf and linreg as optional
+    // outputs -- one hand call already computes the whole chain, so there is no
+    // sharing left for the engine to capture. The pair `linreg_tsf_shared_p` is kept
+    // as the measured tie (1.04) and the surviving home of the LinregFlow sharing
+    // evidence.
     // VORTEx IS THE SECOND ATR-SHARING HUB, and it shares the OTHER half: its `tr` comes
     // from the same `tr_nodes` walk over the same `hlc()` streams (0,1,2) that `Atr` builds,
     // so `Atr(p) + Vortex(p)` should carry ONE 8-node tr walk instead of two. Derived: atr
@@ -573,7 +570,10 @@ tulip_rs_macros::kernel! {
     // Its hand is eviction (`tr_sum += tr - old_tr`), so no new node kind is needed -- the
     // distinction that makes `adxr` unspellable and this one plain.
     vortex_n: Vortex(p);
-    atr_vortex_shared_p: Atr(p), Vortex(p);
+    // `Atr(p) + Vortex(p)` was removed 2026-11-12 (scalar 0.57, no lane win): the tr
+    // walk it shared was real, but one shared walk out of ~30 nodes was not enough to
+    // beat the hand. The node-derivation counts above stay as the record of what the
+    // merge achieved while it existed.
     // MARKETFI IS STATELESS ((high-low)/volume.max(EPSILON)), so it cannot share a
     // recurrence -- what it shares with `bop` is ARITHMETIC: bop builds `Sub{high, low}`
     // and an `EPSILON` Const, and marketfi needs that same range as its NUMERATOR plus a
@@ -621,11 +621,12 @@ tulip_rs_macros::kernel! {
     // `atr_ablation_rungs_bit_exact` before any number was read off them.
     tr_n: Tr();
     wilders_n: Wilders(p);
-    // tema OWNS a DemaState, so its ema1/ema2 AND its `dema` output node are the
-    // very nodes the standalone dema request builds -- co-requesting them should
-    // intern the whole two-chain subgraph and one dema Fma, with tema's `dema`
-    // optional row publishing the same stored stream as dema's primary.
-    dema_tema_shared_p: Dema(p), Tema(p);
+    // `Dema(p) + Tema(p)` was removed 2026-11-12 (scalar 0.79, no lane win). The
+    // structure it relied on is still true and still worth knowing: tema OWNS a
+    // DemaState, so its ema1/ema2 AND its `dema` output node are the very nodes the
+    // standalone dema request builds, and tema's `dema` optional row publishes the
+    // same stored stream as dema's primary -- which is precisely WHY the merge buys
+    // nothing: one `Tema(..., Some(&[true, false]))` hand call already covers both.
     // md(p) — Mean Absolute Deviation over one stream. The hand's `calc_md_simd` /
     // `calc_md`: sum of |x - sma| times 1/period. This is NOT incrementally
     // updatable (unlike RollSum) because |x - mean| isn't linear — every bar

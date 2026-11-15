@@ -2494,8 +2494,6 @@ fn bench_fused_rolling(c: &mut Criterion) {
 /// disjoint in time — a merged walk scans MORE). So the hub's matrix rows
 /// are shared/runonly/endtoend/scan/by_assets.
 fn bench_fused_roll(c: &mut Criterion) {
-    use tulip_rs::indicators::aroon::Aroon;
-    use tulip_rs::indicators::aroonosc::AroonOsc;
     use tulip_rs::indicators::donchianchannel::DonchianChannel;
     use tulip_rs::indicators::ichimoku::Ichimoku;
     use tulip_rs::indicators::max::Max;
@@ -2510,11 +2508,6 @@ fn bench_fused_roll(c: &mut Criterion) {
             .add(Max::recipe(&[14.0]), None)
             .add(Min::recipe(&[14.0]), None)
     };
-    let aroon_osc = || {
-        Request::new()
-            .add(Aroon::recipe(&[14.0]), None)
-            .add(AroonOsc::recipe(&[14.0]), None)
-    };
     let willr_donch = || {
         Request::new()
             .add(Willr::recipe(&[14.0]), None)
@@ -2522,7 +2515,6 @@ fn bench_fused_roll(c: &mut Criterion) {
     };
     let ichimoku = || Request::new().add(Ichimoku::recipe(&[9.0, 26.0]), None);
     let (_a, sig_mm, vals_mm, _o) = erase_request(&max_min()).unwrap();
-    let (_b, sig_ao, vals_ao, _o) = erase_request(&aroon_osc()).unwrap();
     let (_c, sig_wd, vals_wd, _o) = erase_request(&willr_donch()).unwrap();
     let (_d, sig_ic, vals_ic, _o) = erase_request(&ichimoku()).unwrap();
     let mut g = c.benchmark_group("fused_roll");
@@ -2541,26 +2533,9 @@ fn bench_fused_roll(c: &mut Criterion) {
             black_box(rows[0].len() + rows[1].len())
         })
     });
-    g.bench_function("hand_runonly_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            // ONE call: aroonosc's optionals ARE the two aroon rows (`aroonosc.rs:163`
-            // ["aroon_down","aroon_up"]). Calling Aroon separately double-counted the walk.
-            let o = AroonOsc::indicator(&s2, &[14.0], Some(&[true, true])).unwrap();
-            black_box(o.0.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("generated_runonly_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            let rows = try_run(&sig_ao, &vals_ao, &s2).expect("aroon_osc template");
-            black_box(rows[0].len() + rows[2].len())
-        })
-    });
-    g.bench_function("generated_endtoend_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            let out = tulip_rs::cse::run_registered(&aroon_osc(), &s2).expect("aroon_osc");
-            black_box(out.rows[0].len() + out.rows[2].len())
-        })
-    });
+    // `aroon_osc_shared_p` left kernel! on 2026-11-12 (scalar 0.56, 2x4 lanes 1.01,
+    // one-L4 0.79): `AroonOsc` publishes `aroon_down`/`aroon_up` as its own optional
+    // outputs, so a single hand call already returns all three rows — nothing to merge.
     g.bench_function("hand_runonly_willr_donchian_shared_p", |b| {
         b.iter(|| {
             let w = Willr::indicator(&s3, &[14.0], None).unwrap();
@@ -2676,44 +2651,7 @@ fn bench_fused_roll(c: &mut Criterion) {
             black_box(out.iter().flatten().map(|r| r.len()).sum::<usize>())
         })
     });
-    g.bench_function("hand_scalar_scan_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            let mut acc = 0usize;
-            for s in &sc2 {
-                // ONE call per asset: aroonosc's optionals ARE the two aroon rows.
-                acc += AroonOsc::indicator(s, &[14.0], Some(&[true, true]))
-                    .unwrap()
-                    .0
-                    .iter()
-                    .map(|r| r.len())
-                    .sum::<usize>();
-            }
-            black_box(acc)
-        })
-    });
-    g.bench_function("generated_scalar_scan_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            let mut acc = 0usize;
-            for s in &sc2 {
-                let rows = try_run(&sig_ao, &vals_ao, s).expect("aroon_osc template");
-                acc += rows[0].len() + rows[2].len();
-            }
-            black_box(acc)
-        })
-    });
-    g.bench_function("hand_byassets_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            // ONE call: aroonosc publishes both aroon rows as optionals.
-            let o = AroonOsc::indicator_by_assets::<4>(&ba2, &[14.0], Some(&[true, true])).unwrap();
-            black_box(o.0.iter().flatten().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("generated_assets4_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            let out = try_run_assets::<4>(&sig_ao, &vals_ao, &la_h2).expect("aroon lanes");
-            black_box(out.iter().flatten().map(|r| r.len()).sum::<usize>())
-        })
-    });
+    // aroon+aroonosc rows removed with the hub (see the note in `fused_roll`).
     g.bench_function("hand_scalar_scan_willr_donchian_shared_p", |b| {
         b.iter(|| {
             let mut acc = 0usize;
@@ -3038,17 +2976,8 @@ fn bench_fused_assets8(c: &mut Criterion) {
     };
     let (_h8, sig_mm, vals_mm, _o8) = erase_request(&max_min()).unwrap();
 
-    // aroon_osc_shared_p (S=2)
-    use tulip_rs::indicators::aroon::Aroon;
-    use tulip_rs::indicators::aroonosc::AroonOsc;
-    let aroon_osc = || {
-        Request::new()
-            .add(Aroon::recipe(&[14.0]), None)
-            .add(AroonOsc::recipe(&[14.0]), None)
-    };
-    let (_i8, sig_aro, vals_aro, _o8) = erase_request(&aroon_osc()).unwrap();
-
-    // willr_donchian_shared_p (S=3)
+    // aroon+aroonosc hub removed from kernel! 2026-11-12 — see the note in
+    // `bench_fused_roll`; its scan/by_assets rows went with it.
     use tulip_rs::indicators::donchianchannel::DonchianChannel;
     use tulip_rs::indicators::willr::Willr;
     let willr_donch = || {
@@ -3334,41 +3263,6 @@ fn bench_fused_assets8(c: &mut Criterion) {
             let x1 = Max::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
             let n1 = Min::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
             black_box(x0.0[0][0].len() + n0.0[0][0].len() + x1.0[0][0].len() + n1.0[0][0].len())
-        })
-    });
-
-    // ── aroon_osc_shared_p (S=2) ────────────────────────────────────────────
-    g.bench_function("generated_scalar_scan8_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            let mut acc = 0usize;
-            for s in &sc2_8 {
-                let rows = try_run(&sig_aro, &vals_aro, s).expect("aroon_osc template");
-                acc += rows[0].len() + rows[2].len();
-            }
-            black_box(acc)
-        })
-    });
-    g.bench_function("generated_lanes8_2x4_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            let a = try_run_assets::<4>(&sig_aro, &vals_aro, &la2a).expect("batch A");
-            let bb = try_run_assets::<4>(&sig_aro, &vals_aro, &la2b).expect("batch B");
-            black_box(
-                a.iter().flatten().map(|r| r.len()).sum::<usize>()
-                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
-            )
-        })
-    });
-    g.bench_function("hand_byassets2x4_aroon_osc_shared_p", |b| {
-        b.iter(|| {
-            // ONE call per batch: aroonosc publishes both aroon rows.
-            let o0 =
-                AroonOsc::indicator_by_assets::<4>(&bh2a, &[14.0], Some(&[true, true])).unwrap();
-            let o1 =
-                AroonOsc::indicator_by_assets::<4>(&bh2b, &[14.0], Some(&[true, true])).unwrap();
-            black_box(
-                o0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
-                    + o1.0.iter().flatten().map(|r| r.len()).sum::<usize>(),
-            )
         })
     });
 
@@ -4123,6 +4017,395 @@ fn bench_fused_assets8(c: &mut Criterion) {
         })
     });
 
+    // ── THE `(row, LANE)` CELLS THAT DID NOT EXIST ────────────────────────
+    // Nine merged rows were rankable on the SCALAR axis only, so a per-axis
+    // ship/no-ship decision could not be made for them at all: the lane verdict
+    // was unknown, not favourable. Each pair below is the same shape row already
+    // measured in `bench_fused` / `bench_merged_gap`, re-expressed on this axis:
+    //   engine  8 assets as two `try_run_assets::<4>` batches off ONE (sig, vals)
+    //   hand    that row's OWN `hand_runonly_*` minimum-call form — same
+    //           indicator set, same optional flags, same per-indicator column
+    //           subset — with each call becoming `indicator_by_assets::<4>`,
+    //           twice. Never one call per sink (the flaw the 2026-11-12 rival
+    //           audit found), and `::<4>` twice rather than `::<8>` once, which
+    //           this box has no 8-wide f64 to honour.
+    // Recipe args are copied from the scalar setups, not re-derived.
+    use tulip_rs::indicators::adx::Adx;
+    use tulip_rs::indicators::di::Di;
+    use tulip_rs::indicators::dm::Dm;
+    use tulip_rs::indicators::dx::Dx;
+    use tulip_rs::indicators::keltnerchannel::KeltnerChannel;
+    use tulip_rs::indicators::linreg::Linreg;
+    use tulip_rs::indicators::medprice::Medprice;
+    use tulip_rs::indicators::mom::Mom;
+    use tulip_rs::indicators::roc::Roc;
+    use tulip_rs::indicators::rocr::Rocr;
+    use tulip_rs::indicators::smaenvelope::SmaEnvelope;
+    use tulip_rs::indicators::tsf::Tsf;
+    use tulip_rs::indicators::typprice::Typprice;
+    use tulip_rs::indicators::vhf::Vhf;
+    use tulip_rs::indicators::wcprice::WcPrice;
+
+    let rn_hub = || {
+        Request::new()
+            .add(Dm::recipe(&[14.0]), None)
+            .add(Di::recipe(&[14.0]), None)
+            .add(Dx::recipe(&[14.0]), None)
+            .add(Adx::recipe(&[14.0]), None)
+    };
+    let rn_hub7 = || {
+        Request::new()
+            .add(Dm::recipe(&[14.0]), None)
+            .add(Di::recipe(&[14.0]), None)
+            .add(Dx::recipe(&[14.0]), None)
+            .add(Adx::recipe(&[14.0]), None)
+            .add(Atr::recipe(&[14.0]), None)
+            .add(Natr::recipe(&[14.0]), None)
+            .add(SuperTrend::recipe(&[14.0, 3.0]), None)
+    };
+    let rn_eak = || {
+        Request::new()
+            .add(Ema::recipe(&[14.0]), None)
+            .add(Atr::recipe(&[14.0]), None)
+            .add(KeltnerChannel::recipe(&[14.0, 2.0]), None)
+    };
+    let rn_mapm = || {
+        Request::new()
+            .add(Mass::recipe(&[40.0]), None)
+            .add(Apo::recipe(&[12.0, 26.0]), None)
+            .add(Ppo::recipe(&[12.0, 26.0]), None)
+            .add(Macd::recipe(&[12.0, 26.0, 9.0]), None)
+    };
+    let rn_mmv = || {
+        Request::new()
+            .add(Max::recipe(&[9.0]), None)
+            .add(Min::recipe(&[9.0]), None)
+            .add(Vhf::recipe(&[9.0]), None)
+    };
+    let rn_p3 = || {
+        Request::new()
+            .add(Medprice::recipe(&[]), None)
+            .add(Typprice::recipe(&[]), None)
+            .add(WcPrice::recipe(&[]), None)
+    };
+    let rn_mom3 = || {
+        Request::new()
+            .add(Mom::recipe(&[9.0]), None)
+            .add(Roc::recipe(&[9.0]), None)
+            .add(Rocr::recipe(&[9.0]), None)
+    };
+    let rn_se = || {
+        Request::new()
+            .add(Sma::recipe(&[9.0]), None)
+            .add(SmaEnvelope::recipe(&[9.0, 5.0]), None)
+    };
+    let rn_lt = || {
+        Request::new()
+            .add(Linreg::recipe(&[14.0]), None)
+            .add(Tsf::recipe(&[14.0]), None)
+    };
+
+    let (_q1, sig_hub_q, vals_hub_q, _z1) = erase_request(&rn_hub()).unwrap();
+    let (_q2, sig_hub7_q, vals_hub7_q, _z2) = erase_request(&rn_hub7()).unwrap();
+    let (_q3, sig_eak_q, vals_eak_q, _z3) = erase_request(&rn_eak()).unwrap();
+    let (_q4, sig_mapm_q, vals_mapm_q, _z4) = erase_request(&rn_mapm()).unwrap();
+    let (_q5, sig_mmv_q, vals_mmv_q, _z5) = erase_request(&rn_mmv()).unwrap();
+    let (_q6, sig_p3_q, vals_p3_q, _z6) = erase_request(&rn_p3()).unwrap();
+    let (_q7, sig_mom3_q, vals_mom3_q, _z7) = erase_request(&rn_mom3()).unwrap();
+    let (_q8, sig_se_q, vals_se_q, _z8) = erase_request(&rn_se()).unwrap();
+    let (_q9, sig_lt_q, vals_lt_q, _z9) = erase_request(&rn_lt()).unwrap();
+
+    // dm_di_dx_adx (3 streams) — scalar verdict 3.14, lane verdict unknown.
+    g.bench_function("generated_lanes8_2x4_dm_di_dx_adx_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_hub_q, &vals_hub_q, &la3a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_hub_q, &vals_hub_q, &la3b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_dm_di_dx_adx_shared_p", |b| {
+        b.iter(|| {
+            // THREE calls, as in the scalar rival: `dx` is adx's optional #0, so
+            // it needs no pass of its own; `dm` and `di` are not deliverable from
+            // any member. `dm` reads high/low only.
+            let d0 = Dm::indicator_by_assets::<4>(&bh2a, &[14.0], None).unwrap();
+            let i0 = Di::indicator_by_assets::<4>(&bh3a, &[14.0], None).unwrap();
+            let x0 =
+                Adx::indicator_by_assets::<4>(&bh3a, &[14.0], Some(&[true, false, false])).unwrap();
+            let d1 = Dm::indicator_by_assets::<4>(&bh2b, &[14.0], None).unwrap();
+            let i1 = Di::indicator_by_assets::<4>(&bh3b, &[14.0], None).unwrap();
+            let x1 =
+                Adx::indicator_by_assets::<4>(&bh3b, &[14.0], Some(&[true, false, false])).unwrap();
+            black_box(
+                d0.0[0][0].len()
+                    + i0.0[0][0].len()
+                    + x0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + d1.0[0][0].len()
+                    + i1.0[0][0].len()
+                    + x1.0.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+
+    // hub7 (3 streams) — scalar 3.32, lane unknown.
+    g.bench_function(
+        "generated_lanes8_2x4_dm_di_dx_adx_atr_natr_supertrend_shared_p",
+        |b| {
+            b.iter(|| {
+                let a = try_run_assets::<4>(&sig_hub7_q, &vals_hub7_q, &la3a).expect("batch A");
+                let bb = try_run_assets::<4>(&sig_hub7_q, &vals_hub7_q, &la3b).expect("batch B");
+                black_box(
+                    a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                        + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+                )
+            })
+        },
+    );
+    g.bench_function(
+        "hand_byassets2x4_dm_di_dx_adx_atr_natr_supertrend_shared_p",
+        |b| {
+            b.iter(|| {
+                // FIVE calls for seven values, exactly as the scalar rival: one
+                // Adx with optionals [dx, atr] on covers three of them.
+                let d0 = Dm::indicator_by_assets::<4>(&bh2a, &[14.0], None).unwrap();
+                let i0 = Di::indicator_by_assets::<4>(&bh3a, &[14.0], None).unwrap();
+                let x0 = Adx::indicator_by_assets::<4>(&bh3a, &[14.0], Some(&[true, true, false]))
+                    .unwrap();
+                let n0 = Natr::indicator_by_assets::<4>(&bh3a, &[14.0], None).unwrap();
+                let s0 = SuperTrend::indicator_by_assets::<4>(&bh3a, &[14.0, 3.0], None).unwrap();
+                let d1 = Dm::indicator_by_assets::<4>(&bh2b, &[14.0], None).unwrap();
+                let i1 = Di::indicator_by_assets::<4>(&bh3b, &[14.0], None).unwrap();
+                let x1 = Adx::indicator_by_assets::<4>(&bh3b, &[14.0], Some(&[true, true, false]))
+                    .unwrap();
+                let n1 = Natr::indicator_by_assets::<4>(&bh3b, &[14.0], None).unwrap();
+                let s1 = SuperTrend::indicator_by_assets::<4>(&bh3b, &[14.0, 3.0], None).unwrap();
+                black_box(
+                    d0.0[0][0].len()
+                        + i0.0[0][0].len()
+                        + x0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                        + n0.0[0][0].len()
+                        + s0.0[0][0].len()
+                        + d1.0[0][0].len()
+                        + i1.0[0][0].len()
+                        + x1.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                        + n1.0[0][0].len()
+                        + s1.0[0][0].len(),
+                )
+            })
+        },
+    );
+
+    // ema_atr_keltner (3 streams) — scalar 1.29, lane unknown.
+    g.bench_function("generated_lanes8_2x4_ema_atr_keltner_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_eak_q, &vals_eak_q, &la3a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_eak_q, &vals_eak_q, &la3b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_ema_atr_keltner_shared_p", |b| {
+        b.iter(|| {
+            // TWO calls: keltner's optional #0 IS atr (`keltnerchannel.rs:189`),
+            // so only the close-EMA needs a pass of its own.
+            let e0 = Ema::indicator_by_assets::<4>(&bh1a, &[14.0], None).unwrap();
+            let k0 =
+                KeltnerChannel::indicator_by_assets::<4>(&bh3a, &[14.0, 2.0], Some(&[true, false]))
+                    .unwrap();
+            let e1 = Ema::indicator_by_assets::<4>(&bh1b, &[14.0], None).unwrap();
+            let k1 =
+                KeltnerChannel::indicator_by_assets::<4>(&bh3b, &[14.0, 2.0], Some(&[true, false]))
+                    .unwrap();
+            black_box(
+                e0.0[0][0].len()
+                    + k0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + e1.0[0][0].len()
+                    + k1.0.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+
+    // mass_apo_ppo_macd (3 streams) — scalar 1.62, lane unknown.
+    g.bench_function("generated_lanes8_2x4_mass_apo_ppo_macd", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_mapm_q, &vals_mapm_q, &la3a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_mapm_q, &vals_mapm_q, &la3b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_mass_apo_ppo_macd", |b| {
+        b.iter(|| {
+            // FOUR calls: no member delivers another's primary row (apo/ppo/macd
+            // publish only their `short_ema`/`long_ema` mirrors, which are not the
+            // requested value set), so this rival has nothing to collapse.
+            let m0 = Mass::indicator_by_assets::<4>(&bh2a, &[40.0], None).unwrap();
+            let a0 = Apo::indicator_by_assets::<4>(&bh1a, &[12.0, 26.0], None).unwrap();
+            let p0 = Ppo::indicator_by_assets::<4>(&bh1a, &[12.0, 26.0], None).unwrap();
+            let c0 = Macd::indicator_by_assets::<4>(&bh1a, &[12.0, 26.0, 9.0], None).unwrap();
+            let m1 = Mass::indicator_by_assets::<4>(&bh2b, &[40.0], None).unwrap();
+            let a1 = Apo::indicator_by_assets::<4>(&bh1b, &[12.0, 26.0], None).unwrap();
+            let p1 = Ppo::indicator_by_assets::<4>(&bh1b, &[12.0, 26.0], None).unwrap();
+            let c1 = Macd::indicator_by_assets::<4>(&bh1b, &[12.0, 26.0, 9.0], None).unwrap();
+            black_box(
+                m0.0[0][0].len()
+                    + a0.0[0][0].len()
+                    + p0.0[0][0].len()
+                    + c0.0[0][0].len()
+                    + m1.0[0][0].len()
+                    + a1.0[0][0].len()
+                    + p1.0[0][0].len()
+                    + c1.0[0][0].len(),
+            )
+        })
+    });
+
+    // max_min_vhf (1 stream) — scalar 3.47, lane unknown.
+    g.bench_function("generated_lanes8_2x4_max_min_vhf_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_mmv_q, &vals_mmv_q, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_mmv_q, &vals_mmv_q, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_max_min_vhf_shared_p", |b| {
+        b.iter(|| {
+            let x0 = Max::indicator_by_assets::<4>(&bh1a, &[9.0], None).unwrap();
+            let n0 = Min::indicator_by_assets::<4>(&bh1a, &[9.0], None).unwrap();
+            let v0 = Vhf::indicator_by_assets::<4>(&bh1a, &[9.0], None).unwrap();
+            let x1 = Max::indicator_by_assets::<4>(&bh1b, &[9.0], None).unwrap();
+            let n1 = Min::indicator_by_assets::<4>(&bh1b, &[9.0], None).unwrap();
+            let v1 = Vhf::indicator_by_assets::<4>(&bh1b, &[9.0], None).unwrap();
+            black_box(
+                x0.0[0][0].len()
+                    + n0.0[0][0].len()
+                    + v0.0[0][0].len()
+                    + x1.0[0][0].len()
+                    + n1.0[0][0].len()
+                    + v1.0[0][0].len(),
+            )
+        })
+    });
+
+    // medprice_typprice_wcprice (3 streams) — scalar 0.75 UNSTABLE, lane unknown.
+    g.bench_function("generated_lanes8_2x4_medprice_typprice_wcprice", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_p3_q, &vals_p3_q, &la3a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_p3_q, &vals_p3_q, &la3b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_medprice_typprice_wcprice", |b| {
+        b.iter(|| {
+            // Stateless composites, no optionals anywhere in the family: three
+            // calls is the minimum. `medprice` reads high/low only.
+            let m0 = Medprice::indicator_by_assets::<4>(&bh2a, &[], None).unwrap();
+            let t0 = Typprice::indicator_by_assets::<4>(&bh3a, &[], None).unwrap();
+            let w0 = WcPrice::indicator_by_assets::<4>(&bh3a, &[], None).unwrap();
+            let m1 = Medprice::indicator_by_assets::<4>(&bh2b, &[], None).unwrap();
+            let t1 = Typprice::indicator_by_assets::<4>(&bh3b, &[], None).unwrap();
+            let w1 = WcPrice::indicator_by_assets::<4>(&bh3b, &[], None).unwrap();
+            black_box(
+                m0.0[0][0].len()
+                    + t0.0[0][0].len()
+                    + w0.0[0][0].len()
+                    + m1.0[0][0].len()
+                    + t1.0[0][0].len()
+                    + w1.0[0][0].len(),
+            )
+        })
+    });
+
+    // mom_roc_rocr (1 stream) — scalar 0.95 tie, lane unknown.
+    g.bench_function("generated_lanes8_2x4_mom_roc_rocr_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_mom3_q, &vals_mom3_q, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_mom3_q, &vals_mom3_q, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_mom_roc_rocr_shared_p", |b| {
+        b.iter(|| {
+            // TWO calls: `roc`'s optional #0 IS mom (`roc.rs` optional_outputs
+            // ["mom"]); `rocr` shares no published row with either.
+            let r0 = Roc::indicator_by_assets::<4>(&bh1a, &[9.0], Some(&[true])).unwrap();
+            let c0 = Rocr::indicator_by_assets::<4>(&bh1a, &[9.0], None).unwrap();
+            let r1 = Roc::indicator_by_assets::<4>(&bh1b, &[9.0], Some(&[true])).unwrap();
+            let c1 = Rocr::indicator_by_assets::<4>(&bh1b, &[9.0], None).unwrap();
+            black_box(
+                r0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + c0.0[0][0].len()
+                    + r1.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + c1.0[0][0].len(),
+            )
+        })
+    });
+
+    // sma_smaenvelope (1 stream) — scalar 1.03 noise, lane unknown.
+    g.bench_function("generated_lanes8_2x4_sma_smaenvelope_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_se_q, &vals_se_q, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_se_q, &vals_se_q, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_sma_smaenvelope_shared_p", |b| {
+        b.iter(|| {
+            // TWO calls: the envelope's middle band EQUALS sma but is one of its
+            // three PRIMARY rows, not an optional, so it is not deliverable from
+            // `SmaEnvelope` as a sub-output — the standalone Sma call is real work.
+            let s0 = Sma::indicator_by_assets::<4>(&bh1a, &[9.0], None).unwrap();
+            let e0 = SmaEnvelope::indicator_by_assets::<4>(&bh1a, &[9.0, 5.0], None).unwrap();
+            let s1 = Sma::indicator_by_assets::<4>(&bh1b, &[9.0], None).unwrap();
+            let e1 = SmaEnvelope::indicator_by_assets::<4>(&bh1b, &[9.0, 5.0], None).unwrap();
+            black_box(s0.0[0][0].len() + e0.0[0][0].len() + s1.0[0][0].len() + e1.0[0][0].len())
+        })
+    });
+
+    // linreg_tsf (1 stream) — scalar 1.04 tie, lane unknown.
+    g.bench_function("generated_lanes8_2x4_linreg_tsf_shared_p", |b| {
+        b.iter(|| {
+            let a = try_run_assets::<4>(&sig_lt_q, &vals_lt_q, &la1a).expect("batch A");
+            let bb = try_run_assets::<4>(&sig_lt_q, &vals_lt_q, &la1b).expect("batch B");
+            black_box(
+                a.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + bb.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+    g.bench_function("hand_byassets2x4_linreg_tsf_shared_p", |b| {
+        b.iter(|| {
+            // ONE call: tsf's optional #0 IS the linreg row (`tsf.rs:146`).
+            let t0 =
+                Tsf::indicator_by_assets::<4>(&bh1a, &[14.0], Some(&[true, false, false])).unwrap();
+            let t1 =
+                Tsf::indicator_by_assets::<4>(&bh1b, &[14.0], Some(&[true, false, false])).unwrap();
+            black_box(
+                t0.0.iter().flatten().map(|r| r.len()).sum::<usize>()
+                    + t1.0.iter().flatten().map(|r| r.len()).sum::<usize>(),
+            )
+        })
+    });
+
     g.finish();
 }
 
@@ -4136,10 +4419,7 @@ fn bench_fused_assets8(c: &mut Criterion) {
 fn bench_merged_gap(c: &mut Criterion) {
     use tulip_rs::cse::Planable;
     use tulip_rs::indicators::atr::Atr;
-    use tulip_rs::indicators::dema::Dema;
-    use tulip_rs::indicators::dpo::Dpo;
     use tulip_rs::indicators::ema::Ema;
-    use tulip_rs::indicators::fosc::Fosc;
     use tulip_rs::indicators::keltnerchannel::KeltnerChannel;
     use tulip_rs::indicators::linreg::Linreg;
     use tulip_rs::indicators::max::Max;
@@ -4151,13 +4431,10 @@ fn bench_merged_gap(c: &mut Criterion) {
     use tulip_rs::indicators::rocr::Rocr;
     use tulip_rs::indicators::sma::Sma;
     use tulip_rs::indicators::smaenvelope::SmaEnvelope;
-    use tulip_rs::indicators::stddev::StdDev;
-    use tulip_rs::indicators::tema::Tema;
     use tulip_rs::indicators::tsf::Tsf;
     use tulip_rs::indicators::typprice::Typprice;
     use tulip_rs::indicators::ultosc::Ultosc;
     use tulip_rs::indicators::vhf::Vhf;
-    use tulip_rs::indicators::vortex::Vortex;
     use tulip_rs::indicators::wcprice::WcPrice;
 
     let cl = close(0);
@@ -4166,21 +4443,6 @@ fn bench_merged_gap(c: &mut Criterion) {
     let s2: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
     let s3: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), hc.as_slice()];
 
-    let r_dema_tema = || {
-        Request::new()
-            .add(Dema::recipe(&[9.0]), None)
-            .add(Tema::recipe(&[9.0]), None)
-    };
-    let r_sma_dpo = || {
-        Request::new()
-            .add(Sma::recipe(&[20.0]), None)
-            .add(Dpo::recipe(&[20.0]), None)
-    };
-    let r_sma_sd = || {
-        Request::new()
-            .add(Sma::recipe(&[14.0]), None)
-            .add(StdDev::recipe(&[14.0]), None)
-    };
     let r_sma_env = || {
         Request::new()
             .add(Sma::recipe(&[9.0]), None)
@@ -4203,27 +4465,11 @@ fn bench_merged_gap(c: &mut Criterion) {
             .add(Linreg::recipe(&[14.0]), None)
             .add(Tsf::recipe(&[14.0]), None)
     };
-    let r_tsf_fosc = || {
-        Request::new()
-            .add(Tsf::recipe(&[14.0]), None)
-            .add(Fosc::recipe(&[14.0]), None)
-    };
-    let r_trio = || {
-        Request::new()
-            .add(Linreg::recipe(&[14.0]), None)
-            .add(Tsf::recipe(&[14.0]), None)
-            .add(Fosc::recipe(&[14.0]), None)
-    };
     let r_price3 = || {
         Request::new()
             .add(Medprice::recipe(&[]), None)
             .add(Typprice::recipe(&[]), None)
             .add(WcPrice::recipe(&[]), None)
-    };
-    let r_atr_vortex = || {
-        Request::new()
-            .add(Atr::recipe(&[14.0]), None)
-            .add(Vortex::recipe(&[14.0]), None)
     };
     let r_ema_atr_kc = || {
         Request::new()
@@ -4237,19 +4483,13 @@ fn bench_merged_gap(c: &mut Criterion) {
             .add(Natr::recipe(&[14.0]), None)
     };
 
-    let (_a, sg_dt, v_dt, _o) = erase_request(&r_dema_tema()).unwrap();
-    let (_b, sg_sd2, v_sd2, _o) = erase_request(&r_sma_dpo()).unwrap();
-    let (_c, sg_ss, v_ss, _o) = erase_request(&r_sma_sd()).unwrap();
-    let (_d, sg_se, v_se, _o) = erase_request(&r_sma_env()).unwrap();
-    let (_e, sg_mom, v_mom, _o) = erase_request(&r_mom_trio()).unwrap();
-    let (_f, sg_mmv, v_mmv, _o) = erase_request(&r_mm_vhf()).unwrap();
-    let (_g, sg_lt, v_lt, _o) = erase_request(&r_linreg_tsf()).unwrap();
-    let (_h, sg_tf, v_tf, _o) = erase_request(&r_tsf_fosc()).unwrap();
-    let (_i, sg_trio, v_trio, _o) = erase_request(&r_trio()).unwrap();
-    let (_j, sg_p3, v_p3, _o) = erase_request(&r_price3()).unwrap();
-    let (_k, sg_av, v_av, _o) = erase_request(&r_atr_vortex()).unwrap();
-    let (_l, sg_eak, v_eak, _o) = erase_request(&r_ema_atr_kc()).unwrap();
-    let (_m, sg_un, v_un, _o) = erase_request(&r_ultosc_natr()).unwrap();
+    let (_a, sg_se, v_se, _o) = erase_request(&r_sma_env()).unwrap();
+    let (_b, sg_mom, v_mom, _o) = erase_request(&r_mom_trio()).unwrap();
+    let (_c, sg_mmv, v_mmv, _o) = erase_request(&r_mm_vhf()).unwrap();
+    let (_d, sg_lt, v_lt, _o) = erase_request(&r_linreg_tsf()).unwrap();
+    let (_e, sg_p3, v_p3, _o) = erase_request(&r_price3()).unwrap();
+    let (_f, sg_eak, v_eak, _o) = erase_request(&r_ema_atr_kc()).unwrap();
+    let (_g, sg_un, v_un, _o) = erase_request(&r_ultosc_natr()).unwrap();
 
     let mut g = c.benchmark_group("merged_gap");
     g.sample_size(20);
@@ -4259,45 +4499,10 @@ fn bench_merged_gap(c: &mut Criterion) {
     // `.expect(..)` is load-bearing — a registry miss must panic, never silently time
     // the hand fallback. Column subsets per indicator follow the same convention as
     // `fused_roll` (each hand call gets only the columns it reads).
-    g.bench_function("hand_runonly_dema_tema_shared_p", |b| {
-        b.iter(|| {
-            // ONE call: tema's optional #0 IS dema (`tema.rs:165` ["dema","ema"]).
-            let t = Tema::indicator(&s1, &[9.0], Some(&[true, false])).unwrap();
-            black_box(t.0.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("generated_runonly_dema_tema_shared_p", |b| {
-        b.iter(|| {
-            let rows = try_run(&sg_dt, &v_dt, &s1).expect("dema_tema registered");
-            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("hand_runonly_sma_dpo_shared_p", |b| {
-        b.iter(|| {
-            // ONE call: dpo's optional #0 IS the sma row (`dpo.rs:149`).
-            let a = Dpo::indicator(&s1, &[20.0], Some(&[true])).unwrap();
-            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("generated_runonly_sma_dpo_shared_p", |b| {
-        b.iter(|| {
-            let rows = try_run(&sg_sd2, &v_sd2, &s1).expect("sma_dpo registered");
-            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("hand_runonly_sma_stddev_shared_p", |b| {
-        b.iter(|| {
-            // ONE call: stddev's optional #0 IS the mean (`stddev.rs:170`).
-            let a = StdDev::indicator(&s1, &[14.0], Some(&[true])).unwrap();
-            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("generated_runonly_sma_stddev_shared_p", |b| {
-        b.iter(|| {
-            let rows = try_run(&sg_ss, &v_ss, &s1).expect("sma_stddev registered");
-            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
+    // `dema+tema`, `sma+dpo` and `sma+stddev` left kernel! on 2026-11-12: ONE hand call
+    // with the right optional flag (tema publishes dema, dpo publishes sma, stddev
+    // publishes its mean) already yields both rows, so there was no shared work left to
+    // measure. Their minimum-call rivals are recorded in CSE_WINLOSS_CENSUS_2026-11-12.md.
     g.bench_function("hand_runonly_sma_smaenvelope_shared_p", |b| {
         b.iter(|| {
             let a = Sma::indicator(&s1, &[9.0], None).unwrap();
@@ -4361,32 +4566,10 @@ fn bench_merged_gap(c: &mut Criterion) {
             black_box(rows.iter().map(|r| r.len()).sum::<usize>())
         })
     });
-    g.bench_function("hand_runonly_tsf_fosc_shared_p", |b| {
-        b.iter(|| {
-            // ONE call: fosc's optional #0 IS tsf (`fosc.rs:194`).
-            let a = Fosc::indicator(&s1, &[14.0], Some(&[true, false, false, false])).unwrap();
-            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("generated_runonly_tsf_fosc_shared_p", |b| {
-        b.iter(|| {
-            let rows = try_run(&sg_tf, &v_tf, &s1).expect("tsf_fosc registered");
-            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("hand_runonly_linreg_tsf_fosc_shared_p", |b| {
-        b.iter(|| {
-            // ONE call delivers fosc + tsf + linreg (`fosc.rs:194` optionals 0 and 1).
-            let a = Fosc::indicator(&s1, &[14.0], Some(&[true, true, false, false])).unwrap();
-            black_box(a.0.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
-    g.bench_function("generated_runonly_linreg_tsf_fosc_shared_p", |b| {
-        b.iter(|| {
-            let rows = try_run(&sg_trio, &v_trio, &s1).expect("linreg_tsf_fosc registered");
-            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
+    // `tsf+fosc` and `linreg+tsf+fosc` left kernel! on 2026-11-12: fosc PUBLISHES tsf and
+    // linreg as optional outputs, so one `Fosc::indicator(..., Some(&[true, true, false,
+    // false]))` call returns the whole chain. `linreg+tsf` stays (measured tie, 1.04, and
+    // the surviving home of the LinregFlow sharing evidence).
     g.bench_function("hand_runonly_medprice_typprice_wcprice", |b| {
         b.iter(|| {
             let a = Medprice::indicator(&s2, &[], None).unwrap();
@@ -4401,19 +4584,10 @@ fn bench_merged_gap(c: &mut Criterion) {
             black_box(rows.iter().map(|r| r.len()).sum::<usize>())
         })
     });
-    g.bench_function("hand_runonly_atr_vortex_shared_p", |b| {
-        b.iter(|| {
-            let a = Atr::indicator(&s3, &[14.0], None).unwrap();
-            let b = Vortex::indicator(&s3, &[14.0], None).unwrap();
-            black_box(a.0[0].len() + b.0[0].len())
-        })
-    });
-    g.bench_function("generated_runonly_atr_vortex_shared_p", |b| {
-        b.iter(|| {
-            let rows = try_run(&sg_av, &v_av, &s3).expect("atr_vortex registered");
-            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
-        })
-    });
+    // `atr+vortex` left kernel! on 2026-11-12 (0.57 scalar, no lane rows): the shared `tr`
+    // walk is real, but one shared walk out of ~30 nodes did not beat the hand. Vortex
+    // publishes `tr` itself, so its own optional flag already covers the atr half of the
+    // argument for sharing.
     g.bench_function("hand_runonly_ema_atr_keltner_shared_p", |b| {
         b.iter(|| {
             // ATR comes free from keltner (`keltnerchannel.rs:189` optional #0), so only the
@@ -4439,6 +4613,132 @@ fn bench_merged_gap(c: &mut Criterion) {
     g.bench_function("generated_runonly_ultosc_natr_shared_pc", |b| {
         b.iter(|| {
             let rows = try_run(&sg_un, &v_un, &s3).expect("ultosc_natr registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+
+    // ── THE FOUR ROWS THAT COULD NEVER ENTER THE RANKING AT ALL ───────────
+    // Volume/OHLC hubs registered since the column-law work, with no rival on ANY
+    // axis — neither a win nor a loss could be claimed for them. Column order and
+    // per-indicator subsets are lifted from each row's bit-exact gate in
+    // `cse_kernel_registry_test.rs`, not re-derived: a guessed subset silently
+    // reads a neighbouring column and still produces a plausible-looking ratio.
+    //   `ad_chaikinmf_shared_bit_exact`        arena [high, low, close, volume], P = 9.0
+    //   `tr_obv_bit_exact_on_hub_and_floors`   arena 4 streams; Tr on [h,l,c],
+    //                                          Obv on [close, volume]
+    //   `bop_marketfi_shared_bit_exact`        arena [open, high, low, close, volume];
+    //                                          Bop on OHLC, Marketfi on [high, low, volume]
+    //   `vwap_typprice_shared_bit_exact`       arena [high, low, close, volume]
+    let op = col(0, |d| d.open);
+    let vol = col(0, |d| d.volume);
+    let s_hlcv: [&[f64]; 4] = [hi.as_slice(), lo.as_slice(), hc.as_slice(), vol.as_slice()];
+    let s_cv: [&[f64]; 2] = [hc.as_slice(), vol.as_slice()];
+    let s_ohlc: [&[f64]; 4] = [op.as_slice(), hi.as_slice(), lo.as_slice(), hc.as_slice()];
+    let s_hlv: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), vol.as_slice()];
+    let s_ohlcv: [&[f64]; 5] = [
+        op.as_slice(),
+        hi.as_slice(),
+        lo.as_slice(),
+        hc.as_slice(),
+        vol.as_slice(),
+    ];
+
+    use tulip_rs::cse::recipes;
+    use tulip_rs::indicators::ad::Ad;
+    use tulip_rs::indicators::bop::Bop;
+    use tulip_rs::indicators::chaikinmf::ChaikinMf;
+    use tulip_rs::indicators::marketfi::Marketfi;
+    use tulip_rs::indicators::obv::Obv;
+    use tulip_rs::indicators::tr::Tr;
+    use tulip_rs::indicators::vwap::Vwap;
+
+    let r_ad_cmf = || {
+        Request::new()
+            .add(recipes::ad(&[]), None)
+            .add(recipes::chaikinmf(&[9.0]), None)
+    };
+    let r_tr_obv = || {
+        Request::new()
+            .add(recipes::tr(&[]), None)
+            .add(recipes::obv(&[]), None)
+    };
+    let r_bop_mfi = || {
+        Request::new()
+            .add(recipes::bop(&[]), None)
+            .add(recipes::marketfi(&[]), None)
+    };
+    let r_vwap_tp = || {
+        Request::new()
+            .add(recipes::vwap(&[]), None)
+            .add(recipes::typprice(&[]), None)
+    };
+    let (_w1, sg_ac, v_ac, _x1) = erase_request(&r_ad_cmf()).unwrap();
+    let (_w2, sg_to, v_to, _x2) = erase_request(&r_tr_obv()).unwrap();
+    let (_w3, sg_bm, v_bm, _x3) = erase_request(&r_bop_mfi()).unwrap();
+    let (_w4, sg_vt, v_vt, _x4) = erase_request(&r_vwap_tp()).unwrap();
+
+    g.bench_function("hand_runonly_ad_chaikinmf_shared", |b| {
+        b.iter(|| {
+            // TWO calls: `ad.rs:89` and `chaikinmf.rs:152` both declare
+            // `optional_outputs: &[]`, so neither delivers the other's row.
+            let a = Ad::indicator(&s_hlcv, &[], None).unwrap();
+            let c = ChaikinMf::indicator(&s_hlcv, &[9.0], None).unwrap();
+            black_box(a.0[0].len() + c.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_ad_chaikinmf_shared", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_ac, &v_ac, &s_hlcv).expect("ad_chaikinmf registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+
+    g.bench_function("hand_runonly_tr_obv_shared", |b| {
+        b.iter(|| {
+            // TWO calls, each on its OWN column subset (`tr.rs:99` / `obv.rs:81`
+            // declare no optionals). What the hub saves is the SECOND
+            // `Lag{close,1}`, which both hands rebuild — `recipes::obv` binds it
+            // to stream 0 (`cvol()`), `tr` to stream 2 (`hlc()`), so the subset
+            // difference here is the row's whole reason for existing.
+            let t = Tr::indicator(&s3, &[], None).unwrap();
+            let o = Obv::indicator(&s_cv, &[], None).unwrap();
+            black_box(t.0[0].len() + o.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_tr_obv_shared", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_to, &v_to, &s_hlcv).expect("tr_obv registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+
+    g.bench_function("hand_runonly_bop_marketfi_shared", |b| {
+        b.iter(|| {
+            let b = Bop::indicator(&s_ohlc, &[], None).unwrap();
+            let m = Marketfi::indicator(&s_hlv, &[], None).unwrap();
+            black_box(b.0[0].len() + m.0[0].len())
+        })
+    });
+    g.bench_function("generated_runonly_bop_marketfi_shared", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_bm, &v_bm, &s_ohlcv).expect("bop_marketfi registered");
+            black_box(rows.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+
+    g.bench_function("hand_runonly_vwap_typprice_shared", |b| {
+        b.iter(|| {
+            // ONE call, not two: `vwap.rs:134` declares optional_outputs
+            // ["typprice"], so the hand computes the typical-price row in the same
+            // pass. This is the nothing-to-merge class — the engine races a single
+            // Vwap call, so interning the tp subgraph buys nothing a call can't.
+            let v = Vwap::indicator(&s_hlcv, &[], Some(&[true])).unwrap();
+            black_box(v.0.iter().map(|r| r.len()).sum::<usize>())
+        })
+    });
+    g.bench_function("generated_runonly_vwap_typprice_shared", |b| {
+        b.iter(|| {
+            let rows = try_run(&sg_vt, &v_vt, &s_hlcv).expect("vwap_typprice registered");
             black_box(rows.iter().map(|r| r.len()).sum::<usize>())
         })
     });

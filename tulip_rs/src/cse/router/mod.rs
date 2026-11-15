@@ -13,12 +13,22 @@
 //!   routing (serve the registered part, hand-route the rest).
 //! * [`state_ext`](state_ext) — the `ChainState` → hand-state adapter the
 //!   restorers use to hand back concrete indicator states.
+//! * [`policy`](policy) — the FORM decision on the scalar axis: which erased
+//!   shapes are packing candidates (≥2 packable chains over one source AND no
+//!   chain collapsed by interning), which generated dispatcher serves them, and
+//!   which hand entry point answers when no kernel exists. The registry is the
+//!   keep/ship filter, so a kernel that exists is always preferred over the hand.
 
+mod policy;
 pub mod query;
 mod restorable;
 mod route;
 mod state_ext;
 
+pub use policy::{
+    form_for, packable_group, packable_requested, packable_slots, route_registered, Form, Served,
+    PACKABLE_KINDS,
+};
 pub use query::{
     restorer_for, restorer_for_with_options, IndicatorStateBox, Request, Results, RowRef,
     StateRestorer, StateRestorerWithOptions,

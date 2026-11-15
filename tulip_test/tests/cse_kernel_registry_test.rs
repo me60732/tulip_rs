@@ -569,24 +569,24 @@ mod tests {
     use tulip_rs::indicators::sma::Sma;
     use tulip_rs::indicators::stddev::StdDev;
 
-    fn sma_stddev_req(sd_opt: Option<&[bool]>) -> Request {
-        Request::new()
-            .add(Sma::recipe(&[14.0]), None)
-            .add(StdDev::recipe(&[14.0]), sd_opt)
-    }
     fn bbands_req(w_opt: Option<&[bool]>) -> Request {
         Request::new()
             .add(BBands::recipe(&[20.0, 2.0]), None)
             .add(Wma::recipe(&[20.0]), w_opt)
     }
 
+    // `sma_stddev_shared_p` was removed 2026-11-12 (it lost on every axis once the
+    // hand rival became a single `StdDev(..., Some(&[true]))` call, which already
+    // computes the mean). The mechanisms its gates pinned did NOT go away, they just
+    // moved to rows that still exist and still win:
+    //   macro==runtime arena  -> bbands_wma_sig_derived (below), + 23 other sig_derived gates
+    //   mirror row ALIASES    -> bbands_wma_sma_mirrors_alias_one_node,
+    //                            apo_ppo_macd_shared_sl_mirror_rows_alias
+    //   disabled optional = EMPTY -> optional_flags_runtime
+    //   stddev eps-floor/flat -> bbands_bit_exact (below) + stddev_test.rs
+    //   parameter invariance  -> 20+ same_kernel_different_params gates on surviving rows
     #[test]
-    fn sma_stddev_sig_derived() {
-        let (_a, sig, _, _) = erase_request(&sma_stddev_req(None)).unwrap();
-        assert_eq!(
-            sig, SIG_sma_stddev_shared_p,
-            "SMA_STDDEV arena drifted from merge"
-        );
+    fn bbands_wma_sig_derived() {
         let (_a, sig, _, _) = erase_request(&bbands_req(None)).unwrap();
         assert_eq!(
             sig, SIG_bbands_wma_shared_p,
@@ -594,94 +594,10 @@ mod tests {
         );
     }
 
-    /// The dedup claim: `Stddev(14)`'s optional sma mirror and the standalone
-    /// `Sma(14)` request are ONE arena node — with the flag on, the mirror
-    /// row ALIASES the sma row's physical memory (one recurrence, two rows).
+    /// Sma(14)+Stddev(9) is no longer a registered arena at all, so the registry
+    /// must decline it rather than mis-serve a neighbouring shape.
     #[test]
-    fn sma_stddev_mirror_rows_alias() {
-        let s = wiggle();
-        let streams = [s.as_slice()];
-        let out = run_registered(&sma_stddev_req(Some(&[true])), &streams)
-            .expect("sma_stddev registered");
-        // sinks: Sma primary [0]=sma node, Stddev primary [1]=sd node,
-        // Stddev optional [2]=sma node again.
-        assert_eq!(
-            out.rows[0].as_slice(),
-            out.rows[2].as_slice(),
-            "mirror content"
-        );
-        assert!(
-            out.rows[0].shares_data_with(&out.rows[2]),
-            "mirror must alias the arena row, never copy"
-        );
-    }
-
-    /// Disabled optional prints EMPTY (same contract as every other pattern).
-    #[test]
-    fn sma_stddev_optional_is_runtime() {
-        let s = wiggle();
-        let streams = [s.as_slice()];
-        let off = run_registered(&sma_stddev_req(None), &streams).unwrap();
-        assert!(off.rows[2].is_empty(), "disabled mirror prints empty row");
-        let on = run_registered(&sma_stddev_req(Some(&[true])), &streams).unwrap();
-        assert!(!on.rows[2].is_empty());
-        assert_eq!(
-            off.rows[0].as_slice(),
-            on.rows[0].as_slice(),
-            "primaries invariant to the flag"
-        );
-        assert_eq!(
-            off.rows[1].as_slice(),
-            on.rows[1].as_slice(),
-            "primaries invariant to the flag"
-        );
-    }
-
-    /// Bit-exact vs hand on the rolling pair, on wiggle / ramp / FLAT (the
-    /// flat series drives the stddev ε-floor every bar; the ramp drives the
-    /// window step's cancel-everything case).
-    #[test]
-    fn sma_stddev_bit_exact() {
-        let data = [
-            wiggle(),
-            series(650, |i| 100.0 + i as f64 * 0.05),
-            series(680, |_| 100.0), // FLAT: var = 0 → floor
-        ];
-        for s in &data {
-            let streams = [s.as_slice()];
-            let out = run_registered(&sma_stddev_req(Some(&[true])), &streams)
-                .expect("sma_stddev registered");
-            assert_eq!(out.fp, SIG_sma_stddev_shared_p.hash());
-            let inp = [s.as_slice()];
-            let (sma, _) = Sma::indicator(&inp, &[14.0], None).unwrap();
-            let (sd, _) = StdDev::indicator(&inp, &[14.0], Some(&[true])).unwrap();
-            assert_eq!(out.rows[0].as_slice(), sma[0], "sma row");
-            assert_eq!(out.rows[1].as_slice(), sd[0], "stddev row");
-            assert_eq!(out.rows[2].as_slice(), sd[1], "stddev's sma mirror");
-        }
-    }
-
-    /// Params stay runtime: different periods route to the SAME kernel.
-    #[test]
-    fn sma_stddev_same_kernel_different_params() {
-        let s = wiggle();
-        let streams = [s.as_slice()];
-        for p in [9.0, 20.0] {
-            let req = Request::new()
-                .add(Sma::recipe(&[p]), None)
-                .add(StdDev::recipe(&[p]), None);
-            let out = run_registered(&req, &streams).expect("same shape, any p");
-            assert_eq!(out.fp, SIG_sma_stddev_shared_p.hash());
-            let inp = [s.as_slice()];
-            let (sma, _) = Sma::indicator(&inp, &[p], None).unwrap();
-            assert_eq!(out.rows[0].as_slice(), sma[0], "sma p={p} row");
-        }
-    }
-
-    /// Sma(14)+Stddev(9) erases to a DIFFERENT arena (two chains, extra
-    /// mirror node) — the registry must decline it, never mis-serve.
-    #[test]
-    fn sma_stddev_distinct_periods_falls_back() {
+    fn unregistered_rolling_pair_declines() {
         let req = Request::new()
             .add(Sma::recipe(&[14.0]), None)
             .add(StdDev::recipe(&[9.0]), None);
@@ -751,15 +667,14 @@ mod tests {
 
     /// The §4-style identity for the rolling family: bbands' middle row IS
     /// the standalone `Sma(20)` output bit-for-bit (one `Sma` node across
-    /// the two requests — the emitter stores it once).
+    /// the two requests — the emitter stores it once). Compared against the
+    /// `sma_n` FLOOR, which is the cleanest expression of "the standalone Sma".
     #[test]
     fn bbands_middle_matches_standalone_sma() {
         let s = wiggle();
         let streams = [s.as_slice()];
         let bb = run_registered(&bbands_req(None), &streams).unwrap();
-        let sma_req = Request::new()
-            .add(Sma::recipe(&[20.0]), None)
-            .add(StdDev::recipe(&[20.0]), None);
+        let sma_req = Request::new().add(Sma::recipe(&[20.0]), None);
         let fam = run_registered(&sma_req, &streams).unwrap();
         assert_eq!(
             bb.rows[1].as_slice(),
@@ -1057,8 +972,6 @@ mod tests {
     fn hub_sigs_derived() {
         let (_a, sig, _, _) = erase_request(&max_min_req()).unwrap();
         assert_eq!(sig, SIG_max_min_shared_p, "MAX_MIN drift");
-        let (_a, sig, _, _) = erase_request(&aroon_osc_req(None)).unwrap();
-        assert_eq!(sig, SIG_aroon_osc_shared_p, "AROON_OSC drift");
         let (_a, sig, _, _) = erase_request(&willr_donch_req(None)).unwrap();
         assert_eq!(sig, SIG_willr_donchian_shared_p, "WILLR_DONCH drift");
         let (_a, sig, _, _) = erase_request(&ichimoku_req()).unwrap();
@@ -1086,37 +999,45 @@ mod tests {
 
     /// The aroon showcase: five sinks, ONE interned roll/trail/scaled-line
     /// graph; the osc's mirror rows ALIAS the aroon primaries. Plus the
-    /// AROON WINDOW RULE pin against `Max(15)`: `Aroon(9)`-style windows are
-    /// `(p, p)` = `p + 1` bars = `Max(p+1)`'s `(p+1, p)` — so on every bar
-    /// where aroon's trail is 0 (the window max sits at the CURRENT bar),
-    /// the independent `Max(15)` series must hold exactly `high[bar]`.
+    /// AROON floors, bit-exact against the hands. The `aroon_osc_shared_p` hub was
+    /// removed 2026-11-12 (0.56 scalar, 1.01 / 0.79 on the lane axes): `AroonOsc`
+    /// publishes `aroon_down`/`aroon_up` as its own optional outputs, so one hand call
+    /// already returns all three rows and the merge had nothing to collapse.
+    ///
+    /// The cross-request mirror-ALIAS claim this gate used to carry now lives entirely
+    /// in `willr_donch_bit_exact` (a kept, winning hub that asserts the same
+    /// `shares_data_with` property between two requests' mirror rows). What stays here
+    /// is the only engine-vs-hand coverage these two indicators have, plus the
+    /// Aroon(14) ≡ Max(15) window identity, which is a property of the floor.
     #[test]
-    fn aroon_osc_bit_exact() {
+    fn aroon_floors_bit_exact() {
         let s = wiggle();
         let hi: Vec<f64> = s.iter().map(|v| v + 1.0).collect();
         let lo: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
         let streams = [hi.as_slice(), lo.as_slice()];
         let inp = [hi.as_slice(), lo.as_slice()];
-        let out =
-            run_registered(&aroon_osc_req(Some(&[true, true])), &streams).expect("aroon_osc hit");
+
         let (ar, _) = Aroon::indicator(&inp, &[14.0], None).unwrap();
+        let aout = run_registered(&Request::new().add(Aroon::recipe(&[14.0]), None), &streams)
+            .expect("aroon_n hit");
+        assert_eq!(aout.rows[0].as_slice(), ar[0], "aroon_down");
+        assert_eq!(aout.rows[1].as_slice(), ar[1], "aroon_up");
+
         let (ao, _) = AroonOsc::indicator(&inp, &[14.0], Some(&[true, true])).unwrap();
-        // sinks: Aroon [down, up], AroonOsc [osc, down-mirror, up-mirror].
-        assert_eq!(out.rows[0].as_slice(), ar[0], "aroon_down");
-        assert_eq!(out.rows[1].as_slice(), ar[1], "aroon_up");
-        assert_eq!(out.rows[2].as_slice(), ao[0], "aroonosc");
-        assert_eq!(out.rows[3].as_slice(), ao[1], "osc mirror down");
-        assert_eq!(out.rows[4].as_slice(), ao[2], "osc mirror up");
-        assert!(
-            out.rows[0].shares_data_with(&out.rows[3])
-                && out.rows[1].shares_data_with(&out.rows[4]),
-            "mirror rows must alias the interned aroon lines"
-        );
+        let oout = run_registered(
+            &Request::new().add(AroonOsc::recipe(&[14.0]), Some(&[true, true])),
+            &streams,
+        )
+        .expect("aroon_osc_n hit");
+        assert_eq!(oout.rows[0].as_slice(), ao[0], "aroonosc");
+        assert_eq!(oout.rows[1].as_slice(), ao[1], "osc optional down");
+        assert_eq!(oout.rows[2].as_slice(), ao[2], "osc optional up");
+
         // Window rule vs the independent Max(15) pattern.
         let (mx15, _) = Max::indicator(&[hi.as_slice()], &[15.0], None).unwrap();
         let mult = 100.0 / 14.0;
         let mut fresh_max_bars = 0;
-        for (k, &up) in out.rows[1].iter().enumerate() {
+        for (k, &up) in ar[1].iter().enumerate() {
             let trail = 14.0 - up / mult;
             if trail.abs() < 1e-9 {
                 // aroon's window max sits AT bar 14 + k ⇒ max(15) (same
@@ -3393,72 +3314,28 @@ mod tests {
         }
     }
 
-    /// ATR + VORTEX: the tr walk shared, counted before it ran. `Atr` is 12 nodes alone
-    /// (3 inputs + the 8-node tr walk + the Wilders) and `Vortex` is 22 (3 inputs + the SAME
-    /// 8-node tr walk + 2 prev-value lags, 2 subs, 2 abs, 3 rolls, 2 divs). Interning the tr
-    /// walk -- same `tr_nodes` spelling, same `hlc()` streams 0,1,2 -- predicts a merged 23.
-    /// Not shared would show as `max=4, abs=6, input=6`.
-    ///
-    /// `n_sinks` is 5 with only 4 distinct sink NODES, because both indicators mirror the
-    /// SAME interned `tr` -- that two-sinks-one-node shape is the sharing, made visible in
-    /// the sink table and not just in the node counts.
-    #[test]
-    fn atr_vortex_shared_interns_the_tr_walk() {
-        use tulip_rs::cse::kernel::registry::SIG_atr_vortex_shared_p;
-        use tulip_rs::cse::signature::{
-            K_ABS, K_DIV, K_INPUT, K_LAG, K_MAX, K_ROLLSUM, K_SUB, K_WILDERS,
-        };
-        let req = Request::new()
-            .add(tulip_rs::cse::recipes::atr(&[14.0]), Some(&[true]))
-            .add(tulip_rs::cse::recipes::vortex(&[14.0]), Some(&[true]));
-        let (arena, sig, _v, _owners) = erase_request(&req).unwrap();
-        assert_eq!(sig, SIG_atr_vortex_shared_p, "hub arena drifted");
-
-        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
-        let got = (
-            count(K_INPUT),
-            count(K_LAG),
-            count(K_SUB),
-            count(K_ABS),
-            count(K_MAX),
-            count(K_WILDERS),
-            count(K_ROLLSUM),
-            count(K_DIV),
-        );
-        assert_eq!(
-            got,
-            (3, 3, 5, 4, 2, 1, 3, 2),
-            "arena observed input/lag/sub/abs/max/wilders/rollsum/div = {got:?} -- max=4 or \
-             abs=6 would mean the tr walk was rebuilt, not shared"
-        );
-        assert_eq!(
-            arena.nodes.len(),
-            24,
-            "expected 24 nodes -- 23 plus atr's own Mirror{{src: close}} tail-capture node (A5)"
-        );
-        assert_eq!(
-            sig.n_sinks, 5,
-            "atr primary+tr, vortex two bands+tr: 5 sinks, and the two tr sinks alias one node"
-        );
-    }
-
-    /// Bit-exact against both hands. The shapes are chosen for DIFFERENT reasons, and
+    /// VORTEX floor: bit-exact vs hand, on shapes chosen for DIFFERENT reasons —
     /// conflating them is how a green suite hides nothing:
-    /// * wiggle / ramp carry ordinary VALUES -- varying denominators, bands finite and
-    ///   non-zero, so a match there is a match on real arithmetic.
-    /// * EVEN-RANGE (constant close, constant high-low gap) is a strong identity check the
-    ///   other shapes cannot make: `hi = s+2`, `lo = s-1` gives `tr = 3`, `|high - low[1]| =
-    ///   3` and `|low - high[1]| = 3`, so BOTH bands must be exactly `1.0` -- equal window
-    ///   sums reached through different windows and different subtract operands. A kernel
-    ///   that swapped `lag_hi`/`lag_lo`, or folded `hi-lo` instead of the lagged terms,
-    ///   still lands near 1.0 on wiggle but breaks here.
-    /// * ZERO-RANGE (high == low == close) is the float-class case the derived-roll and
-    ///   float-sweep notes demand: every `tr` term is 0, so the denominator is 0 and the
-    ///   hand's divide is UNGUARDED (`vm_sums / tr_sum_simd`, no `if md == 0`), printing
-    ///   `0.0 / 0.0` = NaN. `vwma`/`vosc`/`bop` DO guard, so copying that neighbour would
-    ///   print 0.0 and pass every finite shape. Pinned as all-NaN to make it evidence.
+    /// * wiggle / ramp carry ordinary VALUES (varying denominators, bands finite and
+    ///   non-zero), so a match there is a match on real arithmetic.
+    /// * EVEN-RANGE (constant close, constant high-low gap) is a strong identity check
+    ///   the other shapes cannot make: `hi = s+2`, `lo = s-1` gives `tr = 3`,
+    ///   `|high - low[1]| = 3` and `|low - high[1]| = 3`, so BOTH bands must be exactly
+    ///   `1.0` — equal window sums reached through different windows and different
+    ///   subtract operands. A kernel that swapped `lag_hi`/`lag_lo`, or folded `hi-lo`
+    ///   instead of the lagged terms, lands near 1.0 on wiggle but breaks here.
+    /// * ZERO-RANGE (high == low == close) is the float-class case: every window sum is
+    ///   0.0 and the hand's divide is UNGUARDED (`vm_sums / tr_sum_simd`, no `if md == 0`),
+    ///   so it prints `0.0 / 0.0` = NaN. `vwma`/`vosc`/`bop` DO guard, so copying that
+    ///   neighbour prints 0.0 and passes every finite shape. This block is the only thing
+    ///   that separates the two spellings, and Atr on the same bars has no divide at all
+    ///   (it must print 0.0, not NaN) -- which is why both floors are checked here.
+    ///
+    /// (This evidence moved off `atr_vortex_shared_p`, removed 2026-11-12: the hub lost
+    /// on every axis once the hand rival became a single `Vortex(..., Some(&[true]))`
+    /// call, since vortex already computes the same `tr` walk `atr` builds.)
     #[test]
-    fn atr_vortex_shared_bit_exact() {
+    fn vortex_floor_bit_exact_float_classes() {
         use tulip_rs::indicators::atr::Atr;
         use tulip_rs::indicators::vortex::Vortex;
         const P: f64 = 14.0;
@@ -3472,48 +3349,22 @@ mod tests {
             let lo: Vec<f64> = s.iter().map(|v| v - 1.0).collect();
             let hlc = [hi.as_slice(), lo.as_slice(), s.as_slice()];
 
-            let req = Request::new()
-                .add(tulip_rs::cse::recipes::atr(&[P]), Some(&[true]))
-                .add(tulip_rs::cse::recipes::vortex(&[P]), Some(&[true]));
-            let out = run_registered(&req, &hlc).expect("atr + vortex registered");
-
-            let (a, _) = Atr::indicator(&hlc, &[P], Some(&[true])).unwrap();
-            assert_bits(
-                row_for(&out, 0, true, 0),
-                &a[0],
-                &format!("atr row [{name}]"),
-            );
-            assert_bits(
-                row_for(&out, 0, false, 0),
-                &a[1],
-                &format!("atr's tr mirror [{name}]"),
-            );
-
             let (v, _) = Vortex::indicator(&hlc, &[P], Some(&[true])).unwrap();
-            assert_bits(row_for(&out, 1, true, 0), &v[0], &format!("vi_up [{name}]"));
+            let req = Request::new().add(tulip_rs::cse::recipes::vortex(&[P]), Some(&[true]));
+            let out = run_registered(&req, &hlc).expect("vortex floor registered");
+            assert_bits(row_for(&out, 0, true, 0), &v[0], &format!("vi_up [{name}]"));
             assert_bits(
-                row_for(&out, 1, true, 1),
+                row_for(&out, 0, true, 1),
                 &v[1],
                 &format!("vi_down [{name}]"),
             );
-            // Both tr mirrors are the SAME arena node, so they must be the same bits.
             assert_bits(
-                row_for(&out, 1, false, 0),
                 row_for(&out, 0, false, 0),
-                &format!("vortex's tr mirror IS atr's tr mirror [{name}]"),
-            );
-            assert_bits(
-                row_for(&out, 1, false, 0),
                 &v[2],
-                &format!("vortex tr mirror vs hand [{name}]"),
+                &format!("vortex tr mirror [{name}]"),
             );
 
             if name == "even-range" {
-                // `vm_up = |hi - lo[1]| = 3`, `vm_dn = |lo - hi[1]| = 3`, `tr = max(3,2,1) = 3`
-                // at every bar, so all three window sums accumulate the SAME float sequence
-                // and each band is that value over itself: exactly 1.0, not approximately.
-                // A kernel that folded `hi - lo` instead of the lagged terms, or swapped the
-                // two prev-lags, breaks here while still matching on wiggle.
                 assert!(
                     v[0].iter().all(|x| *x == 1.0) && v[1].iter().all(|x| *x == 1.0),
                     "even-range bands must be exactly 1.0, got up={:?} down={:?}",
@@ -3521,7 +3372,7 @@ mod tests {
                     &v[1][..v[1].len().min(4)]
                 );
             } else {
-                // Non-vacuity for the value shapes: the bands must actually be finite and
+                // The identity claim is only evidence if the values are actually
                 // non-zero, or matching NaN-to-NaN would look like a pass.
                 assert!(
                     v[0].iter().any(|x| *x != 0.0 && x.is_finite())
@@ -3529,35 +3380,13 @@ mod tests {
                     "vi_up/vi_down are not finite non-zero on {name} -- shape proves nothing"
                 );
             }
-
-            // The lone floor is a separate compiled kernel; the hub does not certify it.
-            let floor = Request::new().add(tulip_rs::cse::recipes::vortex(&[P]), Some(&[true]));
-            let out = run_registered(&floor, &hlc).expect("vortex floor registered");
-            assert_bits(
-                row_for(&out, 0, true, 0),
-                &v[0],
-                &format!("vi_up [{name}] (floor)"),
-            );
-            assert_bits(
-                row_for(&out, 0, true, 1),
-                &v[1],
-                &format!("vi_down [{name}] (floor)"),
-            );
         }
 
-        // ZERO-RANGE: high == low == close, so every `tr` term is 0 AND every `|high -
-        // low[1]|`/`|low - high[1]|` term is 0 -- both window sums are exactly 0.0. The
-        // hand divides `vm_sums / tr_sum_simd` with no guard, so it prints 0.0/0.0 = NaN,
-        // and the kernel must too. `vwma` and `vosc` BOTH guard their ratio, so a guard
-        // borrowed from either neighbour prints 0.0 here and passes every other shape in
-        // this file -- this block is the only thing that separates the two spellings.
+        // ZERO-RANGE: unguarded 0/0 must be NaN in the kernel exactly as it is in the
+        // hand, while atr on the same bars stays 0.0 (it divides nothing).
         {
             let px = series(300, |_| 100.0);
             let hlc = [px.as_slice(), px.as_slice(), px.as_slice()];
-            let req = Request::new()
-                .add(tulip_rs::cse::recipes::atr(&[P]), Some(&[true]))
-                .add(tulip_rs::cse::recipes::vortex(&[P]), Some(&[true]));
-            let out = run_registered(&req, &hlc).expect("atr + vortex zero-range");
 
             let (v, _) = Vortex::indicator(&hlc, &[P], Some(&[true])).unwrap();
             assert!(
@@ -3566,29 +3395,30 @@ mod tests {
                 &v[0][..v[0].len().min(4)],
                 &v[1][..v[1].len().min(4)]
             );
+            let vreq = Request::new().add(tulip_rs::cse::recipes::vortex(&[P]), Some(&[true]));
+            let vout = run_registered(&vreq, &hlc).expect("vortex floor zero-range");
             assert_bits(
-                row_for(&out, 1, true, 0),
+                row_for(&vout, 0, true, 0),
                 &v[0],
                 "vi_up zero-range (unguarded 0/0 = NaN)",
             );
             assert_bits(
-                row_for(&out, 1, true, 1),
+                row_for(&vout, 0, true, 1),
                 &v[1],
                 "vi_down zero-range (unguarded 0/0 = NaN)",
             );
-            // Atr on the same bars has NO divide, so its row is 0.0, not NaN -- the two
-            // indicators differ at exactly this input class, which is why the shared
-            // `tr` node must still be identical (it is the same node, so it is).
+
             let (a, _) = Atr::indicator(&hlc, &[P], Some(&[true])).unwrap();
-            assert_bits(row_for(&out, 0, true, 0), &a[0], "atr row zero-range");
             assert!(
                 a[0].iter().all(|x| *x == 0.0),
                 "atr on zero range must be 0.0 (no divide), got {:?}",
                 &a[0][..a[0].len().min(4)]
             );
+            let areq = Request::new().add(tulip_rs::cse::recipes::atr(&[P]), Some(&[true]));
+            let aout = run_registered(&areq, &hlc).expect("atr floor zero-range");
+            assert_bits(row_for(&aout, 0, true, 0), &a[0], "atr row zero-range");
         }
     }
-
     /// BOP + MARKETFI: sharing that is pure ARITHMETIC, not a recurrence. `bop` builds
     /// `Sub{high, low}` (its denominator's operand) and an `EPSILON` `Const`; `marketfi`
     /// needs that SAME range as its numerator and the same constant under its volume floor.
@@ -3728,33 +3558,17 @@ mod tests {
         }
     }
 
-    /// THE CHAINED-EMA FLOORS plus the `Dema + Tema` interning claim, measured.
-    /// `tema` owns a `DemaState`, so its ema1/ema2 and its `dema` node are exactly
-    /// what the standalone `dema` request builds: the arena must hold THREE `Ema`
-    /// nodes (ema1, ema2, ema3) not five, and ONE `dema` Fma, and tema's optional
-    /// `dema` row must be bit-identical to dema's primary -- two requests, one
-    /// stored stream.
+    /// THE CHAINED-EMA FLOORS, bit-exact against their own hands.
+    ///
+    /// The `Dema + Tema` hub was removed 2026-11-12 (0.79 scalar, no lane win): `tema`
+    /// OWNS a `DemaState`, so one `Tema(..., Some(&[true, false]))` hand call already
+    /// publishes the dema row from the very chain dema's own request builds -- there was
+    /// no shared work left for the engine to collapse. The hub's arena-count claim went
+    /// with it rather than being re-derived here without a measurement behind it.
     #[test]
-    fn chained_ema_floors_and_dema_tema_hub() {
-        use tulip_rs::cse::kernel::registry::SIG_dema_tema_shared_p;
-        use tulip_rs::cse::signature::{K_EMA, K_FMA, K_MUL};
+    fn chained_ema_floors_bit_exact() {
         use tulip_rs::indicators::dema::Dema;
         use tulip_rs::indicators::tema::Tema;
-
-        let req_hub = Request::new()
-            .add(tulip_rs::cse::recipes::dema(&[9.0]), None)
-            .add(tulip_rs::cse::recipes::tema(&[9.0]), None);
-        let (_a, sig, _v, _o) = erase_request(&req_hub).unwrap();
-        assert_eq!(sig, SIG_dema_tema_shared_p, "hub arena drifted");
-        let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
-        let (ema, fma, mul) = (count(K_EMA), count(K_FMA), count(K_MUL));
-        assert_eq!(
-            (ema, fma, mul),
-            (3, 3, 1),
-            "arena observed ema={ema} fma={fma} mul={mul} -- expected THREE chained \
-             EMAs (ema1/ema2/ema3 shared, not 2+3), and three Fmas: dema, tema's \
-             inner and outer. Separate arenas would be 5 EMAs and 4 Fmas."
-        );
 
         for s in [
             wiggle(),
@@ -3762,20 +3576,6 @@ mod tests {
             series(700, |_| 100.0),
         ] {
             let streams = [s.as_slice()];
-
-            let out = run_registered(&req_hub, &streams).expect("dema+tema registered");
-            let (d, _) = Dema::indicator(&streams, &[9.0], None).unwrap();
-            let (t, _) = Tema::indicator(&streams, &[9.0], None).unwrap();
-            assert_bits(row_for(&out, 0, true, 0), &d[0], "hub: dema row");
-            assert_bits(row_for(&out, 1, true, 0), &t[0], "hub: tema row");
-            // tema's optional `dema` mirror is not wanted -> empty; the published
-            // dema row above is dema's OWN primary, so a non-empty mirror would
-            // mean the two requests did not dedup onto one stored stream.
-            for (o, row) in out.owners.iter().zip(out.rows.iter()) {
-                if !o.primary {
-                    assert!(row.is_empty(), "disabled optional {o:?} must be empty");
-                }
-            }
 
             for (name, req, hand) in [
                 (
@@ -3841,57 +3641,29 @@ mod tests {
         }
     }
 
-    /// THE GATE THE `dpo` REWRITE WAS DONE FOR. `dpo`'s rolling mean is over a raw
-    /// price Input, so it is spelled `Node::Sma` -- the same kind `sma()` uses. Had it
-    /// stayed a `RollSum{mean:true}` the two would be DIFFERENT signature kinds
-    /// (K_SMA=16 vs K_ROLLSUM=24) and this arena would carry the same rolling mean of
-    /// `real` twice, buying nothing. Counts are read from the arena and printed on
-    /// failure, so the interning is observed rather than asserted in a comment.
+    /// THE POINT THE `dpo` REWRITE WAS DONE FOR, still observed rather than asserted in
+    /// a comment: `dpo`'s rolling mean is over a raw price Input, so it is spelled
+    /// `Node::Sma` -- the same kind `sma()` uses. Had it stayed a `RollSum{mean:true}` the
+    /// two would be DIFFERENT signature kinds (K_SMA=16 vs K_ROLLSUM=24) and any
+    /// `Sma + Dpo` co-request would carry the same rolling mean of `real` twice.
+    ///
+    /// The `sma_dpo_shared_p` hub was removed 2026-11-12 (0.58 scalar, no lane win): one
+    /// `Dpo(..., Some(&[true]))` hand call already publishes that mean, so the merge had
+    /// nothing left to collapse. The KIND choice that made sharing possible at all is a
+    /// property of the surviving floor, so it is pinned here instead.
     #[test]
-    fn sma_dpo_shared_p_interns_one_sma_and_is_bit_exact() {
-        use tulip_rs::cse::kernel::registry::SIG_sma_dpo_shared_p;
-        use tulip_rs::cse::signature::{K_INPUT, K_LAG, K_SMA, K_SUB};
-        let req = Request::new()
-            .add(tulip_rs::cse::recipes::sma(&[20.0]), None)
-            .add(tulip_rs::cse::recipes::dpo(&[20.0]), None);
+    fn dpo_floor_spells_its_mean_as_sma_not_ring_mean() {
+        use tulip_rs::cse::signature::{K_ROLLSUM, K_SMA};
+        let req = Request::new().add(tulip_rs::cse::recipes::dpo(&[20.0]), None);
         let (_a, sig, _v, _o) = erase_request(&req).unwrap();
-        assert_eq!(sig, SIG_sma_dpo_shared_p, "hub arena drifted");
         let count = |k: u8| (0..MAX).filter(|i| sig.kinds[*i] == k).count();
-        let (input, sma, lag, sub) = (count(K_INPUT), count(K_SMA), count(K_LAG), count(K_SUB));
+        let (sma, rollsum) = (count(K_SMA), count(K_ROLLSUM));
         assert_eq!(
-            (input, sma, lag, sub),
-            (1, 1, 1, 1),
-            "arena observed input={input} sma={sma} lag={lag} sub={sub} -- one close \
-             Input, ONE rolling mean shared by the standalone Sma and dpo's detrend, \
-             dpo's look-back Lag, and dpo's Sub"
+            (sma, rollsum),
+            (1, 0),
+            "dpo's mean must be ONE K_SMA node and no ring-mean roll; observed \
+             sma={sma} rollsum={rollsum}"
         );
-
-        use tulip_rs::indicators::dpo::Dpo;
-        use tulip_rs::indicators::sma::Sma;
-        for s in [
-            wiggle(),
-            series(680, |i| 100.0 + i as f64 * 0.05),
-            series(680, |_| 100.0),
-        ] {
-            let streams = [s.as_slice()];
-            let out = run_registered(&req, &streams).expect("sma+dpo registered");
-            let (sm, _) = Sma::indicator(&streams, &[20.0], None).unwrap();
-            let (dp, _) = Dpo::indicator(&streams, &[20.0], None).unwrap();
-            assert_bits(
-                row_for(&out, 0, true, 0),
-                &sm[0],
-                "sma+dpo: standalone Sma row",
-            );
-            assert_bits(row_for(&out, 1, true, 0), &dp[0], "sma+dpo: dpo row");
-            // dpo's own `sma` optional mirror is NOT wanted; the published Sma row
-            // above comes from the standalone request, so a non-empty mirror here
-            // would mean the two sinks were not deduped to the one interned node.
-            for (o, row) in out.owners.iter().zip(out.rows.iter()) {
-                if !o.primary {
-                    assert!(row.is_empty(), "disabled optional {o:?} must be empty");
-                }
-            }
-        }
     }
 
     /// SAME-SOURCE PACKED TWIN vs SCALAR, byte-for-byte, over three series. The
@@ -5764,39 +5536,6 @@ mod tests {
                 assert_bits(&out.rows[4], &h[4], "fosc/linregintercept row [Planable]");
             }
         }
-    }
-
-    /// Three requests, ONE moment chain: `linreg + tsf + fosc` must cost exactly
-    /// what `fosc` alone costs, because fosc's arena is a superset of tsf's
-    /// which is a superset of linreg's. Asserted RELATIONALLY against solo
-    /// fosc, so the number is measured, not a constant I typed from a guess.
-    #[test]
-    fn linreg_tsf_fosc_share_one_chain() {
-        use tulip_rs::cse::kernel::registry::SIG_linreg_tsf_fosc_shared_p;
-        use tulip_rs::cse::signature::K_LINREGFLOW;
-        use tulip_rs::indicators::fosc::Fosc;
-        use tulip_rs::indicators::linreg::Linreg;
-        use tulip_rs::indicators::tsf::Tsf;
-        let trio = Request::new()
-            .add(Linreg::recipe(&[14.0]), None)
-            .add(Tsf::recipe(&[14.0]), None)
-            .add(Fosc::recipe(&[14.0]), None);
-        let (_, sig, _, _) = erase_request(&trio).unwrap();
-        assert_eq!(sig, SIG_linreg_tsf_fosc_shared_p, "trio arena drifted");
-        let moments = |kinds: &[u8; MAX], len: u32| {
-            kinds[..len as usize]
-                .iter()
-                .filter(|&&x| x == K_LINREGFLOW)
-                .count()
-        };
-        let solo_f = erase_request(&Request::new().add(Fosc::recipe(&[14.0]), None)).unwrap();
-        // ONE moment chain across all three requests, not three.
-        assert_eq!(moments(&sig.kinds, sig.len), 2, "trio shares one chain");
-        assert_eq!(
-            sig.len, solo_f.1.len,
-            "linreg + tsf add NOTHING to fosc's arena: {} vs {}",
-            sig.len, solo_f.1.len
-        );
     }
 
     /// ZLEMA(p) seeds its EMA from real[lag-1] (zlema.rs:42, lag = ((p-1)/2).max(1)),

@@ -65,9 +65,10 @@ pub const DENSE_NODES: usize = 27;
 // Module alias: generated kernels reference `crate::cse::query::RowRef`.
 pub use router::query;
 pub use router::{
-    erase_request, restorer_for, restorer_for_with_options, run_assets_registered, run_registered,
-    AssetsOutcome, ChainStateEma, IndicatorStateBox, Outcome, Request, Restorable, Results, RowRef,
-    StateRestorer, StateRestorerWithOptions,
+    erase_request, form_for, packable_group, packable_requested, packable_slots, restorer_for,
+    restorer_for_with_options, route_registered, run_assets_registered, run_registered,
+    AssetsOutcome, ChainStateEma, Form, IndicatorStateBox, Outcome, Request, Restorable, Results,
+    RowRef, Served, StateRestorer, StateRestorerWithOptions, PACKABLE_KINDS,
 };
 
 // ── Kernel facade (the generated engines + the warm/oracle machine) ─────
@@ -79,16 +80,15 @@ pub use router::{
 pub use kernel::{
     atr_multi, atr_multi_p, ema_chains, ema_chains_p, ema_six, ema_six_p, volatility_n,
 };
-pub use kernel::{exec, try_run, try_run_assets};
+pub use kernel::{exec, try_run, try_run_assets, try_run_packed};
 pub use kernel::{sma_six, sma_six_p, volatility_n_assets};
 pub use kernel::{
     SIG_ao_fisher_shared_med, SIG_ao_s_m, SIG_apo_ppo_macd_shared_sl, SIG_apo_ppo_shared_sl,
-    SIG_aroon_osc_shared_p, SIG_atr_multi, SIG_atr_natr_shared_p, SIG_bbands_wma_shared_p,
-    SIG_cmo_n, SIG_ema_chains, SIG_ema_six, SIG_ema_six_p, SIG_fisher_n, SIG_hma_n,
-    SIG_ichimoku_s_m, SIG_kama_n, SIG_max_min_shared_p, SIG_natr_supertrend_shared_p,
-    SIG_rsi_cmo_shared_p, SIG_rsi_n, SIG_rsi_stochrsi_shared_p, SIG_sma_six,
-    SIG_sma_stddev_shared_p, SIG_sma_wma_shared_p, SIG_stoch_kd, SIG_stoch_willr_donchian_shared_p,
-    SIG_vidya_n, SIG_volatility_n, SIG_willr_donchian_shared_p,
+    SIG_atr_multi, SIG_atr_natr_shared_p, SIG_bbands_wma_shared_p, SIG_cmo_n, SIG_ema_chains,
+    SIG_ema_six, SIG_ema_six_p, SIG_fisher_n, SIG_hma_n, SIG_ichimoku_s_m, SIG_kama_n,
+    SIG_max_min_shared_p, SIG_natr_supertrend_shared_p, SIG_rsi_cmo_shared_p, SIG_rsi_n,
+    SIG_rsi_stochrsi_shared_p, SIG_sma_six, SIG_sma_wma_shared_p, SIG_stoch_kd,
+    SIG_stoch_willr_donchian_shared_p, SIG_vidya_n, SIG_volatility_n, SIG_willr_donchian_shared_p,
 };
 
 // ── Leaf vocabulary (Phase 1 + 2, "recipes as data") ─────────────────────

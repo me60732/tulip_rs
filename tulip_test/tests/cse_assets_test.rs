@@ -296,20 +296,6 @@ fn lanes_atr_multi() {
 // ── rolling sums ──────────────────────────────────────────────────────────
 
 #[test]
-fn lanes_sma_stddev() {
-    let req = Request::new()
-        .add(Sma::recipe(&[14.0]), None)
-        .add(StdDev::recipe(&[14.0]), Some(&[true]));
-    let p = prices();
-    let a0 = [p[0].as_slice()];
-    let a1 = [p[1].as_slice()];
-    let a2 = [p[2].as_slice()];
-    let a3 = [p[3].as_slice()];
-    let a: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
-    lanes_match_scalar(&req, &a, "sma_stddev");
-}
-
-#[test]
 fn lanes_sma_wma() {
     let req = Request::new()
         .add(Sma::recipe(&[14.0]), None)
@@ -370,25 +356,6 @@ fn lanes_max_min() {
     lanes_match_scalar(&req, &a, "max_min");
     let b: [&[&[f64]]; 2] = [&a1, &a2];
     lanes_match_scalar(&req, &b, "max_min L2");
-}
-
-#[test]
-fn lanes_aroon_osc() {
-    let req = Request::new()
-        .add(Aroon::recipe(&[14.0]), None)
-        .add(AroonOsc::recipe(&[14.0]), Some(&[true, true]));
-    let h2 = hi(2);
-    let (l1, l3) = (lo(1), lo(3));
-    let p0 = price(0);
-    let p1 = price(1);
-    let p2 = price(2);
-    let p3 = price(3);
-    let a0 = [h2.as_slice(), l1.as_slice()];
-    let a1 = [p0.as_slice(), p3.as_slice()];
-    let a2 = [l3.as_slice(), p1.as_slice()];
-    let a3 = [p2.as_slice(), p2.as_slice()];
-    let a: [&[&[f64]]; 4] = [&a0, &a1, &a2, &a3];
-    lanes_match_scalar(&req, &a, "aroon_osc");
 }
 
 #[test]
