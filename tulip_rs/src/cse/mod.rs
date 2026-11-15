@@ -65,10 +65,11 @@ pub const DENSE_NODES: usize = 27;
 // Module alias: generated kernels reference `crate::cse::query::RowRef`.
 pub use router::query;
 pub use router::{
-    erase_request, form_for, packable_group, packable_requested, packable_slots, restorer_for,
-    restorer_for_with_options, route_registered, run_assets_registered, run_registered,
-    AssetsOutcome, ChainStateEma, Form, IndicatorStateBox, Outcome, Request, Restorable, Results,
-    RowRef, Served, StateRestorer, StateRestorerWithOptions, PACKABLE_KINDS,
+    erase_request, erase_request_tails, form_for, packable_group, packable_requested,
+    packable_slots, restorer_for, restorer_for_with_options, route_registered,
+    run_assets_registered, run_registered, AssetsOutcome, ChainStateEma, Form, IndicatorStateBox,
+    Outcome, Request, Restorable, Results, RowRef, Served, StateRestorer, StateRestorerWithOptions,
+    PACKABLE_KINDS,
 };
 
 // ── Kernel facade (the generated engines + the warm/oracle machine) ─────
@@ -96,5 +97,8 @@ pub use kernel::{
 pub use tulip_rs_shared::cse::lowering;
 pub use tulip_rs_shared::cse::{erase, Carries, Signature, Values, MAX, MAX_SINKS};
 pub use tulip_rs_shared::cse::{merge, Merged, Resolved};
+// Carries → ChainState, the hop between the kernel epilogue and `Restorable`.
+pub use tulip_rs_shared::cse::decode;
+pub use tulip_rs_shared::cse::decode::{carries_to_chains, chain_for_slot};
 pub use tulip_rs_shared::cse::{multipliers, recipe, recipes, signature};
 pub use tulip_rs_shared::cse::{ChainState, Grafted, Id, Node, Planable, Recipe, Sink, SinkSrc};

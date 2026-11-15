@@ -34,5 +34,8 @@ pub use query::{
     StateRestorer, StateRestorerWithOptions,
 };
 pub use restorable::Restorable;
-pub use route::{erase_request, run_assets_registered, run_registered, AssetsOutcome, Outcome};
+pub use route::{
+    erase_request, erase_request_tails, run_assets_registered, run_registered, AssetsOutcome,
+    Outcome,
+};
 pub use state_ext::ChainStateEma;

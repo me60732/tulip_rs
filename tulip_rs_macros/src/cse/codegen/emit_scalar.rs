@@ -358,7 +358,18 @@ fn build_scalar_hoists(
                 }
                 _ => {}
             }
-            carry_back.push(quote! { __c.st[#ki] = #ck; });
+            // ONE claim per slot (the 2026-10 law, re-learned here): a
+            // price-sourced `Sma` can be lane-grouped (`classify_packed`'s only
+            // roll kind — `Kind::Sma => p.plan.is_price_src(k)`), and the group
+            // statement accumulates in `g{gi}`'s lanes, never in this loop's
+            // `{ident}_carry` local. Writing that untouched local back would land
+            // AFTER the group scatter and hand the caller the warm-seam sum —
+            // rows stay bit-exact, so no row gate can see it. Measured before the
+            // guard: `sma_six_p` p=3 captured 308.51356328414175 (seam) against
+            // the scalar twin's live 303.31704951282865.
+            if !classify.slot_group.contains_key(&k) {
+                carry_back.push(quote! { __c.st[#ki] = #ck; });
+            }
         }
     }
 

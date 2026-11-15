@@ -34,6 +34,7 @@
 // `Planable`, `merge`, `Signature`/`Values`/`erase`); see ROADMAP R1 for
 // the graph migration (Phase 2).
 
+pub mod decode;
 pub mod lowering;
 pub mod merge;
 pub mod multipliers;
@@ -44,6 +45,7 @@ pub mod signature;
 // Root re-export: the published layout classes ride the same vocabulary the
 // emitters and `erase` already share (the plan is a function of `Signature`,
 // never a second arena).
+pub use decode::*;
 pub use lowering::*;
 
 // Root re-exports: the moved files import each other through `crate::cse::…`

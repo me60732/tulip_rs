@@ -46,6 +46,37 @@ pub fn erase_request(
     crate::cse::Values,
     Vec<SinkOwner>,
 )> {
+    let (arena, sig, vals, owners, _tails) = erase_parts(req)?;
+    Some((arena, sig, vals, owners))
+}
+
+/// The same front half, additionally handing back each request's TAIL SLOTS —
+/// the global arena ids of `Recipe::tail_inputs` as `merge` remapped them
+/// (`Resolved::inputs`). Those are the slots a run must export for this
+/// request's `Restorable`, and `carries_to_chains` is the only consumer, which
+/// is why they ride a separate entry point instead of `erase_request`'s
+/// 4-tuple (its callers are benches and ~every registry gate).
+pub fn erase_request_tails(
+    req: &Request,
+) -> Option<(
+    crate::cse::Signature,
+    crate::cse::Values,
+    Vec<SinkOwner>,
+    Vec<Vec<crate::cse::Id>>,
+)> {
+    let (_arena, sig, vals, owners, tails) = erase_parts(req)?;
+    Some((sig, vals, owners, tails))
+}
+
+fn erase_parts(
+    req: &Request,
+) -> Option<(
+    crate::cse::Merged,
+    crate::cse::Signature,
+    crate::cse::Values,
+    Vec<SinkOwner>,
+    Vec<Vec<crate::cse::Id>>,
+)> {
     let (arena, mut resolved) = merge(&req.recipes);
     for (r, flags) in resolved.iter_mut().zip(req.opt_flags.iter()) {
         if flags.len() == r.optional_enabled.len() {
@@ -55,7 +86,8 @@ pub fn erase_request(
     let leads = arena.leads();
     // erase now RECORDS optional flags as want bits instead of filtering sinks
     let (sig, vals, owners) = erase(&arena, &resolved, &leads)?;
-    Some((arena, sig, vals, owners))
+    let tails = resolved.iter().map(|r| r.inputs.clone()).collect();
+    Some((arena, sig, vals, owners, tails))
 }
 
 /// Attempt to serve `req` from the generated registry. `None` = no pattern
