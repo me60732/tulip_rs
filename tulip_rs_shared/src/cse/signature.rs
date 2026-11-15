@@ -443,6 +443,78 @@ impl Values {
     }
 }
 
+/// The state a run leaves behind: the kernel's own per-slot carry arrays,
+/// exported.
+///
+/// [`Values`] is what a signature erases INTO a kernel; `Carries` is what a
+/// kernel leaves OUT of itself. The generated straight-line loop keeps its
+/// recurrence state in function-locals (`st`, `trail`, and the `needs_*`
+/// family arrays), so without this struct the carries die with the frame and
+/// [`crate::cse::Restorable::restore_state`] can only ever replay from a
+/// tail window — which is measurably NOT a continuing state
+/// (`proposals/ENGINE_CHECKLIST.md` §R8: `sum_xy`'s weight is the bar's own
+/// index, so a window restarts the weighting locally).
+///
+/// Field names mirror the emitter's locals one-for-one: `st`/`trail`/`kvacc`
+/// are declared by EVERY pattern, the rest are declared only when the pattern
+/// contains the kind that writes them (same gating as `ExecScratchDummies` in
+/// `tulip_rs::cse::kernel::warmup`, whose fields this duplicates plus the
+/// three always-declared ones). Every field is `Copy`; a caller owns one
+/// `Carries` and hands `&mut` it to `{name}_captured` / `try_run_captured`,
+/// so capture costs one memcpy of the declared arrays per run — never per
+/// bar, and nothing at all on the rows-only path.
+///
+/// Ring-backed state (`RingSet` groups: `RollSum`/`RollAge`/`Hma`/`Ht*`) is
+/// deliberately NOT here yet. Until that lands
+/// (`proposals/Macro_Cse_Engine/state_capture_checklist.md` Phase C), a
+/// decoder must treat a ring-bearing signature as INCOMPLETE rather than
+/// return a partial state that looks whole.
+#[derive(Clone, Copy)]
+pub struct Carries {
+    /// Generic per-slot carry: `Ema`/`Wilders`/`Iir`/`Prev`/`Accum`/
+    /// `LinregFlow`/`VariableAlpha` … all fold through `st[k]`.
+    pub st: [f64; MAX],
+    /// Roll trail (age window bookkeeping for `RollMax`/`RollMin`/`Trail`).
+    pub trail: [usize; MAX],
+    /// SuperTrend band feedback: prev `st`, prev upper band, prev lower band.
+    pub stb: [f64; MAX],
+    pub stc_ub: [f64; MAX],
+    pub stlb: [f64; MAX],
+    /// Stddev's carried sum-of-squares.
+    pub sumsq: [f64; MAX],
+    /// Wma's carried weighted sum.
+    pub wsum: [f64; MAX],
+    /// Hma's self-contained 6-accumulator row (`sum1/ws1/sum2/ws2/wss/ss`).
+    pub hacc: [[f64; 7]; MAX],
+    /// HighPass 2-field carry (`y1`, `prev_real`).
+    pub hp_acc: [[f64; 2]; MAX],
+    /// SuperSmoother 3-field carry (`y1`, `y2`, `prev_real`).
+    pub ss_acc: [[f64; 3]; MAX],
+    /// HomodyneDiscriminator / InstantaneousTrendline / Mama scratch.
+    pub hd_acc: [[f64; 38]; MAX],
+    /// KvoFlow's 3-field bespoke carry (cm, prev_hlc, prev_hl).
+    pub kvacc: [[f64; 3]; MAX],
+}
+
+impl Default for Carries {
+    fn default() -> Self {
+        Self {
+            st: [0.0; MAX],
+            trail: [0usize; MAX],
+            stb: [0.0; MAX],
+            stc_ub: [0.0; MAX],
+            stlb: [0.0; MAX],
+            sumsq: [0.0; MAX],
+            wsum: [0.0; MAX],
+            hacc: [[0.0; 7]; MAX],
+            hp_acc: [[0.0; 2]; MAX],
+            ss_acc: [[0.0; 3]; MAX],
+            hd_acc: [[0.0; 38]; MAX],
+            kvacc: [[0.0; 3]; MAX],
+        }
+    }
+}
+
 /// Which request+slot a sink row belongs to (result regrouping; derived from
 /// the same resolved data as the signature, but a lookup table, not shape).
 #[derive(Clone, Debug, PartialEq, Eq)]

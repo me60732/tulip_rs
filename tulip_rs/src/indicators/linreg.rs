@@ -38,6 +38,20 @@ impl IndicatorState {
             period,
         }
     }
+
+    /// The live moment carries, in the form `get_states` hands to
+    /// [`Restorable::restore_state`]. This is the capture side of that contract:
+    /// what the engine must surface for a resumed `linreg` to be the same machine
+    /// rather than a similar one. The rolling buffer is NOT carried here — its
+    /// values are exact inputs, recoverable from the tail window.
+    pub fn carried_state(&self) -> crate::cse::ChainState {
+        crate::cse::ChainState::LinregFlow {
+            sum_y: self.state.sum_y,
+            sum_xy: self.state.sum_xy,
+            n: self.state.n,
+            period: self.period as u32,
+        }
+    }
 }
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
@@ -82,24 +96,17 @@ pub struct State<S = Cold> {
 }
 impl State<Cold> {
     pub fn init_state(data: &[f64], period: usize) -> (State<Warm>, (f64, f64, f64), (f64, f64)) {
-        let (mut sum_x, mut sum_xx, mut sum_y, mut sum_xy) = (0.0, 0.0, 0.0, 0.0);
-        if data.len() >= period - 1 {
+        let (mut sum_y, mut sum_xy) = (0.0, 0.0);
+        let counted = data.len() >= period - 1;
+        if counted {
             for i in 0..period - 1 {
                 let d = unsafe { *data.get_unchecked(i) };
-                sum_x += (i + 1) as f64;
-                sum_xx += ((i + 1) as f64).powi(2);
                 sum_y += d;
                 sum_xy += (i + 1) as f64 * d;
             }
         }
-        sum_x += period as f64;
-        sum_xx += (period * period) as f64;
-        let per = multiplier(period, sum_x, sum_xx);
+        let ((sum_x, per, inv_n), (xy_coef, y_coef)) = seed_params(period, counted);
         let n = period as f64;
-        let inv_n = 1.0 / n;
-        let b_scale = period as f64 - sum_x * inv_n;
-        let xy_coef = n * per * b_scale;
-        let y_coef = inv_n - sum_x * per * b_scale;
         (
             State {
                 sum_y,
@@ -111,6 +118,37 @@ impl State<Cold> {
             (xy_coef, y_coef),
         )
     }
+}
+
+/// The index weights `sum_x`, `sum_xx` and everything derived from them.
+///
+/// They depend on `period` alone, never on the data — so a machine that has been
+/// running for 6,000 bars and one being warmed from a window MUST read the same
+/// numbers. Keeping two copies is how a resumed state would differ from the hand
+/// in the last bits while every finite-price parity matrix stayed green, which is
+/// why `init_state` and the captured-state restorer both call this.
+///
+/// `counted` reproduces `init_state`'s original guard exactly: when the seed data
+/// is shorter than `period - 1` the hand never accumulates the index loop, so
+/// `sum_x` is just `period` and `sum_xx` is `period²`. A resumed machine passes
+/// `true` — it is, by definition, past that stage.
+pub(crate) fn seed_params(period: usize, counted: bool) -> ((f64, f64, f64), (f64, f64)) {
+    let (mut sum_x, mut sum_xx) = (0.0f64, 0.0f64);
+    if counted {
+        for i in 0..period - 1 {
+            sum_x += (i + 1) as f64;
+            sum_xx += ((i + 1) as f64).powi(2);
+        }
+    }
+    sum_x += period as f64;
+    sum_xx += (period * period) as f64;
+    let per = multiplier(period, sum_x, sum_xx);
+    let n = period as f64;
+    let inv_n = 1.0 / n;
+    let b_scale = period as f64 - sum_x * inv_n;
+    let xy_coef = n * per * b_scale;
+    let y_coef = inv_n - sum_x * per * b_scale;
+    ((sum_x, per, inv_n), (xy_coef, y_coef))
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64, (f64, f64, f64));
@@ -326,13 +364,53 @@ impl Planable for Linreg {
 impl crate::cse::Restorable<INPUTS, OPTIONS> for Linreg {
     const KIND: &'static str = "linreg";
 
+    /// Two paths, and they are NOT equally good.
+    ///
+    /// **Captured (correct):** given this machine's own `ChainState::LinregFlow`
+    /// carries, rebuild the state from them. The tail window is still required,
+    /// but only for the eviction reads — those are exact input values, so the
+    /// restored machine continues bit for bit.
+    ///
+    /// **Replay (a fallback, and measurably not equivalent):** with no carries,
+    /// the period is inferred from the window and the state is re-warmed from
+    /// scratch. `sum_xy`'s weight is the bar's own index, so this restarts the
+    /// weighting at the window's local index and every later bar is computed from
+    /// a carry that is wrong in the same way — the error does not decay. Proved by
+    /// `tulip_test/tests/cse_regression_state_continuity_test.rs`, which keeps the
+    /// replay gates `#[ignore]`d with the measured numbers beside them. Kept only
+    /// because it is what callers without capture have today; a state-accurate
+    /// caller must pass the carries.
     fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
+        v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
         let [real] = windows else {
             return None;
         };
+
+        if let [crate::cse::ChainState::LinregFlow {
+            sum_y,
+            sum_xy,
+            n,
+            period,
+        }] = v.as_slice()
+        {
+            let period = *period as usize;
+            // The rolling buffer needs the `period - 1` bars ending at the seam,
+            // which is what the eviction step reads.
+            if period == 0 || real.len() < period - 1 {
+                return None;
+            }
+            let (f_params, p_params) = seed_params(period, true);
+            let state = State {
+                sum_y: *sum_y,
+                sum_xy: *sum_xy,
+                n: *n,
+                state: std::marker::PhantomData,
+            };
+            return Some(IndicatorState::new(state, real, period, f_params, p_params));
+        }
+
         if real.len() < 2 {
             return None;
         }

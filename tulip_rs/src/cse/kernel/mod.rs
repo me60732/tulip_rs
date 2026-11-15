@@ -26,7 +26,7 @@ pub use warmup::{exec, RingSet};
 /// pairs share one Signature, so `try_run` cannot select between them).
 pub use registry::{
     atr_multi, atr_multi_p, ema_chains, ema_chains_p, ema_six, ema_six_p, sma_six, sma_six_p,
-    try_run, try_run_assets, try_run_packed, volatility_n, volatility_n_assets,
+    try_run, try_run_assets, try_run_captured, try_run_packed, volatility_n, volatility_n_assets,
 };
 pub use registry::{
     SIG_ao_fisher_shared_med, SIG_ao_s_m, SIG_apo_ppo_macd_shared_sl, SIG_apo_ppo_shared_sl,

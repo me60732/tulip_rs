@@ -123,6 +123,22 @@ pub fn expand(patterns: &[Pattern]) -> TokenStream {
             quote! { if *sig == #s { return Some(#f(vals, streams)); } }
         })
         .collect();
+    // Captured arms: the SAME primary set `try_run` dispatches over, calling
+    // each pattern's `_captured` entry point. A `None` here keeps meaning
+    // "unregistered signature" (tier 2/3), never "capture unsupported" — a
+    // registered pattern always exposes its carries, but a signature whose
+    // kinds include a ring-backed family (RollSum/RollAge/Hma/Ht*) is only
+    // PARTLY captured, so the decoder must report that as incomplete rather
+    // than hand back a state that looks whole (Phase C of
+    // proposals/Macro_Cse_Engine/state_capture_checklist.md).
+    let cap_calls: Vec<TokenStream> = primary_pats
+        .iter()
+        .map(|p| {
+            let f = format_ident!("{}_captured", &p.name);
+            let s = format_ident!("SIG_{}", p.name);
+            quote! { if *sig == #s { return Some(#f(vals, streams, out)); } }
+        })
+        .collect();
 
     let out = quote! {
         #( #sigs )*
@@ -167,6 +183,21 @@ pub fn expand(patterns: &[Pattern]) -> TokenStream {
             streams: &[&[f64]],
         ) -> Option<Vec<crate::cse::query::RowRef>> {
             #( #pk_calls )*
+            None
+        }
+
+        /// Rows + carries dispatcher: the `try_run` arm set, routed through
+        /// each pattern's `_captured` entry point so the caller receives the
+        /// state the run ended with. Rows are byte-identical to `try_run`'s —
+        /// capture is an epilogue, never a second arithmetic path. A `None`
+        /// means "unregistered signature" (hand route), never "unsupported".
+        pub fn try_run_captured(
+            sig: &crate::cse::Signature,
+            vals: &crate::cse::Values,
+            streams: &[&[f64]],
+            out: &mut crate::cse::Carries,
+        ) -> Option<Vec<crate::cse::query::RowRef>> {
+            #( #cap_calls )*
             None
         }
     };

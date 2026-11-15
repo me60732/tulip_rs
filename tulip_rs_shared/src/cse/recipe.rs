@@ -106,6 +106,28 @@ pub enum ChainState {
         prev_hl: f64,
         trend: bool,
     },
+    /// `Node::LinregFlow`'s moment carries — the publish-before-evict pair the
+    /// regression family runs on (`linreg`, `tsf`, `fosc`, and anything later that
+    /// composes them). The kernel holds both in ordinary `st[k]` slots
+    /// (`out = st[k] + x*m; st[k] = out - v[sub]`), so these are the values the
+    /// engine already carries; this variant is the LABEL that lets `get_states`
+    /// hand them back.
+    ///
+    /// WHY THE WINDOW CANNOT STAND IN FOR THEM (measured, not assumed): a state
+    /// rebuilt from the last `period + 1` input bars is NOT the continuing state.
+    /// `sum_xy` is a weighted sum whose weight is the bar's own index, so
+    /// reconstructing it restarts the weighting at the window's local index and
+    /// every later bar is computed from a carry that is wrong in the same way —
+    /// the error does not decay. `n` is the hand's phase counter, kept here so the
+    /// restored state is a copy of what the machine held rather than an estimate.
+    /// The tail window is still needed, but only for the EVICTION reads, whose
+    /// values are exact inputs.
+    LinregFlow {
+        sum_y: f64,
+        sum_xy: f64,
+        n: f64,
+        period: u32,
+    },
     /// `Node::IirClamped`'s own hidden carried value (`fisher`'s `val1`) —
     /// a single `st[k]` scalar, same shape as [`ChainState::Mirror`], but
     /// tagged distinctly because it originates from a dedicated node KIND

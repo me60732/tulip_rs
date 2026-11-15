@@ -27,7 +27,19 @@ fn build_scalar_hoists(
     Vec<TokenStream>, // stc_lb_hoists
     Vec<TokenStream>, // st_trend_hoists
     Vec<TokenStream>, // st_step_hoists
+    Vec<TokenStream>, // carry_back
 ) {
+    // `carry_back` is the epilogue's per-slot half: the steady loop hoists
+    // each chain/roll carry OUT of `st[]`/`trail[]`/`sumsq[]`/`wsum[]`/`hacc[]`
+    // into a register local and mutates THAT, never writing the array back
+    // (verified by grep: the emitter has no `st[#k] =` for these kinds — the
+    // in-place writers are the LinregFlow/Nvi/Pvi/trend/Ps/Sdft arms, whose
+    // slots the array memcpy already carries). So a `Carries` filled by memcpy
+    // alone would report the state as of the WARM seam, not the state at exit —
+    // measured, not assumed: gate 4 of `cse_state_capture_test.rs` failed
+    // exactly that way before this list existed. Every writeback is pushed at
+    // the same site that creates the local, so the two names cannot drift.
+    let mut carry_back = Vec::new();
     let mut pair_hoists = Vec::new();
     for (gi, (k0, k1, _stream)) in classify.groups.iter().enumerate() {
         let g = format_ident!("g{gi}");
@@ -92,6 +104,13 @@ fn build_scalar_hoists(
                 let #gi_v = #ty::from_array([#(#iv),*]);
             });
         }
+        // Lane exits: the group register holds every member's final carry
+        // (Sma groups accumulate the SUM in the same lanes), so the epilogue
+        // reads the lanes back out instead of trusting the stale array.
+        for (l, &ks) in group_slots.iter().enumerate() {
+            let l = proc_macro2::Literal::usize_unsuffixed(l);
+            carry_back.push(quote! { __c.st[#ks] = #g.to_array()[#l]; });
+        }
     }
 
     let mut scalar_hoists = Vec::new();
@@ -106,6 +125,7 @@ fn build_scalar_hoists(
             let #mk = vals.mults[#ki];
             let #ik = vals.invms[#ki];
         });
+        carry_back.push(quote! { __c.st[#ki] = #ck; });
     }
 
     // IirClampedPlain clamp values: load from consts at expansion time.
@@ -130,6 +150,7 @@ fn build_scalar_hoists(
                 let #lt = vals.consts[#d];
                 let #lv = vals.consts[#e];
             });
+            carry_back.push(quote! { __c.st[#ki] = #ck; });
         }
     }
 
@@ -153,6 +174,12 @@ fn build_scalar_hoists(
             stc_ub_hoists.push(quote! { let mut #kic_ub = stc_ub[#ki]; });
             stc_lb_hoists.push(quote! { let mut #kic_lb = stlb[#ki]; });
             st_trend_hoists.push(quote! { let mut #kit = st[#ki]; });
+            carry_back.push(quote! {
+                __c.stb[#ki] = #kib;
+                __c.stc_ub[#ki] = #kic_ub;
+                __c.stlb[#ki] = #kic_lb;
+                __c.st[#ki] = #kit;
+            });
             let sk = format_ident!("st_step{k}");
             st_step_hoists.push(quote! { let #sk = vals.st_step[#ki]; });
         }
@@ -201,6 +228,7 @@ fn build_scalar_hoists(
                     let #evi = #pk == #cp;
                 });
             }
+            carry_back.push(quote! { __c.st[#ki] = #ck; });
             continue;
         }
         if node.kind == Kind::Hma {
@@ -245,6 +273,9 @@ fn build_scalar_hoists(
                 let #pv2 = unsafe { #sbase.sub(#n2) };
                 let _ = &mut #fd; // fold-only accumulator: steady never touches it
             });
+            carry_back.push(quote! {
+                __c.hacc[#ki] = [#s1, #w1, #s2, #w2, #wss, #ss, #fd];
+            });
             continue;
         }
         if matches!(
@@ -273,6 +304,10 @@ fn build_scalar_hoists(
                     let #lbk = vals.roll_lb[#ki] as usize;
                     let #gk = vals.ring_of[#ki] as usize;
                 });
+                carry_back.push(quote! {
+                    __c.st[#ki] = #ck;
+                    __c.trail[#ki] = #tc;
+                });
                 continue;
             }
             if matches!(node.kind, Kind::RollMax | Kind::RollMin) {
@@ -287,6 +322,10 @@ fn build_scalar_hoists(
                     let #lb = vals.roll_lb[#ki] as usize;
                     let #win = #lb + 1usize;
                     let #wb = unsafe { #sp.sub(#lb) };
+                });
+                carry_back.push(quote! {
+                    __c.st[#ki] = #ck;
+                    __c.trail[#ki] = #tc;
                 });
                 continue;
             }
@@ -304,6 +343,7 @@ fn build_scalar_hoists(
                 Kind::Stddev => {
                     let sq = format_ident!("{}_sq", ident_k);
                     roll_hoists.push(quote! { let mut #sq = sumsq[#ki]; });
+                    carry_back.push(quote! { __c.sumsq[#ki] = #sq; });
                 }
                 Kind::Wma => {
                     let wc = format_ident!("{}_weighted", ident_k);
@@ -314,9 +354,11 @@ fn build_scalar_hoists(
                         let #nk = vals.periods[#ki] as f64;
                         let #wgt = vals.mults[#ki];
                     });
+                    carry_back.push(quote! { __c.wsum[#ki] = #wc; });
                 }
                 _ => {}
             }
+            carry_back.push(quote! { __c.st[#ki] = #ck; });
         }
     }
 
@@ -338,6 +380,7 @@ fn build_scalar_hoists(
         let ck = format_ident!("{}_carry", ident_k);
         let ki = k;
         roll_hoists.push(quote! { let mut #ck = st[#ki]; });
+        carry_back.push(quote! { __c.st[#ki] = #ck; });
         if matches!(node.kind, Kind::Prev | Kind::Accum | Kind::VariableAlpha) {
             continue;
         }
@@ -512,6 +555,7 @@ fn build_scalar_hoists(
         stc_lb_hoists,
         st_trend_hoists,
         st_step_hoists,
+        carry_back,
     )
 }
 
@@ -1874,6 +1918,8 @@ fn build_scalar_warm_ptrs(
 /// Main orchestrator: builds the kernel function by invoking stage helpers in sequence.
 pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     let name = format_ident!("{}", p.name);
+    let name_run = format_ident!("{}_run", p.name);
+    let name_captured = format_ident!("{}_captured", p.name);
     let sig = format_ident!("SIG_{}", name);
 
     // Build idents for display-only naming (role names or fallback x{k})
@@ -1937,6 +1983,7 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
         stc_lb_hoists,
         st_trend_hoists,
         st_step_hoists,
+        carry_back,
     ) = build_scalar_hoists(p, &idents, &c);
 
     // Stage 2: Build body
@@ -2090,6 +2137,74 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
         || !needs_supersmoother
         || !needs_hdacc;
 
+    // Epilogue: hand the caller the carries the run ended with.
+    //
+    // The body takes `Option<&mut Carries>`, so the rows-only wrapper keeps
+    // the old signature (every existing caller, bench and registry test keeps
+    // compiling) while `{name}_captured` passes `Some(out)`. The branch is
+    // evaluated ONCE per run — outside the steady loop — so the measured
+    // per-bar µop budget is untouched and the rows-only path pays nothing.
+    //
+    // Only arrays this pattern actually DECLARED are copied, gated by the
+    // same `needs_*` booleans that gated the `let`s above (when
+    // `use_dummy_scratch` is set, the non-needed families live in the
+    // thread-local dummies and hold no state for this run). `v` is per-bar
+    // scratch, not state; `rings` (RingSet) is not exported until Phase C of
+    // proposals/Macro_Cse_Engine/state_capture_checklist.md, so a
+    // ring-bearing signature must be reported INCOMPLETE by the decoder
+    // rather than answered with a partial state.
+    let mut fam: Vec<TokenStream> = vec![quote! {
+        __c.st = st;
+        __c.trail = trail;
+        __c.kvacc = kvacc;
+    }];
+    if needs_supertrend {
+        fam.push(quote! {
+            __c.stb = stb;
+            __c.stc_ub = stc_ub;
+            __c.stlb = stlb;
+        });
+    }
+    if needs_stddev {
+        fam.push(quote! { __c.sumsq = sumsq; });
+    }
+    if needs_wma {
+        fam.push(quote! { __c.wsum = wsum; });
+    }
+    if needs_hma {
+        fam.push(quote! { __c.hacc = hacc; });
+    }
+    if needs_highpass {
+        fam.push(quote! { __c.hp_acc = hp_acc; });
+    }
+    if needs_supersmoother {
+        fam.push(quote! { __c.ss_acc = ss_acc; });
+    }
+    if needs_hdacc {
+        fam.push(quote! { __c.hd_acc = hdacc; });
+    }
+    let capture = quote! {
+        if let Some(__c) = &mut out {
+            #( #fam )*
+        }
+    };
+    // Loop-exit epilogue: the memcpy above is NOT enough on its own. Chain and
+    // roll carries were hoisted out of the arrays into register locals and are
+    // mutated there only, so those slots would otherwise report their WARM-SEAM
+    // value instead of the exit value (measured: gate 4 failed by exactly one
+    // bar before this existed). The writeback — pushed beside every hoist in
+    // `build_scalar_hoists` — runs AFTER the memcpy, so a slot's live local
+    // always wins over the stale array. Kinds with no writeback entry are the
+    // ones that mutate their array in place already: `hp_acc`/`ss_acc`/
+    // `kvacc`/`hd_acc`, and the `st[k]` writers (LinregFlow, NviRecur,
+    // PviRecur, trend flags, Psar, SdftRotate).
+    let capture_exit = quote! {
+        if let Some(__c) = &mut out {
+            #( #fam )*
+            #( #carry_back )*
+        }
+    };
+
     let warm_exec = if use_dummy_scratch {
         quote! {
             crate::cse::kernel::warmup::with_exec_scratch_dummies(|__dummies| {
@@ -2146,7 +2261,11 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
 
     quote! {
         #[allow(unused_variables, unused_mut)]
-        pub fn #name(vals: &crate::cse::Values, streams: &[&[f64]]) -> Vec<crate::cse::query::RowRef> {
+        fn #name_run(
+            vals: &crate::cse::Values,
+            streams: &[&[f64]],
+            mut out: Option<&mut crate::cse::Carries>,
+        ) -> Vec<crate::cse::query::RowRef> {
             use ::std::simd::Simd;
             #[allow(unused_imports)]
             use ::std::simd::num::SimdFloat;
@@ -2199,6 +2318,11 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             // Warm-up bars: shared interpreter, cold path once per request.
             #warm_exec
             if gate >= n {
+                // Whole series was warm bars: the arrays above hold the live
+                // state, so this exit captures too (the `n == 0` exit above
+                // cannot — it runs before the arrays exist, and no bar was
+                // processed, so there is nothing to carry).
+                #capture
                 return vec![#(#row_refs),*];
             }
             // Fill-state transition at the seam: `exec` ran the warm bars on
@@ -2235,7 +2359,34 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             #(#const_hoists)*
 
             #steady
+            #capture_exit
             vec![#(#row_refs),*]
+        }
+
+        /// Rows-only entry point — the signature every existing caller uses
+        /// (registry tests, benches, `try_run`/`try_run_packed`). Passes `None`
+        /// down to the body, so no `Carries` is touched and nothing is copied:
+        /// the measured per-bar budget and the call-site surface are unchanged.
+        pub fn #name(
+            vals: &crate::cse::Values,
+            streams: &[&[f64]],
+        ) -> Vec<crate::cse::query::RowRef> {
+            #name_run(vals, streams, None)
+        }
+
+        /// Rows PLUS the carries the run ended with — the producer side of
+        /// `Restorable::restore_state` (the kernel keeps its recurrence state
+        /// in these arrays; without this entry point they die with the frame
+        /// and a resumed run can only replay a tail window, which §R8 measured
+        /// as NOT a continuing state). Rows are byte-identical to the rows-only
+        /// kernel above: capture is an epilogue outside the loop, never a
+        /// second arithmetic path.
+        pub fn #name_captured(
+            vals: &crate::cse::Values,
+            streams: &[&[f64]],
+            out: &mut crate::cse::Carries,
+        ) -> Vec<crate::cse::query::RowRef> {
+            #name_run(vals, streams, Some(out))
         }
     }
 }
