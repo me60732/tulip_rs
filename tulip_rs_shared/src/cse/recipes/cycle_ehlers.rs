@@ -17,6 +17,14 @@ pub fn msw(options: &[f64]) -> Recipe {
     r.options = options.to_vec();
     // The SdftRotate node owns the only real carry state (rp, ip, cached
     // lead_sine); SdftLead has no carry of its own.
+    //
+    // It must stay a tail input, and the reason is a measurement, not a belief:
+    // `IndicatorState::new` documents `(rp, ip)` as "the DFT of the last `period`
+    // bars — identical to the final SDFT accumulator", but running that rebuild at
+    // the seam and resuming gave **295/300 rows wrong**, so the two are NOT the
+    // same float. The sliding DFT carries the whole window's accumulated state;
+    // re-transforming a window re-derives it differently. `msw` therefore needs the
+    // carried pair (`K_SDFTROTATE`'s decode arm), and the period from `options`.
     r.tail_inputs = vec![rot];
     let output_lead = period;
     r.outputs.push(Sink::iface_lead(rot, output_lead));
@@ -354,7 +362,9 @@ pub fn trendmode(options: &[f64]) -> Recipe {
 
     r.kind = "trendmode";
     r.options = options.to_vec();
-    r.tail_inputs = vec![cc];
+    // Both accumulators the hand state cannot rebuild: the CyberCycle IIR pair and
+    // the decaying peak latch. Order is the contract `restore_state_with` matches.
+    r.tail_inputs = vec![cc, peak];
     // First published bar is 55 (min_data=56), so lead = 55.
     // Primary: trend with lead 55
     r.outputs.push(Sink::iface_lead(trend, 55));
@@ -450,7 +460,10 @@ pub fn ccfisher(options: &[f64]) -> Recipe {
 
     r.kind = "ccfisher";
     r.options = options.to_vec();
-    r.tail_inputs = vec![cc];
+    // Four accumulators, in the order `restore_state_with` destructures them:
+    // the CyberCycle IIR pair, the decaying peak latch, the clamped val1 IIR, and
+    // the Prev node whose carry IS last bar's fisher (the signal line).
+    r.tail_inputs = vec![cc, peak, val1, signal];
     // First published bar is 55 (min_data=56), so lead = 55.
     // Primary outputs: fisher and signal with lead 55
     r.outputs.push(Sink::iface_lead(fisher_scaled, 55));

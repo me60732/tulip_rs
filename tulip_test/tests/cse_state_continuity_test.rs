@@ -1,6 +1,4 @@
-use tulip_rs::cse::{
-    restorer_for_with_options, run_registered, IndicatorStateBox, Planable, Request,
-};
+use tulip_rs::cse::{run_registered, Planable, Request};
 use tulip_rs::indicator_types::{Indicator, TIndicatorState};
 use tulip_rs::indicators::ccfisher::CcFisher;
 use tulip_rs::indicators::cybercycle::Cybercycle;
@@ -228,12 +226,14 @@ fn cse_state_continuity_database_close_indicators() {
             let first_inputs = [&close[..first_len]];
             let mut combined = cse_rows_for::<1, 1, Cybercycle>(&first_inputs, &options, &label);
 
-            let restore = restorer_for_with_options("cybercycle", &options)
-                .expect("missing option-aware restorer for cybercycle");
-            let mut state = match restore(vec![], &first_inputs, &options) {
-                IndicatorStateBox::Cybercycle(state) => state,
-                _ => panic!("{label}: wrong state variant from restorer"),
-            };
+            // The cybercycle family left the replay table 2026-11-17 when it became
+            // a CARRIED restore. This harness is about the HAND state surviving
+            // chunking, so it warms up through the hand itself — the identical call
+            // the deleted table arm made. The engine's own carries are proven by
+            // `c15_newly_answered_kinds_continue_bit_exact`.
+            let mut state = Cybercycle::indicator(&first_inputs, &options, None)
+                .map(|(_outputs, state)| state)
+                .expect("cybercycle warm-up state");
 
             extend_with_state_chunks_1(
                 &mut state,
@@ -266,12 +266,10 @@ fn cse_state_continuity_database_close_indicators() {
             let first_inputs = [&close[..first_len]];
             let mut combined = cse_rows_for::<1, 1, TrendMode>(&first_inputs, &options, &label);
 
-            let restore = restorer_for_with_options("trendmode", &options)
-                .expect("missing option-aware restorer for trendmode");
-            let mut state = match restore(vec![], &first_inputs, &options) {
-                IndicatorStateBox::Trendmode(state) => state,
-                _ => panic!("{label}: wrong state variant from restorer"),
-            };
+            // Migrated with the rest of the cybercycle family — see the note there.
+            let mut state = TrendMode::indicator(&first_inputs, &options, None)
+                .map(|(_outputs, state)| state)
+                .expect("trendmode warm-up state");
 
             extend_with_state_chunks_1(
                 &mut state,
@@ -304,12 +302,10 @@ fn cse_state_continuity_database_close_indicators() {
             let first_inputs = [&close[..first_len]];
             let mut combined = cse_rows_for::<1, 1, CcFisher>(&first_inputs, &options, &label);
 
-            let restore = restorer_for_with_options("ccfisher", &options)
-                .expect("missing option-aware restorer for ccfisher");
-            let mut state = match restore(vec![], &first_inputs, &options) {
-                IndicatorStateBox::Ccfisher(state) => state,
-                _ => panic!("{label}: wrong state variant from restorer"),
-            };
+            // Migrated with the rest of the cybercycle family — see the note there.
+            let mut state = CcFisher::indicator(&first_inputs, &options, None)
+                .map(|(_outputs, state)| state)
+                .expect("ccfisher warm-up state");
 
             extend_with_state_chunks_1(
                 &mut state,
@@ -342,12 +338,15 @@ fn cse_state_continuity_database_close_indicators() {
             let first_inputs = [&close[..first_len]];
             let mut combined = cse_rows_for::<1, 2, Mama>(&first_inputs, &options, &label);
 
-            let restore = restorer_for_with_options("mama", &options)
-                .expect("missing option-aware restorer for mama");
-            let mut state = match restore(vec![], &first_inputs, &options) {
-                IndicatorStateBox::Mama(state) => state,
-                _ => panic!("{label}: wrong state variant from restorer"),
-            };
+            // `mama` left the replay table in `restorer_for_with_options` when it
+            // became a CARRIED restore (2026-11-17), so this harness asks the hand
+            // for its warm-up state directly — the identical call the deleted table
+            // arm used to make. What is under test here is the HAND state surviving
+            // chunking; the engine's carries are proven by
+            // `c15_newly_answered_kinds_continue_bit_exact`.
+            let mut state = Mama::indicator(&first_inputs, &options, None)
+                .map(|(_outputs, state)| state)
+                .expect("mama warm-up state");
 
             extend_with_state_chunks_1(
                 &mut state,
@@ -380,12 +379,13 @@ fn cse_state_continuity_database_close_indicators() {
             let first_inputs = [&close[..first_len]];
             let mut combined = cse_rows_for::<1, 2, SmaEnvelope>(&first_inputs, &options, &label);
 
-            let restore = restorer_for_with_options("smaenvelope", &options)
-                .expect("missing option-aware restorer for smaenvelope");
-            let mut state = match restore(vec![], &first_inputs, &options) {
-                IndicatorStateBox::Smaenvelope(state) => state,
-                _ => panic!("{label}: wrong state variant from restorer"),
-            };
+            // Migrated with the last three replay-table kinds (2026-11-17): the
+            // hand warms up directly, which is the identical call the deleted arm
+            // made. See the `mama` note above for why this harness does not use the
+            // carried restorer.
+            let mut state = SmaEnvelope::indicator(&first_inputs, &options, None)
+                .map(|(_outputs, state)| state)
+                .expect("smaenvelope warm-up state");
 
             extend_with_state_chunks_1(
                 &mut state,
@@ -418,12 +418,12 @@ fn cse_state_continuity_database_close_indicators() {
             let first_inputs = [&close[..first_len]];
             let mut combined = cse_rows_for::<1, 3, Vidya>(&first_inputs, &options, &label);
 
-            let restore = restorer_for_with_options("vidya", &options)
-                .expect("missing option-aware restorer for vidya");
-            let mut state = match restore(vec![], &first_inputs, &options) {
-                IndicatorStateBox::Vidya(state) => state,
-                _ => panic!("{label}: wrong state variant from restorer"),
-            };
+            // Migrated with the last three replay-table kinds — see the
+            // smaenvelope note. `vidya`'s arm was the worst of them: it ignored the
+            // options it captured AND derived both periods from the column length.
+            let mut state = Vidya::indicator(&first_inputs, &options, None)
+                .map(|(_outputs, state)| state)
+                .expect("vidya warm-up state");
 
             extend_with_state_chunks_1(
                 &mut state,
@@ -468,12 +468,14 @@ fn cse_state_continuity_database_psar() {
             let first_inputs = [&high[..first_len], &low[..first_len]];
             let mut combined = cse_rows_for::<2, 2, Psar>(&first_inputs, &options, &label);
 
-            let restore = restorer_for_with_options("psar", &options)
-                .expect("missing option-aware restorer for psar");
-            let mut state = match restore(vec![], &first_inputs, &options) {
-                IndicatorStateBox::Psar(state) => state,
-                _ => panic!("{label}: wrong state variant from restorer"),
-            };
+            // `psar` left the replay table when its latches became a carried
+            // restore, so this harness warms up through the hand directly — the
+            // identical call the deleted table arm made. What is under test here is
+            // the HAND state surviving chunking; the engine's carries are proven by
+            // `c15_newly_answered_kinds_continue_bit_exact`.
+            let mut state = Psar::indicator(&first_inputs, &options, None)
+                .map(|(_outputs, state)| state)
+                .expect("psar warm-up state");
 
             extend_with_state_chunks_2(
                 &mut state,
@@ -520,12 +522,11 @@ fn cse_state_continuity_database_keltnerchannel() {
             let mut combined =
                 cse_rows_for::<3, 2, KeltnerChannel>(&first_inputs, &options, &label);
 
-            let restore = restorer_for_with_options("keltnerchannel", &options)
-                .expect("missing option-aware restorer for keltnerchannel");
-            let mut state = match restore(vec![], &first_inputs, &options) {
-                IndicatorStateBox::Keltnerchannel(state) => state,
-                _ => panic!("{label}: wrong state variant from restorer"),
-            };
+            // Migrated with the last three replay-table kinds — see the
+            // smaenvelope note.
+            let mut state = KeltnerChannel::indicator(&first_inputs, &options, None)
+                .map(|(_outputs, state)| state)
+                .expect("keltnerchannel warm-up state");
 
             extend_with_state_chunks_3(
                 &mut state,

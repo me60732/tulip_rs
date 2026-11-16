@@ -284,12 +284,17 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Vosc {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma {
+        // Both tails are `Node::RollSum` → `RollSumRing`, not `Sma`.
+        let [crate::cse::ChainState::RollSumRing {
             sum: short_sum,
             period: short_period,
-        }, crate::cse::ChainState::Sma {
+            ring: _,
+            cursor: _,
+        }, crate::cse::ChainState::RollSumRing {
             sum: long_sum,
             period: long_period,
+            ring: _,
+            cursor: _,
         }] = v.as_slice()
         else {
             return None;

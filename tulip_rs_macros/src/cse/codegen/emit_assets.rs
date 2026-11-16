@@ -1153,7 +1153,10 @@ fn build_assets_body(p: &Pattern, idents: &[String]) -> Vec<TokenStream> {
                                     x_arr[a],
                                     #takes_mirror,
                                 );
-                                let window = ringw[a].window(g, p);
+                                // Slot order, matching the hand's `get_slice()` and
+                                // `emit_scalar`'s `Kind::MeanAbsDev` — see the note
+                                // there for why a sum makes this load-bearing.
+                                let window = ringw[a].raw(g, cap);
                                 crate::indicators::md::calc_md_simd::<4>(window, sma_arr[a], mult)
                             });
                             Simd::<f64, L>::from_array(out)

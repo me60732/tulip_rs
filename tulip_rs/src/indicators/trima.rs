@@ -306,8 +306,20 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Trima {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma { period: m1, .. }, crate::cse::ChainState::Sma { period: m2, .. }] =
-            v.as_slice()
+        // Both halves are `Node::RollSum` → `RollSumRing`, not `Sma`. Their
+        // `sum`s ARE the state's two accumulators and the second one's `ring` IS
+        // `sma1_ring`, so all three are CARRIED; only the arithmetic of the
+        // window (`m1`, `m2`, the inverses) is derived.
+        let [crate::cse::ChainState::RollSumRing {
+            sum: sum1,
+            period: m1,
+            ..
+        }, crate::cse::ChainState::RollSumRing {
+            sum: sum2,
+            period: m2,
+            ring,
+            cursor,
+        }] = v.as_slice()
         else {
             return None;
         };
@@ -317,11 +329,39 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Trima {
 
         let period = (*m1 as usize) + (*m2 as usize) - 1;
         let real = windows[0];
-        if real.len() < period {
+        if period == 0 || real.len() < period {
             return None;
         }
+        // `IndicatorState::new` keeps only the last `m1` bars, and `init_state`
+        // walks `0..period` from the slice's START — so the rebuild needs exactly
+        // the last `period` bars, not the full column the router hands (that
+        // warmed the state at the front of the series: 300/300 rows wrong,
+        // 100.5423198839613 against 97.53246795748534 at row 0).
+        let real = &real[real.len() - period..];
 
-        let state = State::init_state(real, period);
+        let mut state = State::init_state(real, period);
+        // The accumulators and the ring come from the engine, not the rebuild:
+        // re-summing is a different float than the hand's incremental
+        // `sum1 += real[i] - real[i - m1]`, and that residual (~4e-2 in row 0 even
+        // after the window was fixed) is what carrying removes.
+        state.sum1 = *sum1;
+        state.sum2 = *sum2;
+        let capacity = *m2 as usize;
+        if capacity == 0 || ring.len() != capacity {
+            return None;
+        }
+        let index = (*cursor / 8) as usize;
+        if index >= capacity {
+            return None;
+        }
+        state.sma1_ring = Buffer::<Warm> {
+            vals: ring.clone(),
+            index,
+            capacity,
+            count: capacity,
+            prev_idx: (index + capacity - 1) % capacity,
+            state: std::marker::PhantomData,
+        };
         Some(IndicatorState::new(real, state))
     }
 }

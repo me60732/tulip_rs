@@ -391,28 +391,37 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for InstantaneousTrendline {
     const KIND: &'static str = "instantaneoustrendline";
 
     fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [real] = windows else {
+        // CARRIED, or nothing — the same rule the embedded HD applies to itself. The
+        // steady loop calls this module's own `it_step(&mut hdacc[k], &mut kvacc[k],
+        // price)`, so those two cells ARE the whole state: the 38-cell bridges to the
+        // typed HD rings, and `extras` is `it_step`'s carry triple
+        // `[IT[t], IT[t-1], 0.0]` — i.e. `it_prev`/`it_prev2`.
+        //
+        // The window path is deleted deliberately. Re-running `init_state` over a
+        // column produces a *plausible* state, but the IIR feedback and the HD's
+        // period scalars seed forward forever, so it resumes wrong — the false-green
+        // failure mode this phase keeps catching, and the reason an absent cell must
+        // be a refusal rather than a cue to re-warm.
+        let [crate::cse::ChainState::HdPipeline { acc, extras, .. }] = v.as_slice() else {
             return None;
         };
-        if real.len() < Self::min_data(&[]) {
+        if acc.len() != homodynediscriminator::HD_ACC_LEN {
             return None;
         }
-
-        let mut trendline_line = [0.0_f64];
-        let mut trigger_line = [0.0_f64];
-        let mut dc_period_line = [0.0_f64];
-        let mut alpha_line = [0.0_f64];
-        let state = State::init_state(
-            real,
-            &mut trendline_line,
-            &mut trigger_line,
-            &mut dc_period_line,
-            &mut alpha_line,
-        );
-        Some(state)
+        let mut cell = [0.0_f64; homodynediscriminator::HD_ACC_LEN];
+        cell.copy_from_slice(acc);
+        Some(State::<Warm> {
+            hd: homodynediscriminator::hd_state_from_acc(&cell),
+            it_prev: extras[0],
+            it_prev2: extras[1],
+            // `alpha` is not carried — `kvacc[2]` is always 0.0 — because it is a pure
+            // function of the HD's `smooth_period`, which `hd_apply_discriminator`
+            // both returns and stores at cell 37 in the same step.
+            alpha: 2.0 / (cell[37] + 1.0),
+        })
     }
 }
 

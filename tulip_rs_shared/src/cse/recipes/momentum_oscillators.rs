@@ -1213,6 +1213,11 @@ pub fn vidya(options: &[f64]) -> Recipe {
 
     r.kind = "vidya";
     r.options = options.to_vec();
+    // The hand state, in field order: the two stddev accumulators (`sum` +
+    // `sum_sq` each), and the VariableAlpha carry that IS `prev_vidya`. All three
+    // are per-node carries; the periods and `alpha` come from `options`, which is
+    // the only place a request states them independently of the data length.
+    r.tail_inputs = vec![short_sd_id, long_sd_id, vidya_node];
     // Sink with lead == long_period - 1 (output starts at bar `long_period-1`)
     // The VariableAlpha leads() formula gives base+1 where base=long_period-2, so lead=long_period-1
     r.outputs

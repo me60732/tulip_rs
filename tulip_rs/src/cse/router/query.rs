@@ -19,7 +19,6 @@
 //! (integration suite: `tulip_test/tests/cse_kernel_registry_test.rs`).
 
 use crate::cse::{ChainState, Recipe};
-use crate::indicator_types::Indicator;
 use crate::indicators::ema::State as EmaState;
 use crate::types::Warm;
 use std::sync::Arc;
@@ -1027,144 +1026,47 @@ pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
 
 /// Option-aware resolver for state restoration.
 ///
-/// Eight kinds (`cybercycle`, `trendmode`, `ccfisher`, `mama`, `psar`,
-/// `keltnerchannel`, `smaenvelope`, `vidya`) are special-cased here. Their entry
-/// is NOT a capture decode: it ignores the chain list and rebuilds the state by
-/// RE-RUNNING the hand `Indicator::indicator` over the caller's windows with the
-/// request's own option constants, so it must resolve the options up front and
-/// capture them in the closure. That is why they are keyed by string literal and
-/// live in a separate table from `restorer_for`, whose arms are all
-/// `<Type as Restorable>::KIND`-keyed chain decodes.
+/// NO kind is special-cased here since 2026-11-17. The entries this table used to
+/// hold were not capture decodes at all: they ignored the chain list and rebuilt
+/// the state by RE-RUNNING the hand `Indicator::indicator` over the caller's
+/// windows with the request's own option constants captured in the closure, which
+/// is why they were keyed by string literal instead of by `<Type as
+/// Restorable>::KIND` and lived apart from `restorer_for`.
 ///
-/// Every other kind falls through to `restorer_for`, which now forwards the same
-/// options vector to `Restorable::restore_state_with`; these eight are therefore
-/// migratable into their own `restore_state_with` impl, one at a time, and each
-/// migration deletes one arm from this table.
-pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRestorerWithOptions> {
+/// Every kind now falls through to `restorer_for`, which forwards the options
+/// vector to `Restorable::restore_state_with`; the three that took the longest to
+/// migrate (`keltnerchannel`, `smaenvelope`, `vidya`) were the three whose hand
+/// state is composed of OTHER indicators' chains, and each was inferring its own
+/// parameters from the window length while it did so.
+///
+/// The function is kept rather than inlined into `route.rs` for two reasons: the
+/// dispatch there is written against this signature, and this is the place an
+/// author is supposed to look before adding a replay path back. Adding one is now
+/// a regression, not a shortcut — it shadows the carried restore for that kind.
+pub fn restorer_for_with_options(kind: &str, _options: &[f64]) -> Option<StateRestorerWithOptions> {
     match kind {
-        "cybercycle" => {
-            let alpha = options.first().copied().unwrap_or(0.07);
-            Some(Box::new(move |_v, windows, _opts| {
-                let [real] = windows else {
-                    return IndicatorStateBox::Other;
-                };
-                match crate::indicators::cybercycle::Cybercycle::indicator(&[real], &[alpha], None)
-                {
-                    Ok((_o, state)) => IndicatorStateBox::Cybercycle(state),
-                    Err(_) => IndicatorStateBox::Other,
-                }
-            }))
-        }
-        "trendmode" => {
-            let alpha = options.first().copied().unwrap_or(0.07);
-            Some(Box::new(move |_v, windows, _opts| {
-                let [real] = windows else {
-                    return IndicatorStateBox::Other;
-                };
-                match crate::indicators::trendmode::TrendMode::indicator(&[real], &[alpha], None) {
-                    Ok((_o, state)) => IndicatorStateBox::Trendmode(state),
-                    Err(_) => IndicatorStateBox::Other,
-                }
-            }))
-        }
-        "ccfisher" => {
-            let alpha = options.first().copied().unwrap_or(0.07);
-            Some(Box::new(move |_v, windows, _opts| {
-                let [real] = windows else {
-                    return IndicatorStateBox::Other;
-                };
-                match crate::indicators::ccfisher::CcFisher::indicator(&[real], &[alpha], None) {
-                    Ok((_o, state)) => IndicatorStateBox::Ccfisher(state),
-                    Err(_) => IndicatorStateBox::Other,
-                }
-            }))
-        }
-        "mama" => {
-            let fast_limit = options.first().copied().unwrap_or(0.5);
-            let slow_limit = options.get(1).copied().unwrap_or(0.05);
-            Some(Box::new(move |_v, windows, _opts| {
-                let [real] = windows else {
-                    return IndicatorStateBox::Other;
-                };
-                match crate::indicators::mama::Mama::indicator(
-                    &[real],
-                    &[fast_limit, slow_limit],
-                    None,
-                ) {
-                    Ok((_o, state)) => IndicatorStateBox::Mama(state),
-                    Err(_) => IndicatorStateBox::Other,
-                }
-            }))
-        }
-        "psar" => {
-            let af_step = options.first().copied().unwrap_or(0.02);
-            let max_af = options.get(1).copied().unwrap_or(0.2);
-            Some(Box::new(move |_v, windows, _opts| {
-                let [high, low] = windows else {
-                    return IndicatorStateBox::Other;
-                };
-                match crate::indicators::psar::Psar::indicator(
-                    &[high, low],
-                    &[af_step, max_af],
-                    None,
-                ) {
-                    Ok((_o, state)) => IndicatorStateBox::Psar(state),
-                    Err(_) => IndicatorStateBox::Other,
-                }
-            }))
-        }
-        "keltnerchannel" => {
-            let period = options.first().copied().unwrap_or(20.0);
-            let step = options.get(1).copied().unwrap_or(2.0);
-            Some(Box::new(move |_v, windows, _opts| {
-                let [high, low, close] = windows else {
-                    return IndicatorStateBox::Other;
-                };
-                match crate::indicators::keltnerchannel::KeltnerChannel::indicator(
-                    &[high, low, close],
-                    &[period, step],
-                    None,
-                ) {
-                    Ok((_o, state)) => IndicatorStateBox::Keltnerchannel(state),
-                    Err(_) => IndicatorStateBox::Other,
-                }
-            }))
-        }
-        "smaenvelope" => {
-            let period = options.first().copied().unwrap_or(20.0);
-            let percentage = options.get(1).copied().unwrap_or(1.0);
-            Some(Box::new(move |_v, windows, _opts| {
-                let [real] = windows else {
-                    return IndicatorStateBox::Other;
-                };
-                match crate::indicators::smaenvelope::SmaEnvelope::indicator(
-                    &[real],
-                    &[period, percentage],
-                    None,
-                ) {
-                    Ok((_o, state)) => IndicatorStateBox::Smaenvelope(state),
-                    Err(_) => IndicatorStateBox::Other,
-                }
-            }))
-        }
-        "vidya" => {
-            let short_period = options.first().copied().unwrap_or(5.0);
-            let long_period = options.get(1).copied().unwrap_or(20.0);
-            let alpha = options.get(2).copied().unwrap_or(0.2);
-            Some(Box::new(move |_v, windows, _opts| {
-                let [real] = windows else {
-                    return IndicatorStateBox::Other;
-                };
-                match crate::indicators::vidya::Vidya::indicator(
-                    &[real],
-                    &[short_period, long_period, alpha],
-                    None,
-                ) {
-                    Ok((_o, state)) => IndicatorStateBox::Vidya(state),
-                    Err(_) => IndicatorStateBox::Other,
-                }
-            }))
-        }
+        // The table is EMPTY as of 2026-11-17. Its last three entries —
+        // `keltnerchannel`, `smaenvelope`, `vidya` — migrated today, and each one's
+        // replay arm was actively harmful, not merely redundant: it captured the
+        // request's options into a closure, then IGNORED the chain list and
+        // re-ran the whole indicator over the window. `vidya`'s even ignored both
+        // and derived the periods from the column length. Because this table is
+        // consulted BEFORE `restorer_for`, an arm left behind shadows the carried
+        // decode, so a migration is only real once the arm is deleted.
+        //
+        // `options` is now unused here for the same reason: every kind forwards it
+        // itself, through `Restorable::restore_state_with`. The parameter stays
+        // because `route.rs`'s dispatch is written against this signature.
+        //
+        // "cybercycle", "trendmode" and "ccfisher" MIGRATED out of this table
+        // 2026-11-17, together, because all three compose the same
+        // `Node::Cybercycle` and one decode arm unlocked all of them: they now
+        // restore from `ChainState::CyberCycle` (the `kvacc` IIR pair) plus their
+        // own carried latches through `restorer_for`'s trait arms.
+        // "psar" and "mama" migrated the same day with the same argument: their
+        // latches (`kvacc[k]` plus the trend bit / the `st[k]` alpha the emitter
+        // parks for the Fama node) are already captured every bar, so a replay was
+        // serving a state the engine's carries contradict.
         _ => restorer_for(kind).map(|f| Box::new(f) as StateRestorerWithOptions),
     }
 }

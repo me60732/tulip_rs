@@ -63,9 +63,11 @@
 
 use crate::cse::recipe::ChainState;
 use crate::cse::signature::{
-    Carries, Signature, Values, K_EMA, K_HIGHPASS, K_HMA, K_HTINPHASE, K_HTQUADRATURE,
-    K_IIRCLAMPED, K_KVOFLOW, K_LINREGFLOW, K_MIRROR, K_PREV, K_ROLLAGE, K_ROLLMAX, K_ROLLMIN,
-    K_ROLLSUM, K_SEEDEDEMA, K_SMA, K_STDDEV, K_SUPERSMOOTHER, K_SUPERTREND, K_WILDERS, K_WMA, MAX,
+    Carries, Signature, Values, K_ACCUM, K_CYBERCYCLE, K_EMA, K_HIGHPASS, K_HMA,
+    K_HOMODYNEDISCRIMINATOR, K_HTINPHASE, K_HTQUADRATURE, K_IIRCLAMPED, K_IIRCLAMPEDPLAIN,
+    K_INSTANTANEOUSTRENDLINE, K_KVOFLOW, K_LINREGFLOW, K_MAMA, K_MIRROR, K_PEAKDECAY, K_PREV,
+    K_PSAR, K_ROLLAGE, K_ROLLMAX, K_ROLLMIN, K_ROLLSUM, K_SDFTROTATE, K_SEEDEDEMA, K_SMA, K_STDDEV,
+    K_SUPERSMOOTHER, K_SUPERTREND, K_VARIABLEALPHA, K_WILDERS, K_WMA, MAX,
 };
 use crate::cse::Id;
 
@@ -171,7 +173,32 @@ pub fn chain_for_slot(sig: &Signature, vals: &Values, c: &Carries, k: usize) -> 
                 psqrt: e.capacity,
             }
         }
+        // The HD pipeline's whole state is already carried in one 38-cell
+        // (`hd_acc[k]`) — five stage rings plus six IIR/period scalars — so the
+        // export is the cell itself, and the consumer rebuilds its typed rings via
+        // `homodynediscriminator::hd_state_from_acc`. `kvacc[k]` rides along as
+        // `extras` because the composite kinds (ITL, MAMA) keep their own feedback
+        // scalars there, and `st[k]` as `st` because MAMA's emitter parks its live
+        // `alpha` in that slot for its companion `Fama` node.
+        K_HOMODYNEDISCRIMINATOR | K_INSTANTANEOUSTRENDLINE | K_MAMA => ChainState::HdPipeline {
+            acc: c.hd_acc[k].to_vec(),
+            extras: c.kvacc[k],
+            st: c.st[k],
+        },
         K_IIRCLAMPED => ChainState::IirClamped { value: c.st[k] },
+        // `IirClampedPlain` is the same carry spelled with plain multiply+add so
+        // it matches a hand that does not fuse (`ccfisher`'s `val1`); the HOISTED
+        // `{ident}_carry` is scattered back into `st[k]` exactly as `IirClamped`'s
+        // is, so the shape is identical and no new variant is needed.
+        K_IIRCLAMPEDPLAIN => ChainState::IirClamped { value: c.st[k] },
+        // The sliding-DFT rotation carry: the emitter keeps the coupled triple in
+        // `kvacc[k]` (`rp`, `ip`, and the cached `lead_sine` its `SdftLead`
+        // companion reads), so the pair the hand state needs is exported as one
+        // shape rather than split across slots.
+        K_SDFTROTATE => {
+            let [rp, ip, lead_sine] = c.kvacc[k];
+            ChainState::SdftRotate { rp, ip, lead_sine }
+        }
         // `Node::Prev`'s whole state IS one last-value carry — the emitter hoists
         // it into `{ident}_carry` and `carry_back` scatters it back into `st[k]`,
         // exactly like `IirClamped` — and the consumer's field is a bare `f64`
@@ -182,6 +209,50 @@ pub fn chain_for_slot(sig: &Signature, vals: &Values, c: &Carries, k: usize) -> 
         // `fisher` refused its own tail (measured 2026-11-16: slots [17, 24],
         // kinds [28, 29]).
         K_PREV => ChainState::Mirror { value: c.st[k] },
+        // `Node::Accum` is the same shape one step on: its state is ONE running
+        // value (`obv`'s cumulative volume flow, `wad`'s, `vwap`'s PV and volume
+        // sums), the emitter hoists it into `{ident}_carry`, and `carry_back`
+        // scatters it into `st[k]` exactly as `Prev`/`IirClamped` do. The
+        // consumers already match `ChainState::Mirror` — the shape that means
+        // "this slot's value at the seam" — so no new variant is needed, and the
+        // three kinds that were refusing on this arm (`obv`, `wad`, `vwap`) are
+        // answered by the one line.
+        K_ACCUM => ChainState::Mirror { value: c.st[k] },
+        // CyberCycle's IIR feedback pair. `emit_scalar`'s steady arm writes
+        // `kvacc[k] = [cycle, cycle_prev, 0.0]` at the END of the step, so slot 0
+        // already IS the next bar's `cycle_prev` — which is why the variant's
+        // fields are named after the hand's, not after the timeline.
+        K_CYBERCYCLE => ChainState::CyberCycle {
+            cycle_prev: c.kvacc[k][0],
+            cycle_prev2: c.kvacc[k][1],
+        },
+        // `PeakDecay` is one running latch (`peak = max(prev * decay, src)`) kept
+        // in `st[k]`, i.e. the same "this slot's value at the seam" the `Prev` and
+        // `Accum` arms already spell as `Mirror` — `trendmode`'s and `ccfisher`'s
+        // `pk` field reads it straight back.
+        K_PEAKDECAY => ChainState::Mirror { value: c.st[k] },
+        // A `VariableAlpha` carry is ONE running value whose blend weight is a LIVE
+        // node (`w = alpha * short_sd / long_sd` for `vidya`), so unlike `Ema` there
+        // is no `mults`/`invms` pair to export — just the slot. It is hoisted as
+        // `{ident}_carry` and scattered back into `st[k]` in the same list as
+        // `Prev`/`Accum` (`emit_scalar.rs`'s roll-hoist loop), and `vidya::State`'s
+        // `prev_vidya` IS that scalar, so `Mirror` is the honest shape and no new
+        // variant is needed.
+        K_VARIABLEALPHA => ChainState::Mirror { value: c.st[k] },
+        // Parabolic SAR's whole state is four scalars, and the emitter already
+        // writes all four: `emit_scalar`'s `Kind::Psar` ends every bar with
+        // `kvacc[k] = [psar, extream, accel]` and `st[k] = if uptrend { 1.0 }
+        // else { 0.0 }`, which `warmup.rs`'s `K_PSAR` arm spells identically, so
+        // the warm→steady handoff is one rule rather than two. The `psar` and
+        // `extream` in the cell are POST-flip values (a reversal rewrites both in
+        // the same bar), which is exactly what the hand's `calc` expects to read
+        // back — nothing here re-derives them from a window.
+        K_PSAR => ChainState::Psar {
+            psar: c.kvacc[k][0],
+            extream: c.kvacc[k][1],
+            accel: c.kvacc[k][2],
+            uptrend: c.st[k] != 0.0,
+        },
         K_KVOFLOW => {
             // C5. The emitted steady arm stores `kvacc[k] = [hlc, cm, dm]` after
             // the bar, i.e. exactly the NEXT bar's `[prev_hlc, cm, prev_hl]`, and

@@ -328,29 +328,59 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Psar {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let mut mirrors = v.iter().filter_map(|s| {
-            if let crate::cse::ChainState::Mirror { value } = s {
-                Some(*value)
-            } else {
-                None
-            }
-        });
-        let af_step = mirrors.next().unwrap_or(0.02);
-        let max_af = mirrors.next().unwrap_or(0.2);
-        validate_options(&[af_step, max_af]).ok()?;
+        Self::restore_state_with(v, windows, &[])
+    }
 
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        // CARRIED, or nothing. SAR is a latch machine: `psar`, `extream`, `accel`
+        // and the trend bit are each a function of every bar before them (the
+        // extreme only ratchets, the acceleration only climbs and clamps, a
+        // reversal rewrites all three at once), so NO window replay can reproduce
+        // them — and `init_state` would additionally restart the seed rule at bar
+        // 1, inventing a trend the real history never had.
+        //
+        // The two options come from the request rather than from the chains: the
+        // emitter bakes `af_step`/`max_af` into `mults[k]`/`invms[k]`, and the old
+        // spelling read them out of `Mirror` chains with `unwrap_or(0.02)` /
+        // `unwrap_or(0.2)`, which silently restored DEFAULT limits for any
+        // non-default request — the same class of bug `mom` measured at 300/300
+        // wrong rows.
+        //
+        // The windows are still load-bearing, but only for the two-bar lookback
+        // the hand itself keeps: `IndicatorState::new` tail-slices the last two
+        // high/low bars, which is exactly the `sub(1..2)` the steady arm reads.
+        use crate::cse::ChainState::Psar;
+        let [Psar {
+            psar,
+            extream,
+            accel,
+            uptrend,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
         let [high, low] = windows else {
             return None;
         };
-        if high.len() < Self::min_data(&[af_step, max_af])
-            || low.len() < 2
-            || high.len() != low.len()
-        {
+        let af_step = *options.first()?;
+        let max_af = *options.get(1)?;
+        validate_options(&[af_step, max_af]).ok()?;
+        if high.len() < 2 || low.len() < 2 || high.len() != low.len() {
             return None;
         }
-
-        let mut psar_line = [0.0_f64];
-        let state = State::init_state(high, low, af_step, max_af, &mut psar_line);
+        let state = State::<Warm> {
+            psar: *psar,
+            extream: *extream,
+            accel: *accel,
+            af_step,
+            max_af,
+            uptrend: *uptrend,
+            state: std::marker::PhantomData,
+        };
         Some(IndicatorState::new(state, high, low))
     }
 }

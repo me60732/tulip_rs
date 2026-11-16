@@ -1486,15 +1486,32 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                     } else {
                         quote! { rings.feed(g, t, x); }
                     };
+                    // ORDER IS LOAD-BEARING HERE, not incidental. The hand feeds
+                    // its mean-deviation rescan from `buffer.get_slice()` -- the
+                    // backing array in SLOT order -- while `RollMax`/`RollMin`
+                    // rescans read a time-ordered window and are order-invariant
+                    // anyway. A sum is not: lane `j` of `calc_md_simd::<4>`
+                    // accumulates positions j, j+4, j+8..., so handing it the same
+                    // 14 values in the other order changes the last bits. Measured
+                    // on real OHLC: 5 bars of 6691 differed, with identical values,
+                    // `sma` and `mult` -- only the slice order disagreed. So this
+                    // site reads `raw`, and the debug_assert below is what keeps a
+                    // future shared-wider group from silently re-breaking it.
                     body.push(quote! {
                         let #xk = {
                             let p = vals.periods[#ki] as usize;
                             let sma = #sma_v;
                             let mult = 1.0 / p as f64;
                             let g = vals.ring_of[#ki] as usize;
+                            let cap = vals.ring_cap[g] as usize;
+                            debug_assert_eq!(
+                                cap, p,
+                                "MeanAbsDev reads the group's whole backing array; a group \
+                                 wider than this node's period would change the addend grouping"
+                            );
                             let x = #src_v;
                             #feed
-                            let window = rings.window(g, p);
+                            let window = rings.raw(g, cap);
                             crate::indicators::md::calc_md_simd::<4>(window, sma, mult)
                         };
                     });

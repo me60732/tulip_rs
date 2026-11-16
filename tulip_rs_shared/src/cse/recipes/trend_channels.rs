@@ -353,6 +353,13 @@ pub fn keltnerchannel(options: &[f64]) -> Recipe {
 
     r.kind = "keltnerchannel";
     r.options = options.to_vec();
+    // The hand state IS these two chains (`atr_state` + `ema_state`), so both are
+    // declared as tails. `step` is the request's second option and `period` travels
+    // inside each chain, so neither is inferred here. The third field the hand keeps
+    // — `tr_state`'s `prev_close` — is NOT declared: it is the seam bar's close, a
+    // raw price the caller's own column already holds bit-for-bit, so no per-bar
+    // `Node::Mirror` store is bought for it the way `atr`'s recipe does.
+    r.tail_inputs = vec![atr_id, ema];
     r.outputs.push(Sink::iface_lead(lower, period));
     r.outputs.push(Sink::iface_lead(ema, period));
     r.outputs.push(Sink::iface_lead(upper, period));

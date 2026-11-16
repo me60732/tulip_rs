@@ -348,21 +348,76 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for AdaptiveMSW {
     const KIND: &'static str = "adaptivemsw";
 
     fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
+        v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
+        Self::restore_state_with(v, windows, &[])
+    }
+
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        _options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        // The state has TWO halves and they are two different KINDS of half, which
+        // is why this family was misdiagnosed as needing new carry capacity:
+        //
+        // * `hd` is an accumulator — five stage rings plus six IIR scalars — so it
+        //   must come from the 38-cell the emitter maintains, through the same
+        //   bridge `homodynediscriminator` and `instantaneoustrendline` use. The
+        //   recipe already declares that node as its tail (`recipes::adaptivemsw`'s
+        //   "carry state lives in the HD node"), so nothing here needs a new
+        //   `Carries` field.
+        // * `price_buf` is NOT an accumulator. `push` only copies the raw price and
+        //   `apply_dft` only reads `view[count-period..count]`, so the arena's own
+        //   column IS this buffer's carry: the last 50 prices, bit-for-bit, because
+        //   the only floats in it are floats the host wrote. This is exactly the
+        //   exemption `Node::Cybercycle`'s smooth ring gets — and the distinction
+        //   is what separates it from `msw`, where rebuilding the sliding-DFT
+        //   accumulators from a window measured 295/300 rows wrong.
+        //
+        // `ring`/`index`/`count` are then reconstructed rather than guessed: push
+        // number `i` lands at `ring[i % 50]`, so after `len` pushes the next write
+        // slot is `len % 50` and `count` is `min(len, 50)` — which is also the
+        // `price_buf.len()` that clamps the window period.
+        use crate::cse::ChainState::HdPipeline;
+        let [HdPipeline { acc, .. }] = v.as_slice() else {
+            return None;
+        };
+        if acc.len() != homodynediscriminator::HD_ACC_LEN {
+            return None;
+        };
         let [real] = windows else {
             return None;
         };
-        if real.len() < Self::min_data(&[]) {
+        let len = real.len();
+        if len < Self::min_data(&[]) {
             return None;
         }
+        let mut cell = [0.0_f64; homodynediscriminator::HD_ACC_LEN];
+        cell.copy_from_slice(acc);
 
-        let mut sine_line = [0.0_f64];
-        let mut lead_line = [0.0_f64];
-        let mut dc_period_line = [0.0_f64];
-        let state = State::init_state(real, &mut sine_line, &mut lead_line, &mut dc_period_line);
-        Some(state)
+        const DFT_WINDOW: usize = 50;
+        let count = len.min(DFT_WINDOW);
+        let mut view = [0.0_f64; DFT_WINDOW];
+        let mut ring = [0.0_f64; DFT_WINDOW];
+        for a in 0..count {
+            let bar = len - count + a;
+            let price = real[bar];
+            view[a] = price;
+            ring[bar % DFT_WINDOW] = price;
+        }
+
+        Some(State::<Warm> {
+            hd: homodynediscriminator::hd_state_from_acc(&cell),
+            price_buf: FixedMirrorBuffer {
+                ring,
+                view,
+                index: len % DFT_WINDOW,
+                count,
+                state: std::marker::PhantomData,
+            },
+        })
     }
 }
 

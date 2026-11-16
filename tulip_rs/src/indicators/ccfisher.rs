@@ -589,40 +589,56 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for CcFisher {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let alpha = v
-            .iter()
-            .find_map(|s| {
-                if let crate::cse::ChainState::Mirror { value } = s {
-                    Some(*value)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0.07);
-        if !(0.0..1.0).contains(&alpha) {
+        Self::restore_state_with(v, windows, &[])
+    }
+
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        // Four slots, in `recipes::ccfisher`'s `tail_inputs` order, and every one of
+        // them is an accumulator that a window cannot reproduce:
+        //   [0] CyberCycle  → cc.cycle_prev / cc.cycle_prev2
+        //   [1] PeakDecay   → pk   (decaying max)
+        //   [2] IirClampedPlain → val1 (the plain-math IIR, clamped ±0.999)
+        //   [3] Prev        → fish (last bar's fisher, which IS the signal line)
+        // The two `Mirror`s are told apart by POSITION, not by value — the
+        // convention `Restorable` pins for ordered `tail_inputs`.
+        use crate::cse::ChainState::{CyberCycle, IirClamped, Mirror};
+        let [CyberCycle {
+            cycle_prev,
+            cycle_prev2,
+        }, Mirror { value: pk }, IirClamped { value: val1 }, Mirror { value: fish }] = v.as_slice()
+        else {
             return None;
-        }
+        };
         let [real] = windows else {
             return None;
         };
-        if real.len() < Self::min_data(&[alpha]) {
+        let alpha = *options.first()?;
+        // Fixed alpha only, for the same reason `trendmode` refuses `alpha == 0.0`:
+        // the engine composes no HD node, so there is no live `smooth_period` to
+        // re-derive the coefficients from.
+        if !(alpha > 0.0 && alpha < 1.0) {
             return None;
         }
-
-        let mut fisher_line = [0.0_f64];
-        let mut signal_line = [0.0_f64];
-        let mut trendmode_line = [0.0_f64];
-        let mut cycle_line = [0.0_f64];
-        let mut peak_line = [0.0_f64];
-        let state = State::init_state(
-            real,
+        let mut cc = cybercycle::cc_state_from_tail(real, alpha)?;
+        cc.cycle_prev = *cycle_prev;
+        cc.cycle_prev2 = *cycle_prev2;
+        Some(State::<Warm> {
+            // Stepped but never read on the fixed-alpha path, and absent from the
+            // engine's graph — see `trendmode`'s restorer for the same note, and
+            // the reason the zeroed HD must come through the flat-cell bridge.
+            hd: homodynediscriminator::hd_state_from_acc(
+                &[0.0_f64; homodynediscriminator::HD_ACC_LEN],
+            ),
+            cc,
+            pk: *pk,
+            val1: *val1,
+            fish: *fish,
             alpha,
-            &mut fisher_line,
-            &mut signal_line,
-            &mut trendmode_line,
-            &mut cycle_line,
-            &mut peak_line,
-        );
-        Some(state)
+            is_adaptive: false,
+        })
     }
 }

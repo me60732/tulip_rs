@@ -72,6 +72,14 @@ impl<S, T: BufferElement> MirrorBuffer<S, T> {
     pub fn raw_slice(&self) -> &[T] {
         &self.vals
     }
+    /// The PRIMARY ring half only (length = `capacity`): slot `k` holds the value
+    /// pushed when the cursor was `k`, which is exactly the layout a plain
+    /// `Buffer`'s `vals` has — and therefore the order the hand's `get_slice()`
+    /// yields. `raw_slice()` is the whole store including the mirror half.
+    #[inline(always)]
+    pub fn primary_slice(&self) -> &[T] {
+        &self.vals[..self.capacity]
+    }
     #[inline(always)]
     pub fn raw_slice_mut(&mut self) -> &mut [T] {
         &mut self.vals

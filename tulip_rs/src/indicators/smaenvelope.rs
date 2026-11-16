@@ -241,29 +241,41 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for SmaEnvelope {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let period_from_chain = v.iter().find_map(|s| {
-            if let crate::cse::ChainState::Sma { period, .. } = s {
-                Some(*period as usize)
-            } else {
-                None
-            }
-        });
+        Self::restore_state_with(v, windows, &[])
+    }
 
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        // CARRIED sum, OPTIONS-stated percentage, and the window only for the
+        // `period` bars `IndicatorState::new` tail-slices.
+        //
+        // Both parameters used to be inferred from the data: the period fell back
+        // to `windows[0].len() - 1` whenever the chain carried no `Sma` (which is
+        // to say, whenever the request was honest about refusing), and `percentage`
+        // was hard-coded `1.0` behind a "fallback when recipe tail does not carry
+        // percentage yet" comment — so every non-default request was restored as a
+        // different-width envelope. `period` now comes from the chain (the engine
+        // states it independently of the column) and is cross-checked against the
+        // request's own option; `percentage` comes from `options[1]` and is divided
+        // by 100 exactly as `State::new` does.
+        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
+            return None;
+        };
         let [real] = windows else {
             return None;
         };
-        if real.len() < 2 {
+        let period = *period as usize;
+        let percentage = *options.get(1)?;
+        if period == 0 || real.len() < period || period != options.first().copied()? as usize {
             return None;
         }
-
-        let period = period_from_chain.unwrap_or(real.len() - 1);
-        if period == 0 || real.len() < period {
-            return None;
-        }
-
-        // Fallback when recipe tail does not carry percentage yet.
-        let percentage = 1.0_f64;
-        let state = State::init_state(real, period, percentage);
+        let state = State::<Warm> {
+            sma_state: SmaState::new(*sum, period).into_warm(),
+            percentage: percentage / 100.0,
+        };
         Some(IndicatorState::new(real, state, period))
     }
 }

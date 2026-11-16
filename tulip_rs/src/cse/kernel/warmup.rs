@@ -226,6 +226,29 @@ impl RingSet {
             None => &[],
         }
     }
+    /// The group ring's slots in BACKING-ARRAY order: slot `k` holds the bar whose
+    /// push index is `k % capacity`. That is the order the hand reads when it
+    /// passes its own buffer's `get_slice()` to a rescan, so a rescan that
+    /// ACCUMULATES (a float sum is not order-invariant — only max/min are) must
+    /// read this, not `window()`. `cap` is the group's published capacity and is
+    /// asserted, not trusted: a shared group wider than the node's period would
+    /// silently change the addend grouping.
+    #[inline(always)]
+    pub fn raw(&self, g: usize, cap: usize) -> &[f64] {
+        let out = match &self.slots[g] {
+            Some(s) => match &s.buf {
+                ScalarRingColdBuf::Plain(b) => b.raw_slice(),
+                ScalarRingColdBuf::Mirror(b) => b.primary_slice(),
+            },
+            None => &[],
+        };
+        debug_assert!(
+            out.is_empty() || out.len() == cap,
+            "raw ring read: slot length {} != group capacity {cap}",
+            out.len()
+        );
+        out
+    }
     /// Export every group's raw ring contents + cursor for the chunk-exit state
     /// store (`Carries.rings`). Called from the generated kernel's epilogue at
     /// BOTH exits, so this (cold) form answers the all-warm case where no steady
@@ -446,6 +469,25 @@ impl WarmMirrorRingSet {
             },
             None => &[],
         }
+    }
+    /// The warm sibling of `RingSet::raw` — backing-array slot order, the order
+    /// the hand's `get_slice()` gives an accumulating rescan. See there for why a
+    /// sum needs it and an extremum does not.
+    #[inline(always)]
+    pub fn raw(&self, g: usize, cap: usize) -> &[f64] {
+        let out = match &self.slots[g] {
+            Some(s) => match &s.buf {
+                ScalarRingWarmBuf::Plain(b) => b.raw_slice(),
+                ScalarRingWarmBuf::Mirror(b) => b.primary_slice(),
+            },
+            None => &[],
+        };
+        debug_assert!(
+            out.is_empty() || out.len() == cap,
+            "raw ring read (warm): slot length {} != group capacity {cap}",
+            out.len()
+        );
+        out
     }
     /// Steady-loop half of the state export: identical contract to
     /// `RingSet::capture` (see there), called from the generated kernel's
@@ -1773,7 +1815,10 @@ pub fn exec<const SIG: Signature, const WARM: bool>(
                                 x,
                                 SIG.ring_class[k] == crate::cse::lowering::RCLASS_RESCAN,
                             );
-                            let window = rings.window(g, p);
+                            // Same rule as `emit_scalar`'s `Kind::MeanAbsDev`: the
+                            // hand's rescan sums over its buffer's SLOT order, so the
+                            // embedded warm path must too — one rule, not two.
+                            let window = rings.raw(g, cap);
                             crate::indicators::md::calc_md_simd::<4>(window, sma, mult)
                         }
                     }

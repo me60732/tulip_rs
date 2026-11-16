@@ -411,38 +411,52 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Mama {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let mut mirrors = v.iter().filter_map(|s| {
-            if let crate::cse::ChainState::Mirror { value } = s {
-                Some(*value)
-            } else {
-                None
-            }
-        });
-        let fast_limit = mirrors.next().unwrap_or(0.5);
-        let slow_limit = mirrors.next().unwrap_or(0.05);
-        validate_options(&[fast_limit, slow_limit]).ok()?;
+        Self::restore_state_with(v, windows, &[])
+    }
 
-        let [real] = windows else {
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        // CARRIED, or nothing — the rule the embedded HD and ITL both apply. The
+        // steady loop calls this module's own `mama_step_with_alpha(&mut hdacc[k],
+        // &mut kvacc[k], fast_limit, slow_limit, price)`, so the 38-cell plus the
+        // `kvacc[k]` triple ARE the state:
+        //   extras = [mama, fama, phase]  (written by the step's own carry update)
+        //   st     = alpha                (the emitter parks it for the Fama node)
+        // `extras[1]` is the FAMA the engine published: this recipe's `Fama` node
+        // keeps its own `kvacc` copy, but both start from the same price-exact seed
+        // at bar 22 and apply the identical `half_alpha.mul_add(mama − prev, prev)`
+        // with the same alpha, so the two are the same float by induction.
+        //
+        // The options vector, not the chains, supplies the two limits — the same
+        // values `recipe()` baked into `consts[k]`/`st_step[k]`. The old reading
+        // (hunt `Mirror` chains, `unwrap_or(0.5)`) silently restored a DIFFERENT
+        // pair of limits whenever the chains held no mirror, and a wrong
+        // fast/slow_limit changes alpha on the very first resumed bar.
+        use crate::cse::ChainState::HdPipeline;
+        let [HdPipeline { acc, extras, st }] = v.as_slice() else {
             return None;
         };
-        if real.len() < Self::min_data(&[fast_limit, slow_limit]) {
+        if acc.len() != homodynediscriminator::HD_ACC_LEN {
             return None;
         }
+        let fast_limit = options.first().copied().unwrap_or(0.5);
+        let slow_limit = options.get(1).copied().unwrap_or(0.05);
+        validate_options(&[fast_limit, slow_limit]).ok()?;
 
-        let mut mama_line = [0.0_f64];
-        let mut fama_line = [0.0_f64];
-        let mut dc_period_line = [0.0_f64];
-        let mut alpha_line = [0.0_f64];
-        let state = State::init_state(
-            real,
+        let mut cell = [0.0_f64; homodynediscriminator::HD_ACC_LEN];
+        cell.copy_from_slice(acc);
+        Some(State::<Warm> {
+            hd: homodynediscriminator::hd_state_from_acc(&cell),
+            prev_phase: extras[2],
+            mama: extras[0],
+            fama: extras[1],
+            alpha: *st,
             fast_limit,
             slow_limit,
-            &mut mama_line,
-            &mut fama_line,
-            &mut dc_period_line,
-            &mut alpha_line,
-        );
-        Some(state)
+        })
     }
 }
 

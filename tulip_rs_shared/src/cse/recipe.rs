@@ -159,6 +159,63 @@ pub enum ChainState {
     /// thresholds are recipe-fixed constants, not per-period data, so the
     /// node carries nothing else worth restoring.
     IirClamped { value: f64 },
+    /// Sliding-DFT rotation carry for `msw` (`K_SDFTROTATE`): the coupled
+    /// `[rp, ip, lead_sine]` the emitter keeps in `Carries::kvacc[k]`. `lead_sine`
+    /// is what the paired `SdftLead` node reads, so it travels with the pair
+    /// rather than needing its own slot (`K_SDFTLEAD` has no carry of its own).
+    ///
+    /// This exists because the window DFT is NOT the accumulator: rebuilding
+    /// `(rp, ip)` from the last `period` bars and resuming measured 295/300 rows
+    /// wrong against the uninterrupted hand, despite `msw::IndicatorState::new`
+    /// documenting them as identical.
+    SdftRotate { rp: f64, ip: f64, lead_sine: f64 },
+    /// One HD-pipeline node's complete carried state: the 38 cells the emitter
+    /// keeps in `Carries::hd_acc[k]` (`K_HOMODYNEDISCRIMINATOR`,
+    /// `K_INSTANTANEOUSTRENDLINE` and `K_MAMA` all maintain that cell through the
+    /// hand module's own `hd_step`, so the kernel already holds the whole
+    /// pipeline — five stage rings plus six IIR/period scalars).
+    ///
+    /// The consumer maps the cell back to its typed rings through
+    /// `homodynediscriminator::hd_state_from_acc`, the single bridge between the
+    /// two representations. `extras` is `kvacc[k]`, which the composite kinds use
+    /// for their own feedback scalars and `homodynediscriminator` leaves zeroed.
+    /// `st` is that node's `st[k]` slot: `K_MAMA`'s emitter parks its live `alpha`
+    /// there for the companion `Fama` node to read, so the value travels with the
+    /// cell instead of being re-derived (it needs the PREVIOUS bar's phase, which
+    /// no carry keeps). The other two kinds leave it zeroed.
+    HdPipeline {
+        acc: Vec<f64>,
+        extras: [f64; 3],
+        st: f64,
+    },
+    /// CyberCycle carry (`K_CYBERCYCLE`, and with it `trendmode`/`ccfisher`, which
+    /// compose the same node): the IIR feedback pair the emitter keeps in
+    /// `kvacc[k]` as `[Cycle[t], Cycle[t-1], 0.0]`, named here exactly as the hand
+    /// names its fields so a resumed `Cycle[t+1]` reads the same two floats.
+    ///
+    /// What is deliberately NOT here: the price and smooth rings. The steady arm
+    /// (`emit_scalar.rs`'s `Kind::Cybercycle`) does not carry them at all — it
+    /// re-reads the raw stream at `sub(1..5)` — so the last six prices of the
+    /// window rebuild both buffers, and they rebuild them BIT-identically because
+    /// the smooth is a pure 4-tap function of prices spelled the same way in the
+    /// hand's `calc`, the emitter and the interpreter (unlike an IIR accumulator,
+    /// where rebuild ≠ carry; see `SdftRotate`). The three coefficients are a pure
+    /// function of `alpha`, so they come from `multiplier(alpha)`, not a carry.
+    CyberCycle { cycle_prev: f64, cycle_prev2: f64 },
+    /// Parabolic SAR carry (`K_PSAR`): the three fields the emitter keeps in
+    /// `kvacc[k]` as `[psar, extream, accel]` after each step, plus the trend
+    /// flip-flop it stores in `st[k]` as `1.0`/`0.0` — the same convention
+    /// `K_KVOFLOW` uses, read the same way (`!= 0.0`).
+    ///
+    /// `af_step` and `max_af` are deliberately absent: they are the request's two
+    /// options, which the emitter bakes into `mults[k]`/`invms[k]` and a restorer
+    /// therefore reads from the OPTIONS vector rather than from a carry.
+    Psar {
+        psar: f64,
+        extream: f64,
+        accel: f64,
+        uptrend: bool,
+    },
     /// `Node::RollSum`'s own ring, when the hand state needs the raw WINDOW
     /// content (not just the running `sum`) — e.g. `mass`'s `buffer: Buffer`
     /// of past `mass` ratios, which the generic `ChainState::Sma` shape

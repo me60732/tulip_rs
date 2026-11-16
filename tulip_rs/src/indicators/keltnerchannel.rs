@@ -7,8 +7,8 @@ pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
 use crate::indicators::{
-    atr::{multiplier as atr_multiplier, State as AtrState},
-    ema::{multiplier as ema_multiplier, State as EmaState},
+    atr::{multiplier as atr_multiplier, Atr, State as AtrState},
+    ema::{multiplier as ema_multiplier, Ema, State as EmaState},
     tr::Tr,
 };
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
@@ -301,25 +301,75 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for KeltnerChannel {
     const KIND: &'static str = "keltnerchannel";
 
     fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
+        v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
+        Self::restore_state_with(v, windows, &[])
+    }
+
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        // Qualified, not imported: `ChainState::Ema` would otherwise shadow the
+        // `ema::Ema` indicator type this function calls through.
+        use crate::cse::ChainState;
+        // COMPOSED, not reimplemented: the state is `atr_state` + `ema_state`, and
+        // each is rebuilt by that indicator's OWN restorer, so there is one ATR/EMA
+        // reconstruction in the crate rather than three. `Atr::restore_state` wants
+        // its `[Wilders, Mirror]` pair in the order `recipes::atr` declares.
+        //
+        // Two bugs this replaces, both visible only because the probe runs
+        // non-default options:
+        //   * `step` was hard-coded `2.0` behind the comment "fallback when recipe
+        //     tail does not carry `step` yet" — the tail now carries everything the
+        //     state needs, and `step` comes from the request;
+        //   * `period` was `windows[0].len() - 1`, i.e. the length of whatever the
+        //     router handed in stood in for the parameter (the `mom` class).
+        //     The periods are read back out of the chains instead, which is what
+        //     makes a mismatched request impossible to answer.
+        let [ChainState::Wilders {
+            value: atr,
+            period: atr_period,
+        }, ChainState::Ema {
+            value: ema,
+            period: ema_period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
         let [high, low, close] = windows else {
             return None;
         };
+        let step = *options.get(1)?;
         if high.len() < 2 || low.len() != high.len() || close.len() != high.len() {
             return None;
         }
-
-        let period = high.len() - 1;
-        if period == 0 {
-            return None;
-        }
-        // Fallback when recipe tail does not carry `step` yet.
-        let step = 2.0_f64;
-
-        let mut tr_line = vec![0.0_f64; period.saturating_sub(1)];
-        let state = State::init_state(high, low, close, period, step, &mut tr_line);
-        Some(state)
+        // `tr_state`'s `prev_close` for the NEXT bar is the seam bar's close — a raw
+        // price, so the column holds it bit-for-bit and no `Mirror` node is needed.
+        let prev_close = *close.last()?;
+        let atr_state = <Atr as crate::cse::Restorable<3, 1>>::restore_state(
+            vec![
+                ChainState::Wilders {
+                    value: *atr,
+                    period: *atr_period,
+                },
+                ChainState::Mirror { value: prev_close },
+            ],
+            &[],
+        )?;
+        let ema_state = <Ema as crate::cse::Restorable<1, 1>>::restore_state(
+            vec![ChainState::Ema {
+                value: *ema,
+                period: *ema_period,
+            }],
+            &[],
+        )?;
+        Some(State {
+            atr_state,
+            ema_state,
+            step,
+        })
     }
 }

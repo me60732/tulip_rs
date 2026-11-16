@@ -445,6 +445,64 @@ impl crate::cse::Planable for Cybercycle {
     }
 }
 
+/// The single bridge between the kernel's CyberCycle carry and the hand's typed
+/// state — the counterpart of `homodynediscriminator::hd_state_from_acc`.
+///
+/// The kernel carries NO rings for this node: `emit_scalar`'s steady arm re-reads
+/// the raw stream at `sub(1..5)`, so `tail` (the caller's price window, whose last
+/// six bars are used) rebuilds both buffers. That is the ONE case where a rebuild
+/// is the same float the hand pushed rather than a near-miss: the smooth is a pure
+/// 4-tap function of prices, spelled with the identical `mul_add` pair in
+/// `State::<Warm>::calc`, in the emitter and in `warmup.rs`'s interpreter.
+///
+/// Slot mapping is the forced one, not a choice: age `a` sits at
+/// `vals[(N - a) % N]` with `index == 1`, so the next push overwrites the oldest
+/// and the previous newest moves to age 1 — exactly what a full ring expects.
+///
+/// `cycle_prev`/`cycle_prev2` are left zeroed here: they are the carried half of
+/// the state and each caller overlays them from `ChainState::CyberCycle`.
+pub(crate) fn cc_state_from_tail(tail: &[f64], alpha: f64) -> Option<State<Warm>> {
+    if tail.len() < 6 {
+        return None;
+    }
+    let (coef, d1, d2) = multiplier(alpha);
+    let len = tail.len();
+
+    let mut price_vals = [0.0_f64; 4];
+    for a in 0..4 {
+        price_vals[(4 - a) % 4] = tail[len - 1 - a];
+    }
+
+    let mut smooth_vals = [0.0_f64; 3];
+    for a in 0..3 {
+        // smooth(age a) = (P[a] + 2·P[a+1] + 2·P[a+2] + P[a+3]) / 6, spelled as the
+        // hand spells it so the value is byte-identical to the one it pushed.
+        let ab = 2.0_f64.mul_add(tail[len - 2 - a], tail[len - 1 - a]);
+        let cd = 2.0_f64.mul_add(tail[len - 3 - a], tail[len - 4 - a]);
+        smooth_vals[(3 - a) % 3] = (ab + cd) * (1.0 / 6.0);
+    }
+
+    Some(State::<Warm> {
+        price_buf: FixedRingBuffer {
+            vals: price_vals,
+            index: 1,
+            count: 4,
+            state: std::marker::PhantomData,
+        },
+        smooth_buf: FixedRingBuffer {
+            vals: smooth_vals,
+            index: 1,
+            count: 3,
+            state: std::marker::PhantomData,
+        },
+        cycle_prev: 0.0,
+        cycle_prev2: 0.0,
+        coef,
+        d1,
+        d2,
+    })
+}
+
 impl crate::cse::Restorable<INPUTS, OPTIONS> for Cybercycle {
     const KIND: &'static str = "cybercycle";
 
@@ -452,29 +510,43 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Cybercycle {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let alpha = v
-            .iter()
-            .find_map(|s| {
-                if let crate::cse::ChainState::Mirror { value } = s {
-                    Some(*value)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0.07);
-        if !(alpha > 0.0 && alpha < 1.0) {
+        Self::restore_state_with(v, windows, &[])
+    }
+
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        // CARRIED feedback, rebuilt rings, OPTIONS for alpha — and no window
+        // re-warm. The two cycle values are the IIR state the kernel hoists in
+        // `kvacc[k]`; re-running `init_state` over the window instead would seed
+        // them with the second-difference formula the real history outgrew
+        // `min_data` bars ago, which is the false-green this phase keeps catching.
+        //
+        // `alpha` cannot come from the chains at all (the old spelling hunted
+        // `Mirror` entries and fell back to 0.07, silently restoring a different
+        // filter for any non-default request), and adaptive mode (`alpha == 0.0`,
+        // coefficients re-derived every bar from an HD) is not what this node
+        // composes, so it is refused rather than approximated.
+        use crate::cse::ChainState::CyberCycle;
+        let [CyberCycle {
+            cycle_prev,
+            cycle_prev2,
+        }] = v.as_slice()
+        else {
             return None;
-        }
+        };
         let [real] = windows else {
             return None;
         };
-        if real.len() < Self::min_data(&[alpha]) {
+        let alpha = *options.first()?;
+        if !(alpha > 0.0 && alpha < 1.0) {
             return None;
         }
-
-        let mut cycle_line = [0.0_f64];
-        let mut trigger_line = [0.0_f64];
-        let state = State::init_state(real, alpha, &mut cycle_line, &mut trigger_line);
+        let mut state = cc_state_from_tail(real, alpha)?;
+        state.cycle_prev = *cycle_prev;
+        state.cycle_prev2 = *cycle_prev2;
         Some(state)
     }
 }

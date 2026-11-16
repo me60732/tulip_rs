@@ -227,7 +227,17 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for QStick {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
+        // The tail node is a `Node::RollSum`, which decodes as `RollSumRing`
+        // (the shape a `Kind::RollSum` exports), NOT `ChainState::Sma` — matching
+        // `Sma` here declined the engine's own carries. Only `sum` and `period`
+        // are read; the ring belongs to the node's group, not to this state.
+        let [crate::cse::ChainState::RollSumRing {
+            sum,
+            period,
+            ring: _,
+            cursor: _,
+        }] = v.as_slice()
+        else {
             return None;
         };
         if windows.len() < 2 {

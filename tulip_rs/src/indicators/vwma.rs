@@ -238,9 +238,19 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Vwma {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma { sum, period }, crate::cse::ChainState::Sma {
+        // Both tails are `Node::RollSum` nodes → `RollSumRing`, not `Sma` (see
+        // the `qstick` restorer for the same correction). `sum`/`vol_sum` are the
+        // two rolling numerators this state carries.
+        let [crate::cse::ChainState::RollSumRing {
+            sum,
+            period,
+            ring: _,
+            cursor: _,
+        }, crate::cse::ChainState::RollSumRing {
             sum: vol_sum,
             period: period2,
+            ring: _,
+            cursor: _,
         }] = v.as_slice()
         else {
             return None;

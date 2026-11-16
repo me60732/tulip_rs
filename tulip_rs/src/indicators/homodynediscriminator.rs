@@ -475,16 +475,27 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for HomodyneDiscriminator {
     const KIND: &'static str = "homodynediscriminator";
 
     fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
+        v: Vec<crate::cse::ChainState>,
+        _windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [real] = windows else {
+        // CARRIED, or nothing. The kernel keeps the entire pipeline in one 38-cell
+        // (`Carries::hd_acc[k]`) because the steady loop calls this module's own
+        // `hd_step` on it, so the bridge is the correct restore and an absent cell
+        // is a refusal, not a cue to re-warm: these IIR stages carry their seed
+        // forever, so re-running `init_state` over a window yields a *plausible*
+        // state that resumes wrong — the exact failure mode this phase keeps
+        // catching. It also keeps the capture suite's non-vacuity control honest:
+        // restoring from NO chains must refuse, which is what proves the carried
+        // cell is load-bearing here rather than decorative.
+        let [crate::cse::ChainState::HdPipeline { acc, .. }] = v.as_slice() else {
             return None;
         };
-        if real.len() < Self::min_data(&[]) {
+        if acc.len() != HD_ACC_LEN {
             return None;
         }
-        Some(State::init_state(real))
+        let mut cell = [0.0_f64; HD_ACC_LEN];
+        cell.copy_from_slice(acc);
+        Some(hd_state_from_acc(&cell))
     }
 }
 
@@ -641,6 +652,65 @@ pub(crate) fn hd_step_with_iq(acc: &mut [f64; HD_ACC_LEN], price: f64) -> (f64, 
 }
 
 #[inline(always)]
+/// One HD pipeline node's flat accumulator cell → the typed warm `State`.
+///
+/// The kernel and the hand implement the SAME pipeline in two representations:
+/// the emitter carries `Carries::hd_acc[k]` (the 38 cells this module's own
+/// `hd_step` maintains), while a resumable hand state is a struct of
+/// `FixedRingBuffer`s plus six scalars. This is the only bridge between them, so
+/// the two cannot drift apart silently.
+///
+/// The index mapping is the subtle part and it is forced, not chosen:
+/// `hd_ring_push` keeps the NEWEST value at `acc[off]` with age `a` at
+/// `acc[off + a]`, while `period_to_idx` resolves age `a` to slot
+/// `index − a − 1`. Those agree for every age only when `index == 1` and the
+/// slots are written as `vals[(N − a) % N]` — which also leaves the next push
+/// (at `index == 1`) landing exactly where a full ring expects the new newest,
+/// with the previous newest at slot 0 becoming age 1.
+pub(crate) fn hd_state_from_acc(acc: &[f64; HD_ACC_LEN]) -> State<Warm> {
+    fn shift_to_ring<const N: usize>(
+        acc: &[f64; HD_ACC_LEN],
+        off: usize,
+    ) -> FixedRingBuffer<f64, N, Warm> {
+        let mut vals = [0.0_f64; N];
+        for a in 0..N {
+            vals[(N - a) % N] = acc[off + a];
+        }
+        FixedRingBuffer {
+            vals,
+            index: 1,
+            count: N,
+            state: std::marker::PhantomData,
+        }
+    }
+
+    // Stage 3 stores the `[I1, Q1]` pair as ONE 2-lane ring; the accumulator
+    // keeps them as two separate 7-cell shift registers (offsets 18 and 25),
+    // because the emitter's kernels read each lane independently.
+    let mut iq_vals = [Simd::<f64, 2>::splat(0.0); 7];
+    for a in 0..7 {
+        iq_vals[(7 - a) % 7] = Simd::from_array([acc[18 + a], acc[25 + a]]);
+    }
+
+    State {
+        price_buf: shift_to_ring::<4>(acc, 0),
+        smooth_buf: shift_to_ring::<7>(acc, 4),
+        detrender_buf: shift_to_ring::<7>(acc, 11),
+        iq1_buf: FixedRingBuffer {
+            vals: iq_vals,
+            index: 1,
+            count: 7,
+            state: std::marker::PhantomData,
+        },
+        i2_prev: acc[32],
+        q2_prev: acc[33],
+        re_prev: acc[34],
+        im_prev: acc[35],
+        period: acc[36],
+        smooth_period: acc[37],
+    }
+}
+
 pub(crate) fn hd_step(acc: &mut [f64; HD_ACC_LEN], price: f64) -> f64 {
     hd_step_with_iq(acc, price).0
 }

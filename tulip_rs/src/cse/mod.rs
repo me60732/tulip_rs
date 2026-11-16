@@ -95,7 +95,9 @@ pub use kernel::{
 // ── Leaf vocabulary (Phase 1 + 2, "recipes as data") ─────────────────────
 // Item paths AND module paths (`crate::cse::signature::K_*`, …) preserved.
 pub use tulip_rs_shared::cse::lowering;
-pub use tulip_rs_shared::cse::{erase, Carries, RingExport, Signature, Values, MAX, MAX_SINKS};
+pub use tulip_rs_shared::cse::{
+    erase, Carries, Column, RingExport, Signature, Values, MAX, MAX_SINKS,
+};
 pub use tulip_rs_shared::cse::{merge, Merged, Resolved};
 // Carries → ChainState, the hop between the kernel epilogue and `Restorable`.
 pub use tulip_rs_shared::cse::decode;

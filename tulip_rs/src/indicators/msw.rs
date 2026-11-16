@@ -356,11 +356,50 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Msw {
         let [real] = windows else {
             return None;
         };
+        // Without options this could only GUESS the period, and it guessed the
+        // window length — see `restore_state_with` below, which is the honest
+        // path. Kept as the two-parameter contract for callers that hand an exact
+        // `period`-bar tail, which is what it assumes.
         let period = real.len();
         if period == 0 {
             return None;
         }
         Some(IndicatorState::new(real, period, multiplier(period)))
+    }
+
+    /// The state is the carried SDFT pair plus the request's period.
+    ///
+    /// Two separate errors lived here, both found by measurement rather than
+    /// reading: the period came from the window length (the `mom` class — the
+    /// router hands full columns), and the accumulators were re-derived by
+    /// `IndicatorState::new` from a window DFT. That rebuild is documented as
+    /// identical to the final accumulator and is NOT: resuming from it measured
+    /// 295/300 rows wrong. So `(rp, ip)` now come from `K_SDFTROTATE`'s carried
+    /// triple, and the window only supplies the sliding tail the next bar evicts
+    /// from. `lead_sine` is the engine's cached value for its `SdftLead`
+    /// companion; the hand recomputes it from `(rp, ip)`, so it is not part of
+    /// this state and is deliberately unused.
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        use crate::cse::ChainState::SdftRotate;
+        let [SdftRotate { rp, ip, .. }] = v.as_slice() else {
+            return None;
+        };
+        let [real] = windows else {
+            return None;
+        };
+        let period = *options.first()? as usize;
+        if period == 0 || real.len() < period {
+            return None;
+        }
+        let tail = &real[real.len() - period..];
+        let mut state = IndicatorState::new(tail, period, multiplier(period));
+        state.state.rp = *rp;
+        state.state.ip = *ip;
+        Some(state)
     }
 }
 

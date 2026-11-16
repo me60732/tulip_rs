@@ -250,11 +250,14 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Cmo {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        use crate::cse::ChainState::{Mirror, Sma};
-        let [Sma {
+        use crate::cse::ChainState::{Mirror, RollSumRing};
+        // The two sums are `Node::RollSum` → `RollSumRing`, not `Sma`.
+        let [RollSumRing {
             sum: up_sum,
             period,
-        }, Sma { sum: down_sum, .. }, Mirror { value: prev }, Mirror { value: drop_real }] =
+            ring: _,
+            cursor: _,
+        }, RollSumRing { sum: down_sum, .. }, Mirror { value: prev }, Mirror { value: drop_real }] =
             v.as_slice()
         else {
             return None;
