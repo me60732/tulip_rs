@@ -296,8 +296,15 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Vhf {
         if windows.is_empty() || windows[0].len() < period + 1 {
             return None;
         }
+        // `State::init_state` seeds from the FIRST bars of what it is handed
+        // (it sums `|Δ|` for bars `1..=period`), so it must receive exactly the
+        // last `period + 1` bars — the router's full-column window otherwise
+        // built the state at bar `period` instead of at the seam, which showed up
+        // as 14/300 resumed rows wrong from row 0 and then convergence once the
+        // `period`-wide buffer refilled (measured 2026-11-16).
+        let tail = &windows[0][windows[0].len() - (period + 1)..];
         let mut scratch = [0.0_f64];
-        let state = State::init_state(windows[0], period, &mut scratch);
-        Some(IndicatorState::new(state, windows[0], period))
+        let state = State::init_state(tail, period, &mut scratch);
+        Some(IndicatorState::new(state, tail, period))
     }
 }

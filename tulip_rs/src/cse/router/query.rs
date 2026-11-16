@@ -298,17 +298,99 @@ pub enum IndicatorStateBox {
     /// (prev_real). The hand's full continuable `IndicatorState` (`{buffer,
     /// stddev_state, prev_real}`); window-stitched as with other rolling kinds.
     Volatility(crate::indicators::volatility::IndicatorState),
+    /// The five kinds whose capture→decode→restore path is gated end-to-end in
+    /// `cse_state_capture_test.rs` (`engine_carry_{kvo,hilbert,supertrend,adxr,
+    /// mass}_*`) and which were therefore unreachable through the router until
+    /// their arms were added below: no box variant meant no `restorer_for` arm.
+    Kvo(crate::indicators::kvo::State<Warm>),
+    HilbertTransform(crate::indicators::hilberttransform::State<Warm>),
+    SuperTrend(crate::indicators::supertrend::State<Warm>),
+    Adxr(crate::indicators::adxr::State<Warm>),
+    Mass(crate::indicators::mass::State<Warm>),
+    /// C9 batch 1 — the six kinds gated by
+    /// `c9_batch1_dm_di_dx_adx_atr_natr_continue_bit_exact` before any wiring.
+    /// Their tails are built only from `Wilders` + `Mirror` slots, both of which
+    /// the decode table already answers.
+    Atr(crate::indicators::atr::State<Warm>),
+    Natr(crate::indicators::natr::State<Warm>),
+    Dm(crate::indicators::dm::State<Warm>),
+    Di(crate::indicators::di::State<Warm>),
+    Dx(crate::indicators::dx::State<Warm>),
+    Adx(crate::indicators::adx::State<Warm>),
+    /// C9 batch 2 — the seven kinds `c9_batch2_group1_kinds_continue_bit_exact`
+    /// proves resume bit-exactly from engine captures. The eight kinds that did
+    /// NOT pass are deliberately absent (their names are pinned in that gate's
+    /// expected-failure list, so a future pass shows up as a test change rather
+    /// than as a silent wiring).
+    Tr(crate::indicators::tr::State),
+    Ad(crate::indicators::ad::IndicatorState),
+    BBands(crate::indicators::bbands::IndicatorState),
+    Cvi(crate::indicators::cvi::State<Warm>),
+    Elderray(crate::indicators::elderray::State<Warm>),
+    ChandelierExit(crate::indicators::chandelierexit::IndicatorState),
+    Trvi(crate::indicators::trvi::State<Warm>),
+    /// C11.3's first migration: `mom`'s state is a raw price tail, so it is the
+    /// kind whose restore needs the OPTIONS contract — the window length is not
+    /// its period (see `mom.rs`'s `restore_state_with`).
+    Mom(crate::indicators::mom::IndicatorState),
+    /// C11.3: `medprice`'s hand state is a UNIT STRUCT — the indicator carries no
+    /// data across bars. The variant exists so the router can honestly answer a
+    /// state request for it; resuming one is exactly recomputing the chunk.
+    Medprice(crate::indicators::medprice::IndicatorState),
+    /// C11.3: EF's state is the rolling `|Δreal|` sum plus the hand's two scalar
+    /// retentions, all three captured — reachable once the recipe mirrored `real`
+    /// for `prev` at the right depth.
+    Ef(crate::indicators::ef::IndicatorState),
+    /// C11.3: `vhf`'s state is its own `init_state` over the last `period + 1`
+    /// bars — reachable once the restorer sliced that tail instead of trusting
+    /// the window it was handed.
+    Vhf(crate::indicators::vhf::IndicatorState),
+    /// C11.3 / C12: AO's whole state is its two rolling sums and the 34-wide
+    /// medprice ring, all carried. Reachable once `decode` could age-read a
+    /// narrow member out of a wide shared ring group.
+    Ao(crate::indicators::ao::State<Warm>),
+    /// C12: `md`'s whole state is one rolling sum, carried off its `RollSum` node.
+    Md(crate::indicators::md::IndicatorState),
+    /// C12: CCI's state is the typprice ring plus the sma sum, both already in the
+    /// one `RollSum` chain its recipe publishes — no `MeanAbsDev` variant needed.
+    Cci(crate::indicators::cci::IndicatorState),
+    /// C12: stoch's eight state values are all carried — two extremum trackers,
+    /// two sums, and the two rings those sums evict from.
+    Stoch(crate::indicators::stoch::IndicatorState),
+    /// C12: ADOSC's state is two EMA chains plus the AD accumulator mirrored off
+    /// its `Accum` node — no new variant was required.
+    Adosc(crate::indicators::adosc::State<Warm>),
+    /// C12: the NVI/PVI carries were recorded as needing new vocabulary; the
+    /// recipes already export them as three `Mirror`s (carry, `close`, `volume`).
+    Nvi(crate::indicators::nvi::IndicatorState),
+    Pvi(crate::indicators::pvi::IndicatorState),
+    /// C11.5: fisher's two IIR carries come from the chain (`IirClamped` and the
+    /// `Prev` node decoded through the `Mirror` shape), the ring from an exactly
+    /// `period`-bar tail, and the period from the request's options.
+    Fisher(crate::indicators::fisher::IndicatorState),
+    /// C12: ULTOSC's six bp/tr accumulators are the graph's own `RollSum`
+    /// members; only its `(bp, tr)` ring is rebuilt, from the exact tail.
+    Ultosc(crate::indicators::ultosc::IndicatorState),
+    /// C14: stochrsi's state is the grafted `rsi`'s carries, the two rolls'
+    /// `(value, trail)`, and the roll's own exported window as a `MirrorBuffer`.
+    StochRsi(crate::indicators::stochrsi::IndicatorState),
     Other,
 }
 
 /// Rebuild one hand `IndicatorState` from its arena chain states — the
-/// signature every indicator's `restore_state` matches.
-pub type StateRestorer = fn(Vec<ChainState>, &[&[f64]]) -> IndicatorStateBox;
+/// signature every trait-path restorer matches.
+///
+/// The third parameter is the request's own options vector, delivered to
+/// `Restorable::restore_state_with`. Every entry in `restorer_for` forwards it;
+/// the trait's default ignores it, so a kind behaves exactly as it did under the
+/// two-parameter contract until it opts in (see the `restore_state_with` doc for
+/// why a window length is not always a substitute).
+pub type StateRestorer = fn(Vec<ChainState>, &[&[f64]], &[f64]) -> IndicatorStateBox;
 
 /// Option-aware restorer used when the caller has the concrete request options
 /// and wants exact state reconstruction for option-sensitive indicators.
 pub type StateRestorerWithOptions = Box<
-    dyn for<'a, 'b> Fn(Vec<ChainState>, &'a [&'b [f64]]) -> IndicatorStateBox
+    dyn for<'a, 'b, 'c> Fn(Vec<ChainState>, &'a [&'b [f64]], &'c [f64]) -> IndicatorStateBox
         + Send
         + Sync
         + 'static,
@@ -317,280 +399,288 @@ pub type StateRestorerWithOptions = Box<
 /// The kind → restorer table. Phase 1 of "recipes as data" removed the
 /// `Recipe.restorer` field (the leaf crate cannot type a runtime restorer),
 /// so the recipe's identity stays a string and this table resolves it.
-/// The entries are EXACTLY the 18 kinds whose recipes set
-/// `r.restorer = Some(restore_state)` at the pre-JIT-retirement HEAD
-/// (`git grep "r.restorer = Some"`) — a phantom entry here would claim the
-/// engine can rebuild a hand state it has no wiring for, changing
-/// `get_states` behavior; unknown kinds fall to `None`, mirroring the old
-/// absent-field path (caller yields `IndicatorStateBox::Other`).
+///
+/// Every arm in this table joins on the `<Type as Restorable<I, OP>>::KIND`
+/// constant, never on a string literal, so the table cannot drift from the impl
+/// it names. The rule for
+/// adding one is gate-first: a kind enters only after
+/// `cse_state_capture_test.rs` proves its captured carries decode and its resume
+/// is bit-exact against an uninterrupted hand run. A phantom arm would promise a
+/// continuable state on reasoning alone; unknown kinds fall to `None` and the
+/// caller yields `IndicatorStateBox::Other`, which is how the hand path still
+/// serves them. Census 2026-11-16: **93 arms over 93 `Restorable` impls** — every
+/// `Planable` kind has an impl and an arm, and the join has no gap in either
+/// direction. `cse_state_capture_test.rs` holds the continuation gate for each
+/// kind whose resume was ever in doubt (the batch-2 probe's pinned failure list is
+/// now empty for exactly this reason).
 pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
     use crate::cse::Restorable;
     match kind {
-        k if k == <crate::indicators::ema::Ema as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::ema::Ema as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::ema::Ema as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::ema::Ema as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Ema)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::apo::Apo as Restorable<1, 2>>::KIND => Some(|v, w| {
-            <crate::indicators::apo::Apo as Restorable<1, 2>>::restore_state(v, w)
+        k if k == <crate::indicators::apo::Apo as Restorable<1, 2>>::KIND => Some(|v, w, o| {
+            <crate::indicators::apo::Apo as Restorable<1, 2>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Apo)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::macd::Macd as Restorable<1, 3>>::KIND => Some(|v, w| {
-            <crate::indicators::macd::Macd as Restorable<1, 3>>::restore_state(v, w)
+        k if k == <crate::indicators::macd::Macd as Restorable<1, 3>>::KIND => Some(|v, w, o| {
+            <crate::indicators::macd::Macd as Restorable<1, 3>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Macd)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::ppo::Ppo as Restorable<1, 2>>::KIND => Some(|v, w| {
-            <crate::indicators::ppo::Ppo as Restorable<1, 2>>::restore_state(v, w)
+        k if k == <crate::indicators::ppo::Ppo as Restorable<1, 2>>::KIND => Some(|v, w, o| {
+            <crate::indicators::ppo::Ppo as Restorable<1, 2>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Ppo)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::avgprice::AvgPrice as Restorable<4, 0>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::avgprice::AvgPrice as Restorable<4, 0>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::avgprice::AvgPrice as Restorable<4, 0>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::AvgPrice)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::typprice::Typprice as Restorable<3, 0>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::typprice::Typprice as Restorable<3, 0>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::typprice::Typprice as Restorable<3, 0>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Typprice)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::wcprice::WcPrice as Restorable<3, 0>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::wcprice::WcPrice as Restorable<3, 0>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::wcprice::WcPrice as Restorable<3, 0>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::WcPrice)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::bop::Bop as Restorable<4, 0>>::KIND => Some(|v, w| {
-            <crate::indicators::bop::Bop as Restorable<4, 0>>::restore_state(v, w)
+        k if k == <crate::indicators::bop::Bop as Restorable<4, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::bop::Bop as Restorable<4, 0>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Bop)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::marketfi::Marketfi as Restorable<3, 0>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::marketfi::Marketfi as Restorable<3, 0>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::marketfi::Marketfi as Restorable<3, 0>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Marketfi)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::wilders::Wilders as Restorable<1, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::wilders::Wilders as Restorable<1, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::wilders::Wilders as Restorable<1, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Wilders)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::sma::Sma as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::sma::Sma as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::sma::Sma as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::sma::Sma as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Sma)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::stddev::StdDev as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::stddev::StdDev as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::stddev::StdDev as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::stddev::StdDev as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Stddev)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::volatility::Volatility as Restorable<1, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::volatility::Volatility as Restorable<1, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::volatility::Volatility as Restorable<1, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Volatility)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::wma::Wma as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::wma::Wma as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::wma::Wma as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::wma::Wma as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Wma)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::max::Max as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::max::Max as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::max::Max as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::max::Max as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Max)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::min::Min as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::min::Min as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::min::Min as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::min::Min as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Min)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::rsi::Rsi as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::rsi::Rsi as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::rsi::Rsi as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::rsi::Rsi as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Rsi)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::hma::Hma as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::hma::Hma as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::hma::Hma as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::hma::Hma as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Hma)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::aroon::Aroon as Restorable<2, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::aroon::Aroon as Restorable<2, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::aroon::Aroon as Restorable<2, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::aroon::Aroon as Restorable<2, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Aroon)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::aroonosc::AroonOsc as Restorable<2, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::aroonosc::AroonOsc as Restorable<2, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::aroonosc::AroonOsc as Restorable<2, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::AroonOsc)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::willr::Willr as Restorable<3, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::willr::Willr as Restorable<3, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::willr::Willr as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::willr::Willr as Restorable<3, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Willr)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k
             == <crate::indicators::donchianchannel::DonchianChannel as Restorable<2, 1>>::KIND =>
         {
-            Some(|v, w| {
-                <crate::indicators::donchianchannel::DonchianChannel as Restorable<2, 1>>::restore_state(
-                    v, w,
+            Some(|v, w, o| {
+                <crate::indicators::donchianchannel::DonchianChannel as Restorable<2, 1>>::restore_state_with(
+                    v, w, o,
                 )
                 .map(IndicatorStateBox::DonchianChannel)
                 .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::ichimoku::Ichimoku as Restorable<3, 2>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::ichimoku::Ichimoku as Restorable<3, 2>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::ichimoku::Ichimoku as Restorable<3, 2>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Ichimoku)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::cmo::Cmo as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::cmo::Cmo as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::cmo::Cmo as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::cmo::Cmo as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Cmo)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::dema::Dema as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::dema::Dema as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::dema::Dema as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::dema::Dema as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Dema)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::tema::Tema as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::tema::Tema as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::tema::Tema as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::tema::Tema as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Tema)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::trix::Trix as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::trix::Trix as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::trix::Trix as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::trix::Trix as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Trix)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::roc::Roc as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::roc::Roc as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::roc::Roc as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::roc::Roc as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Roc)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::rocr::Rocr as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::rocr::Rocr as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::rocr::Rocr as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::rocr::Rocr as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Rocr)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::qstick::QStick as Restorable<2, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::qstick::QStick as Restorable<2, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::qstick::QStick as Restorable<2, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::qstick::QStick as Restorable<2, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Qstick)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::zlema::Zlema as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::zlema::Zlema as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::zlema::Zlema as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::zlema::Zlema as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Zlema)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::highpass::HighPass as Restorable<1, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::highpass::HighPass as Restorable<1, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::highpass::HighPass as Restorable<1, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Highpass)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::supersmoother::SuperSmoother as Restorable<1, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::supersmoother::SuperSmoother as Restorable<1, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::supersmoother::SuperSmoother as Restorable<1, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Supersmoother)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::roofingfilter::RoofingFilter as Restorable<1, 2>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::roofingfilter::RoofingFilter as Restorable<1, 2>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::roofingfilter::RoofingFilter as Restorable<1, 2>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Roofingfilter)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::dpo::Dpo as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::dpo::Dpo as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::dpo::Dpo as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::dpo::Dpo as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Dpo)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::emv::Emv as Restorable<3, 0>>::KIND => Some(|v, w| {
-            <crate::indicators::emv::Emv as Restorable<3, 0>>::restore_state(v, w)
+        k if k == <crate::indicators::emv::Emv as Restorable<3, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::emv::Emv as Restorable<3, 0>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Emv)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::obv::Obv as Restorable<2, 0>>::KIND => Some(|v, w| {
-            <crate::indicators::obv::Obv as Restorable<2, 0>>::restore_state(v, w)
+        k if k == <crate::indicators::obv::Obv as Restorable<2, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::obv::Obv as Restorable<2, 0>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Obv)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::wad::Wad as Restorable<3, 0>>::KIND => Some(|v, w| {
-            <crate::indicators::wad::Wad as Restorable<3, 0>>::restore_state(v, w)
+        k if k == <crate::indicators::wad::Wad as Restorable<3, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::wad::Wad as Restorable<3, 0>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Wad)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::vwap::Vwap as Restorable<4, 0>>::KIND => Some(|v, w| {
-            <crate::indicators::vwap::Vwap as Restorable<4, 0>>::restore_state(v, w)
+        k if k == <crate::indicators::vwap::Vwap as Restorable<4, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::vwap::Vwap as Restorable<4, 0>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Vwap)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::vwma::Vwma as Restorable<2, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::vwma::Vwma as Restorable<2, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::vwma::Vwma as Restorable<2, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::vwma::Vwma as Restorable<2, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Vwma)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::vosc::Vosc as Restorable<1, 2>>::KIND => Some(|v, w| {
-            <crate::indicators::vosc::Vosc as Restorable<1, 2>>::restore_state(v, w)
+        k if k == <crate::indicators::vosc::Vosc as Restorable<1, 2>>::KIND => Some(|v, w, o| {
+            <crate::indicators::vosc::Vosc as Restorable<1, 2>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Vosc)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::chaikinmf::ChaikinMf as Restorable<4, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::chaikinmf::ChaikinMf as Restorable<4, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::chaikinmf::ChaikinMf as Restorable<4, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Chaikinmf)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::mfi::Mfi as Restorable<4, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::mfi::Mfi as Restorable<4, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::mfi::Mfi as Restorable<4, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::mfi::Mfi as Restorable<4, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Mfi)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::vortex::Vortex as Restorable<3, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::vortex::Vortex as Restorable<3, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::vortex::Vortex as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::vortex::Vortex as Restorable<3, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Vortex)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::trima::Trima as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::trima::Trima as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::trima::Trima as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::trima::Trima as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Trima)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::adaptivemsw::AdaptiveMSW as Restorable<1, 0>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::adaptivemsw::AdaptiveMSW as Restorable<1, 0>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::adaptivemsw::AdaptiveMSW as Restorable<1, 0>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::AdaptiveMsw)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::cybercycle::Cybercycle as Restorable<1, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::cybercycle::Cybercycle as Restorable<1, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::cybercycle::Cybercycle as Restorable<1, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Cybercycle)
                     .unwrap_or(IndicatorStateBox::Other)
             })
@@ -598,93 +688,337 @@ pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
         k if k
             == <crate::indicators::instantaneoustrendline::InstantaneousTrendline as Restorable<1, 0>>::KIND =>
         {
-            Some(|v, w| {
-                <crate::indicators::instantaneoustrendline::InstantaneousTrendline as Restorable<1, 0>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::instantaneoustrendline::InstantaneousTrendline as Restorable<1, 0>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Instantaneoustrendline)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::mama::Mama as Restorable<1, 2>>::KIND => Some(|v, w| {
-            <crate::indicators::mama::Mama as Restorable<1, 2>>::restore_state(v, w)
+        k if k == <crate::indicators::mama::Mama as Restorable<1, 2>>::KIND => Some(|v, w, o| {
+            <crate::indicators::mama::Mama as Restorable<1, 2>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Mama)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
-        k if k == <crate::indicators::psar::Psar as Restorable<2, 2>>::KIND => Some(|v, w| {
-            <crate::indicators::psar::Psar as Restorable<2, 2>>::restore_state(v, w)
+        k if k == <crate::indicators::psar::Psar as Restorable<2, 2>>::KIND => Some(|v, w, o| {
+            <crate::indicators::psar::Psar as Restorable<2, 2>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Psar)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::trendmode::TrendMode as Restorable<1, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::trendmode::TrendMode as Restorable<1, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::trendmode::TrendMode as Restorable<1, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Trendmode)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::ccfisher::CcFisher as Restorable<1, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::ccfisher::CcFisher as Restorable<1, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::ccfisher::CcFisher as Restorable<1, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Ccfisher)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::fosc::Fosc as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::fosc::Fosc as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::fosc::Fosc as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::fosc::Fosc as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Fosc)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k
             == <crate::indicators::homodynediscriminator::HomodyneDiscriminator as Restorable<1, 0>>::KIND =>
         {
-            Some(|v, w| {
-                <crate::indicators::homodynediscriminator::HomodyneDiscriminator as Restorable<1, 0>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::homodynediscriminator::HomodyneDiscriminator as Restorable<1, 0>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Homodynediscriminator)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::kama::Kama as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::kama::Kama as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::kama::Kama as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::kama::Kama as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Kama)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k
             == <crate::indicators::keltnerchannel::KeltnerChannel as Restorable<3, 2>>::KIND =>
         {
-            Some(|v, w| {
-                <crate::indicators::keltnerchannel::KeltnerChannel as Restorable<3, 2>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::keltnerchannel::KeltnerChannel as Restorable<3, 2>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Keltnerchannel)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
         k if k == <crate::indicators::linreg::Linreg as Restorable<1, 1>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::linreg::Linreg as Restorable<1, 1>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::linreg::Linreg as Restorable<1, 1>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Linreg)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::msw::Msw as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::msw::Msw as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::msw::Msw as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::msw::Msw as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Msw)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::smaenvelope::SmaEnvelope as Restorable<1, 2>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::smaenvelope::SmaEnvelope as Restorable<1, 2>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::smaenvelope::SmaEnvelope as Restorable<1, 2>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Smaenvelope)
                     .unwrap_or(IndicatorStateBox::Other)
             })
         }
-        k if k == <crate::indicators::tsf::Tsf as Restorable<1, 1>>::KIND => Some(|v, w| {
-            <crate::indicators::tsf::Tsf as Restorable<1, 1>>::restore_state(v, w)
+        k if k == <crate::indicators::tsf::Tsf as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::tsf::Tsf as Restorable<1, 1>>::restore_state_with(v, w, o)
                 .map(IndicatorStateBox::Tsf)
                 .unwrap_or(IndicatorStateBox::Other)
         }),
         k if k == <crate::indicators::vidya::Vidya as Restorable<1, 3>>::KIND => {
-            Some(|v, w| {
-                <crate::indicators::vidya::Vidya as Restorable<1, 3>>::restore_state(v, w)
+            Some(|v, w, o| {
+                <crate::indicators::vidya::Vidya as Restorable<1, 3>>::restore_state_with(v, w, o)
                     .map(IndicatorStateBox::Vidya)
                     .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        // The five kinds whose chains are captured, decoded AND proven to
+        // continue bit-exactly by `cse_state_capture_test.rs` (`engine_carry_*`).
+        // Before these arms the router could not serve them AT ALL: the table
+        // covered 61 of the 93 `Restorable` impls, so a state the engine could
+        // build was unreachable from the only surface a caller uses. The census
+        // must join on the TYPE in `<…::Type as Restorable>` against the
+        // `Restorable<…> for Type` clause — a first pass joined module names
+        // against types (`ema` vs `Ema`) and looked like a different gap; both
+        // wrong joins were caught by the same check (an arm list that disagreed
+        // with a gate that had just passed). No impl is left armless: every kind
+        // the registry can compose now has a restorer that a continuation gate
+        // proved, so a state is never promised on reasoning alone.
+        k if k == <crate::indicators::kvo::Kvo as Restorable<4, 2>>::KIND => Some(|v, w, o| {
+            <crate::indicators::kvo::Kvo as Restorable<4, 2>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Kvo)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k
+            == <crate::indicators::hilberttransform::HilbertTransform as Restorable<1, 2>>::KIND =>
+        {
+            Some(|v, w, o| {
+                <crate::indicators::hilberttransform::HilbertTransform as Restorable<1, 2>>::restore_state_with(v, w, o)
+                    .map(IndicatorStateBox::HilbertTransform)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::supertrend::SuperTrend as Restorable<3, 2>>::KIND => {
+            Some(|v, w, o| {
+                <crate::indicators::supertrend::SuperTrend as Restorable<3, 2>>::restore_state_with(v, w, o)
+                    .map(IndicatorStateBox::SuperTrend)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::adxr::Adxr as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::adxr::Adxr as Restorable<3, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Adxr)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::mass::Mass as Restorable<2, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::mass::Mass as Restorable<2, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Mass)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C9 batch 1: gated first (`c9_batch1_dm_di_dx_adx_atr_natr_continue_bit_exact`),
+        // wired second — every one of the six resumed bit-exactly from the
+        // engine's own captures before these arms existed.
+        k if k == <crate::indicators::atr::Atr as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::atr::Atr as Restorable<3, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Atr)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::natr::Natr as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::natr::Natr as Restorable<3, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Natr)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::dm::Dm as Restorable<2, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::dm::Dm as Restorable<2, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Dm)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::di::Di as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::di::Di as Restorable<3, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Di)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::dx::Dx as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::dx::Dx as Restorable<3, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Dx)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::adx::Adx as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::adx::Adx as Restorable<3, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Adx)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C9 batch 2: gated first, wired second. Seven of fifteen group-1 kinds
+        // passed; the eight that did not (medprice, ao, mom, ef, vhf, ultosc,
+        // stochrsi, stoch) are NOT wired, so they keep falling to the hand path
+        // instead of shipping a state nobody proved.
+        k if k == <crate::indicators::tr::Tr as Restorable<3, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::tr::Tr as Restorable<3, 0>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Tr)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::ad::Ad as Restorable<4, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::ad::Ad as Restorable<4, 0>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Ad)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::bbands::BBands as Restorable<1, 2>>::KIND => {
+            Some(|v, w, o| {
+                <crate::indicators::bbands::BBands as Restorable<1, 2>>::restore_state_with(v, w, o)
+                    .map(IndicatorStateBox::BBands)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::cvi::Cvi as Restorable<2, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::cvi::Cvi as Restorable<2, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Cvi)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::elderray::Elderray as Restorable<3, 1>>::KIND => {
+            Some(|v, w, o| {
+                <crate::indicators::elderray::Elderray as Restorable<3, 1>>::restore_state_with(v, w, o)
+                    .map(IndicatorStateBox::Elderray)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k
+            == <crate::indicators::chandelierexit::ChandelierExit as Restorable<3, 2>>::KIND =>
+        {
+            Some(|v, w, o| {
+                <crate::indicators::chandelierexit::ChandelierExit as Restorable<3, 2>>::restore_state_with(v, w, o)
+                    .map(IndicatorStateBox::ChandelierExit)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        k if k == <crate::indicators::trvi::Trvi as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::trvi::Trvi as Restorable<3, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Trvi)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C11.3 first migration: gated FIRST
+        // (`engine_carry_mom_continues_bit_exact`, which also pins that the
+        // window-length spelling does NOT resume), wired second. This is the
+        // first kind whose arm only works because `StateRestorer` carries the
+        // options vector — its state is a price tail with no chain to decode, so
+        // before the shim the router's full-column window silently restored a
+        // different period.
+        k if k == <crate::indicators::mom::Mom as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::mom::Mom as Restorable<1, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Mom)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C11.3: gated by the batch-2 probe through `engine_stateless_family`.
+        // The state is a unit struct, so this arm carries no decode and no
+        // parameter — it exists so a medprice request stops withdrawing the
+        // router's state promise for want of an arm.
+        k if k == <crate::indicators::medprice::Medprice as Restorable<2, 0>>::KIND => {
+            Some(|v, w, o| {
+                <crate::indicators::medprice::Medprice as Restorable<2, 0>>::restore_state_with(
+                    v, w, o,
+                )
+                .map(IndicatorStateBox::Medprice)
+                .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        // C11.3: gated first by the batch-2 probe, which went from failing to
+        // passing when `recipes::ef` mirrored `real` instead of `Lag{real, 1}` for
+        // the hand's `prev` scalar. Its state is three carried scalars, so this is
+        // a genuine capture — no window replay, no re-initialization.
+        k if k == <crate::indicators::ef::Ef as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::ef::Ef as Restorable<1, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Ef)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C11.3: gated first by the batch-2 probe; it went bit-exact when
+        // `vhf::restore_state` started slicing the `period + 1` bars its
+        // `init_state` actually seeds from.
+        k if k == <crate::indicators::vhf::Vhf as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::vhf::Vhf as Restorable<1, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Vhf)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C12: gated first by the batch-2 probe. It went from last-bit divergence
+        // to bit-exact when the sums started being CARRIED (`tail_inputs` on the
+        // two SMA nodes) instead of re-summed by `init_state`.
+        k if k == <crate::indicators::ao::Ao as Restorable<2, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::ao::Ao as Restorable<2, 0>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Ao)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C12: gated by `engine_carry_md_continues_bit_exact`.
+        k if k == <crate::indicators::md::Md as Restorable<1, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::md::Md as Restorable<1, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Md)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C12: gated by `engine_carry_cci_continues_bit_exact`.
+        k if k == <crate::indicators::cci::Cci as Restorable<3, 1>>::KIND => Some(|v, w, o| {
+            <crate::indicators::cci::Cci as Restorable<3, 1>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Cci)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C12: gated by the batch-2 probe after `mn` joined `tail_inputs` and the
+        // restorer switched from `init_state` to the carried chains.
+        k if k == <crate::indicators::stoch::Stoch as Restorable<3, 3>>::KIND => Some(|v, w, o| {
+            <crate::indicators::stoch::Stoch as Restorable<3, 3>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Stoch)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C12: gated by `engine_carry_adosc_continues_bit_exact`.
+        k if k == <crate::indicators::adosc::Adosc as Restorable<4, 2>>::KIND => {
+            Some(|v, w, o| {
+                <crate::indicators::adosc::Adosc as Restorable<4, 2>>::restore_state_with(v, w, o)
+                    .map(IndicatorStateBox::Adosc)
+                    .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        // C12: gated by `engine_carry_nvi_pvi_continue_bit_exact`. Each is three
+        // carried scalars — the index itself plus the two gate inputs the next
+        // bar compares — so the resume continues the prefix product exactly.
+        k if k == <crate::indicators::nvi::Nvi as Restorable<2, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::nvi::Nvi as Restorable<2, 0>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Nvi)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        k if k == <crate::indicators::pvi::Pvi as Restorable<2, 0>>::KIND => Some(|v, w, o| {
+            <crate::indicators::pvi::Pvi as Restorable<2, 0>>::restore_state_with(v, w, o)
+                .map(IndicatorStateBox::Pvi)
+                .unwrap_or(IndicatorStateBox::Other)
+        }),
+        // C11.5: gated by `engine_carry_fisher_continues_bit_exact`.
+        k if k == <crate::indicators::fisher::Fisher as Restorable<2, 1>>::KIND => {
+            Some(|v, w, o| {
+                <crate::indicators::fisher::Fisher as Restorable<2, 1>>::restore_state_with(
+                    v, w, o,
+                )
+                .map(IndicatorStateBox::Fisher)
+                .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        // C12: gated by the batch-2 probe after its six sums started being
+        // exported and its `init_state` tail started being sliced.
+        k if k == <crate::indicators::ultosc::Ultosc as Restorable<3, 3>>::KIND => {
+            Some(|v, w, o| {
+                <crate::indicators::ultosc::Ultosc as Restorable<3, 3>>::restore_state_with(
+                    v, w, o,
+                )
+                .map(IndicatorStateBox::Ultosc)
+                .unwrap_or(IndicatorStateBox::Other)
+            })
+        }
+        // C14: gated by the batch-2 probe, which emptied the pinned failure list.
+        k if k == <crate::indicators::stochrsi::StochRsi as Restorable<1, 1>>::KIND => {
+            Some(|v, w, o| {
+                <crate::indicators::stochrsi::StochRsi as Restorable<1, 1>>::restore_state_with(
+                    v, w, o,
+                )
+                .map(IndicatorStateBox::StochRsi)
+                .unwrap_or(IndicatorStateBox::Other)
             })
         }
         _ => None,
@@ -693,15 +1027,24 @@ pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
 
 /// Option-aware resolver for state restoration.
 ///
-/// `restorer_for(kind)` remains as a compatibility path. This function should be
-/// preferred by callers that have the concrete recipe options available, because
-/// some indicator states cannot recover non-default option constants from chain
-/// payloads alone.
+/// Eight kinds (`cybercycle`, `trendmode`, `ccfisher`, `mama`, `psar`,
+/// `keltnerchannel`, `smaenvelope`, `vidya`) are special-cased here. Their entry
+/// is NOT a capture decode: it ignores the chain list and rebuilds the state by
+/// RE-RUNNING the hand `Indicator::indicator` over the caller's windows with the
+/// request's own option constants, so it must resolve the options up front and
+/// capture them in the closure. That is why they are keyed by string literal and
+/// live in a separate table from `restorer_for`, whose arms are all
+/// `<Type as Restorable>::KIND`-keyed chain decodes.
+///
+/// Every other kind falls through to `restorer_for`, which now forwards the same
+/// options vector to `Restorable::restore_state_with`; these eight are therefore
+/// migratable into their own `restore_state_with` impl, one at a time, and each
+/// migration deletes one arm from this table.
 pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRestorerWithOptions> {
     match kind {
         "cybercycle" => {
             let alpha = options.first().copied().unwrap_or(0.07);
-            Some(Box::new(move |_v, windows| {
+            Some(Box::new(move |_v, windows, _opts| {
                 let [real] = windows else {
                     return IndicatorStateBox::Other;
                 };
@@ -714,7 +1057,7 @@ pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRes
         }
         "trendmode" => {
             let alpha = options.first().copied().unwrap_or(0.07);
-            Some(Box::new(move |_v, windows| {
+            Some(Box::new(move |_v, windows, _opts| {
                 let [real] = windows else {
                     return IndicatorStateBox::Other;
                 };
@@ -726,7 +1069,7 @@ pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRes
         }
         "ccfisher" => {
             let alpha = options.first().copied().unwrap_or(0.07);
-            Some(Box::new(move |_v, windows| {
+            Some(Box::new(move |_v, windows, _opts| {
                 let [real] = windows else {
                     return IndicatorStateBox::Other;
                 };
@@ -739,7 +1082,7 @@ pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRes
         "mama" => {
             let fast_limit = options.first().copied().unwrap_or(0.5);
             let slow_limit = options.get(1).copied().unwrap_or(0.05);
-            Some(Box::new(move |_v, windows| {
+            Some(Box::new(move |_v, windows, _opts| {
                 let [real] = windows else {
                     return IndicatorStateBox::Other;
                 };
@@ -756,7 +1099,7 @@ pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRes
         "psar" => {
             let af_step = options.first().copied().unwrap_or(0.02);
             let max_af = options.get(1).copied().unwrap_or(0.2);
-            Some(Box::new(move |_v, windows| {
+            Some(Box::new(move |_v, windows, _opts| {
                 let [high, low] = windows else {
                     return IndicatorStateBox::Other;
                 };
@@ -773,7 +1116,7 @@ pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRes
         "keltnerchannel" => {
             let period = options.first().copied().unwrap_or(20.0);
             let step = options.get(1).copied().unwrap_or(2.0);
-            Some(Box::new(move |_v, windows| {
+            Some(Box::new(move |_v, windows, _opts| {
                 let [high, low, close] = windows else {
                     return IndicatorStateBox::Other;
                 };
@@ -790,7 +1133,7 @@ pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRes
         "smaenvelope" => {
             let period = options.first().copied().unwrap_or(20.0);
             let percentage = options.get(1).copied().unwrap_or(1.0);
-            Some(Box::new(move |_v, windows| {
+            Some(Box::new(move |_v, windows, _opts| {
                 let [real] = windows else {
                     return IndicatorStateBox::Other;
                 };
@@ -808,7 +1151,7 @@ pub fn restorer_for_with_options(kind: &str, options: &[f64]) -> Option<StateRes
             let short_period = options.first().copied().unwrap_or(5.0);
             let long_period = options.get(1).copied().unwrap_or(20.0);
             let alpha = options.get(2).copied().unwrap_or(0.2);
-            Some(Box::new(move |_v, windows| {
+            Some(Box::new(move |_v, windows, _opts| {
                 let [real] = windows else {
                     return IndicatorStateBox::Other;
                 };

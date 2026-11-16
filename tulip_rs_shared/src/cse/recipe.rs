@@ -47,19 +47,40 @@ pub enum ChainState {
     Wilders { value: f64, period: u32 },
     /// Rolling `sum` + `sum_sq` (the two recurrences hand stddev carries).
     Stddev { sum: f64, sum_sq: f64, period: u32 },
-    /// Rolling maximum (E9) — the carried extremum + the `trail`.
+    /// Rolling maximum (E9). `ring`/`cursor` are the window the roll reads:
+    ///
+    /// * a RING-backed roll (its `src` is a derived node, so the emitter feeds a
+    ///   ring group) exports that group's primary slots and `cursor = index * 8`.
+    ///   The consumer rebuilds its own container from them — a `MirrorBuffer`
+    ///   equivalently, because its second half is a duplicate of the first and is
+    ///   re-derived by writing `vals[..capacity]` twice (see `RingExport`);
+    /// * a RAW-source roll (its `src` is an input column) reads the stream
+    ///   itself, has no group, and therefore exports `ring == []` /
+    ///   `cursor == 0`. Those consumers (`aroon`, `willr`, `donchianchannel`,
+    ///   `ichimoku`, `min`) need only `value`/`trail`, and must not be handed a
+    ///   fabricated window.
+    ///
+    /// This is what makes a derived series' history exportable at all:
+    /// `stochrsi`'s hand state holds a `period`-deep ring of PAST RSI VALUES —
+    /// not recomputable from raw prices, since RSI is history-dependent — and the
+    /// engine already kept that window; `decode` was simply not handing it over.
     RollMax {
         value: f64,
         trail: u64,
         period: u32,
         look_back: u32,
+        ring: Vec<f64>,
+        cursor: u64,
     },
-    /// Rolling minimum (E9) — the mirror of [`ChainState::RollMax`].
+    /// Rolling minimum (E9) — the mirror of [`ChainState::RollMax`], same
+    /// `ring`/`cursor` contract.
     RollMin {
         value: f64,
         trail: u64,
         period: u32,
         look_back: u32,
+        ring: Vec<f64>,
+        cursor: u64,
     },
     /// Rolling raw `sum` + the weighted-sum trick line.
     Wma {
@@ -731,6 +752,15 @@ pub struct Grafted {
     pub primary: Id,
     pub outputs: Vec<Id>,
     pub optional: Vec<Id>,
+    /// The sub-recipe's own state channels, remapped into the parent arena.
+    ///
+    /// A graft that composes a real indicator inherits ITS resume contract, so
+    /// the parent must be able to keep exporting them: `stochrsi` grafts `rsi`
+    /// and its hand state holds `rsi`'s carries, which are exactly
+    /// `rsi`'s `tail_inputs`. Without this the parent can only re-run the
+    /// sub-recurrence, which restarts the accumulator's float history and is not
+    /// bit-exact.
+    pub tails: Vec<Id>,
 }
 
 impl Grafted {
@@ -914,6 +944,7 @@ impl Recipe {
                 .unwrap_or_else(|| *map.last().unwrap_or(&0)),
             outputs: sub.outputs.iter().map(iface).collect(),
             optional: sub.optional_outputs.iter().map(iface).collect(),
+            tails: sub.tail_inputs.iter().map(|&i| map[i as usize]).collect(),
         }
     }
 

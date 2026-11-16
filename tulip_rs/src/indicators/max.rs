@@ -348,6 +348,10 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Max {
             trail,
             period,
             look_back,
+            // Raw-source roll: the window lives in the input column, so no ring is
+            // exported and the carried `(value, trail)` is the whole state.
+            ring: _,
+            cursor: _,
         }] = v.as_slice()
         else {
             return None;

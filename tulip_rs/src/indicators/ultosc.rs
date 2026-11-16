@@ -417,14 +417,17 @@ impl crate::cse::Planable for Ultosc {
 /// isn't worth exporting field by field). Reading `init_state`'s loop
 /// bounds (`.skip(1).take(long_period)`, writing `ultosc_line[0]` at
 /// `i == long_period`) gives the exact minimum: valid indices run `1..=
-/// long_period`, so the tail needs `long_period + 1` bars, not one more.
-/// The three periods are recovered for free from the three `RollSum{mean:
-/// false}` groups `recipes::ultosc` already builds (`bp_s`/`bp_m`/`bp_l`)
-/// -- they report via `ChainState::Sma{period, ..}`, the same variant a
-/// `mean: true` group uses (the engine doesn't spell a separate kind for
-/// the non-mean roll); `bp_l` is already a live ancestor of the output, so
-/// `tail_inputs = vec![bp_s, bp_m, bp_l]` adds only two more liveness
-/// roots.
+/// long_period`, so the tail needs `long_period + 1` bars, not one more — and
+/// `init_state` reads them from the FRONT of whatever slice it is handed, so the
+/// restorer must slice that tail itself rather than trust the caller's window
+/// length (the router hands full columns).
+///
+/// The six sums are NOT rebuilt. `recipes::ultosc` now publishes all six
+/// `RollSum{mean: false}` members plus `Mirror{src: close}` for `prev_close`, and
+/// each decodes as `RollSumRing` (the claim that they report as
+/// `ChainState::Sma` was false — the probe measured slots `[8, 9, 10]`, kinds
+/// `[24, 24, 24]`). Re-summing a window is a different float from the
+/// incremental `sum += new - old` the hand carries, which is the `ao` lesson.
 impl crate::cse::Restorable<INPUTS, OPTIONS> for Ultosc {
     const KIND: &'static str = "ultosc";
 
@@ -432,21 +435,36 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Ultosc {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma { period: short, .. }, crate::cse::ChainState::Sma { period: medium, .. }, crate::cse::ChainState::Sma { period: long, .. }] =
+        use crate::cse::ChainState::{Mirror, RollSumRing};
+        let [RollSumRing {
+            sum: bp_s,
+            period: short,
+            ..
+        }, RollSumRing {
+            sum: bp_m,
+            period: medium,
+            ..
+        }, RollSumRing {
+            sum: bp_l,
+            period: long,
+            ..
+        }, RollSumRing { sum: tr_s, .. }, RollSumRing { sum: tr_m, .. }, RollSumRing { sum: tr_l, .. }, Mirror { value: prev_close }] =
             v.as_slice()
         else {
             return None;
         };
         let (short, medium, long) = (*short as usize, *medium as usize, *long as usize);
-        if windows.len() < 3 {
+        if short == 0 || medium == 0 || long == 0 || windows.len() < 3 {
             return None;
         }
-        let (high, low, close) = (windows[0], windows[1], windows[2]);
         let min_len = long + 1;
-        if high.len() < min_len || low.len() < min_len || close.len() < min_len {
+        if windows[0].len() < min_len || windows[1].len() < min_len || windows[2].len() < min_len {
             return None;
         }
-        let state = State::init_state(
+        let high = &windows[0][windows[0].len() - min_len..];
+        let low = &windows[1][windows[1].len() - min_len..];
+        let close = &windows[2][windows[2].len() - min_len..];
+        let mut state = State::init_state(
             high,
             low,
             close,
@@ -455,6 +473,17 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Ultosc {
             &mut [],
             &mut [],
         );
+        // The ring `init_state` just built IS the hand's — `(bp, tr)` is a
+        // pointwise function of `(high, low, close, prev_close)`, so the same
+        // bars produce the same values in the same slots. The accumulators are
+        // then overwritten with the carried sums, and `prev_close` with the
+        // mirrored close, exactly as `fisher`'s restorer overwrites its two IIR
+        // carries.
+        state.bp_sums_2x = Simd::from_array([*bp_s, *bp_m]);
+        state.tr_sums_2x = Simd::from_array([*tr_s, *tr_m]);
+        state.bp_long_sum = *bp_l;
+        state.tr_long_sum = *tr_l;
+        state.prev_close = *prev_close;
         Some(IndicatorState::new(state, (short, medium)))
     }
 }

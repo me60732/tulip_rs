@@ -706,13 +706,42 @@ fn build_scalar_body(p: &Pattern, idents: &[String], classify: &Classified) -> V
                 body.push(quote! { let #xk = #v; });
             }
             Kind::Mirror => {
-                // State mirror (rsi's `prev_real`, cmo's `prev`/`drop_real`):
-                // an identity copy computed every bar, feeding NO sink — it
-                // exists for the chunk-exit state store (`get_states`, M1).
-                // LLVM dead-code-eliminates it when nothing reads `x{k}`;
-                // exec's `K_MIRROR` arm is the same no-op on the warm path.
+                // State mirror (rsi's `prev_real`, cmo's `prev`/`drop_real`,
+                // supertrend's `prev_close`): an identity copy of its source
+                // node that feeds NO sink — its ONLY reason to exist is the
+                // chunk-exit state store, so the value must survive the loop.
+                // It lands in `v[k]`, the same array `exec`'s `K_MIRROR` arm
+                // reads (`v[SIG.a[k]]`), so warm and steady agree on one
+                // convention instead of two, and the epilogue's memcpy of `v`
+                // exports it like every other family.
+                // BUDGET: ONE store to `v[k]` per mirror per steady bar. Before
+                // this the whole binding was dead code whenever nothing read
+                // `x{k}`, so this is genuinely added work on the mirror-bearing
+                // shapes (supertrend, rsi, cmo, dm-style: one to three mirrors
+                // each) — the alternative was no continuable state at all, since
+                // the loop's per-slot values are register locals that die with
+                // the iteration.
                 let ea = ev(node.a, &idents);
-                body.push(quote! { let #xk = #ea; });
+                let ki = k;
+                // Guarded by `__store_values` (hoisted once per call from
+                // `out.is_some()`), the same runtime-flag pattern the optional
+                // sinks use (`vals.sink_want` gates their stores). Measured on
+                // 2026-11-15: an UNGUARDED store cost `cmo_n` +9.0% (two
+                // independent passes, 13.243/13.410 µs against 12.227 µs without,
+                // CIs non-overlapping; controls `sma_six`/`ema_chains` moved
+                // −1.2%/−0.7%), because cmo carries TWO mirrors over a ~8
+                // cycles/bar loop and the extra stores bind the store port.
+                // `rsi_n` (one mirror) measured −0.9%, i.e. below the resolution
+                // of its own spread, and the wider-loop dm/dx/adx and hub7 rows
+                // absorbed it. So: the rows-only path pays one never-taken,
+                // loop-invariant branch; the caller that asks for states pays the
+                // stores. That is the price of the feature, not of the engine.
+                body.push(quote! {
+                    let #xk = #ea;
+                    if __store_values {
+                        v[#ki] = #xk;
+                    }
+                });
             }
             Kind::Fma => {
                 // single-rounded: one `mul_add`, matching kernel K_FMA and
@@ -2159,15 +2188,28 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
     // Only arrays this pattern actually DECLARED are copied, gated by the
     // same `needs_*` booleans that gated the `let`s above (when
     // `use_dummy_scratch` is set, the non-needed families live in the
-    // thread-local dummies and hold no state for this run). `v` is per-bar
-    // scratch, not state; `rings` (RingSet) is not exported until Phase C of
+    // thread-local dummies and hold no state for this run). `v` is copied
+    // because `Kind::Mirror` maintains it there (see below); `rings` (RingSet)
+    // is not exported until Phase C of
     // proposals/Macro_Cse_Engine/state_capture_checklist.md, so a
     // ring-bearing signature must be reported INCOMPLETE by the decoder
     // rather than answered with a partial state.
+    //
+    // `v` IS exported now, and for one reason: a `Mirror` node's value exists
+    // only as a per-iteration register local, so the Mirror arm stores it into
+    // `v[k]` — the array `exec`'s `K_MIRROR` arm already reads — to make the
+    // chunk-exit state recoverable. Every other slot's value stays loop-local
+    // and unreadable here (that is the emitter's speed, not an oversight).
     let mut fam: Vec<TokenStream> = vec![quote! {
         __c.st = st;
         __c.trail = trail;
         __c.kvacc = kvacc;
+        __c.v = v;
+        // Phase C: the ring groups. `capture` is a method on BOTH containers,
+        // so the same line answers the all-warm exit (cold `RingSet`) and the
+        // loop exit (`WarmMirrorRingSet`); it allocates one Vec per group per
+        // RUN, never per bar, and only when a caller asked for states.
+        rings.capture(&mut __c.rings);
     }];
     if needs_supertrend {
         fam.push(quote! {
@@ -2326,6 +2368,11 @@ pub(super) fn run_fn(p: &Pattern) -> TokenStream {
             #ss_acc_decl
             #hdacc_decl
             let mut v = [0.0f64; crate::cse::MAX];
+            // Loop-invariant hoist of the capture request: the `Kind::Mirror`
+            // arm is the only steady-loop reader, and an unguarded store there
+            // measured +9.0% on `cmo_n` (see that arm's note). Computed once per
+            // call, outside the loop, so the rows-only path pays no per-bar work.
+            let __store_values = out.is_some();
             // Warm-up bars: shared interpreter, cold path once per request.
             #warm_exec
             if gate >= n {

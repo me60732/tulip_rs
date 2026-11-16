@@ -230,7 +230,7 @@ fn cse_state_continuity_database_close_indicators() {
 
             let restore = restorer_for_with_options("cybercycle", &options)
                 .expect("missing option-aware restorer for cybercycle");
-            let mut state = match restore(vec![], &first_inputs) {
+            let mut state = match restore(vec![], &first_inputs, &options) {
                 IndicatorStateBox::Cybercycle(state) => state,
                 _ => panic!("{label}: wrong state variant from restorer"),
             };
@@ -268,7 +268,7 @@ fn cse_state_continuity_database_close_indicators() {
 
             let restore = restorer_for_with_options("trendmode", &options)
                 .expect("missing option-aware restorer for trendmode");
-            let mut state = match restore(vec![], &first_inputs) {
+            let mut state = match restore(vec![], &first_inputs, &options) {
                 IndicatorStateBox::Trendmode(state) => state,
                 _ => panic!("{label}: wrong state variant from restorer"),
             };
@@ -306,7 +306,7 @@ fn cse_state_continuity_database_close_indicators() {
 
             let restore = restorer_for_with_options("ccfisher", &options)
                 .expect("missing option-aware restorer for ccfisher");
-            let mut state = match restore(vec![], &first_inputs) {
+            let mut state = match restore(vec![], &first_inputs, &options) {
                 IndicatorStateBox::Ccfisher(state) => state,
                 _ => panic!("{label}: wrong state variant from restorer"),
             };
@@ -344,7 +344,7 @@ fn cse_state_continuity_database_close_indicators() {
 
             let restore = restorer_for_with_options("mama", &options)
                 .expect("missing option-aware restorer for mama");
-            let mut state = match restore(vec![], &first_inputs) {
+            let mut state = match restore(vec![], &first_inputs, &options) {
                 IndicatorStateBox::Mama(state) => state,
                 _ => panic!("{label}: wrong state variant from restorer"),
             };
@@ -382,7 +382,7 @@ fn cse_state_continuity_database_close_indicators() {
 
             let restore = restorer_for_with_options("smaenvelope", &options)
                 .expect("missing option-aware restorer for smaenvelope");
-            let mut state = match restore(vec![], &first_inputs) {
+            let mut state = match restore(vec![], &first_inputs, &options) {
                 IndicatorStateBox::Smaenvelope(state) => state,
                 _ => panic!("{label}: wrong state variant from restorer"),
             };
@@ -420,7 +420,7 @@ fn cse_state_continuity_database_close_indicators() {
 
             let restore = restorer_for_with_options("vidya", &options)
                 .expect("missing option-aware restorer for vidya");
-            let mut state = match restore(vec![], &first_inputs) {
+            let mut state = match restore(vec![], &first_inputs, &options) {
                 IndicatorStateBox::Vidya(state) => state,
                 _ => panic!("{label}: wrong state variant from restorer"),
             };
@@ -470,7 +470,7 @@ fn cse_state_continuity_database_psar() {
 
             let restore = restorer_for_with_options("psar", &options)
                 .expect("missing option-aware restorer for psar");
-            let mut state = match restore(vec![], &first_inputs) {
+            let mut state = match restore(vec![], &first_inputs, &options) {
                 IndicatorStateBox::Psar(state) => state,
                 _ => panic!("{label}: wrong state variant from restorer"),
             };
@@ -522,7 +522,7 @@ fn cse_state_continuity_database_keltnerchannel() {
 
             let restore = restorer_for_with_options("keltnerchannel", &options)
                 .expect("missing option-aware restorer for keltnerchannel");
-            let mut state = match restore(vec![], &first_inputs) {
+            let mut state = match restore(vec![], &first_inputs, &options) {
                 IndicatorStateBox::Keltnerchannel(state) => state,
                 _ => panic!("{label}: wrong state variant from restorer"),
             };

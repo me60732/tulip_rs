@@ -31,4 +31,30 @@ pub trait Restorable<const I: usize, const OP: usize>: Planable + Indicator<I, O
     /// are NOT all the same). Chain-only kinds (`ema`/`apo`/`macd`/`ppo`/`wilders`/
     /// `rsi`) ignore it entirely.
     fn restore_state(chains: Vec<ChainState>, windows: &[&[f64]]) -> Option<Self::IndicatorState>;
+
+    /// `restore_state` plus the request's own options vector.
+    ///
+    /// Exists because a window slice cannot always name its own parameter. The
+    /// rolling kinds are safe: `IndicatorState::new` tail-slices `period` bars out
+    /// of whatever window it is handed, so the period travels inside the slice.
+    /// Others read the slice LENGTH as the parameter — `mom` is exactly
+    /// `period = windows[0].len()`, and `fosc`/the roll consumers land on
+    /// `period ± 1`. For those, a generous window is not merely wasteful but
+    /// wrong: it silently restores a different period, and the resumed series
+    /// diverges from row 0 (`mom` measured 300/300 wrong rows, `1.0274769512599278`
+    /// vs `0.5911711585153654`, 2026-11-15). The options vector is the only
+    /// source that states the period independently of the data length.
+    ///
+    /// The default ignores `options` and calls `restore_state`, so every impl
+    /// compiles and behaves exactly as before until it opts in. `options` is the
+    /// recipe's runtime vector — the same values `Planable::recipe` published —
+    /// so a kind that overrides this must not assume a fixed length; read it with
+    /// `options.first()`/`options.get(n)` the way the hand's own constructors do.
+    fn restore_state_with(
+        chains: Vec<ChainState>,
+        windows: &[&[f64]],
+        _options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        Self::restore_state(chains, windows)
+    }
 }

@@ -219,6 +219,16 @@ impl crate::cse::Planable for Ef {
 /// Rebuild `ef::State<Warm>`: the `RollSum` chain for `sum`, plus the two
 /// fresh `Mirror` nodes the recipe wraps around its existing `prev`/`old`
 /// `Lag` nodes for the hand's `prev`/`drop` scalar retentions.
+///
+/// The sum arrives as `RollSumRing`, the variant a `Kind::RollSum` node decodes
+/// to — the hand's `sum` and that node's accumulator are the same quantity (the
+/// rolling sum of `|Δreal|`, see `State::calc`), so only `sum` and `period` are
+/// read out of it and the ring itself is not needed: EF's next step is
+/// incrementally `sum += |new − prev| − |drop − last_drop|`, which the three
+/// scalars already determine. It previously matched `ChainState::Sma`, a variant
+/// this recipe never produces, so the engine's own carries were declined
+/// (measured 2026-11-16: decoded `[RollSumRing{…period: 14}, Mirror, Mirror]`
+/// for tail slots `[4, 11, 12]`, kinds `[24, 12, 12]`).
 impl crate::cse::Restorable<INPUTS, OPTIONS> for Ef {
     const KIND: &'static str = "ef";
 
@@ -226,8 +236,13 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Ef {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        use crate::cse::ChainState::{Mirror, Sma};
-        let [Sma { sum, period }, Mirror { value: prev }, Mirror { value: drop }] = v.as_slice()
+        use crate::cse::ChainState::{Mirror, RollSumRing};
+        let [RollSumRing {
+            sum,
+            period,
+            ring: _,
+            cursor: _,
+        }, Mirror { value: prev }, Mirror { value: drop }] = v.as_slice()
         else {
             return None;
         };

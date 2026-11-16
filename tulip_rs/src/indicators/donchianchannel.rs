@@ -288,6 +288,10 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for DonchianChannel {
             trail: mt,
             period,
             look_back,
+            // Raw-source roll: its window is the input column itself, so nothing
+            // is exported and the state needs no ring.
+            ring: _,
+            cursor: _,
         }, crate::cse::ChainState::RollMax {
             value: max,
             trail: xt,

@@ -195,6 +195,10 @@ pub fn ao(options: &[f64]) -> Recipe {
     r.optional_outputs.push(Sink::iface(s_short));
     r.optional_outputs.push(Sink::iface(s_long));
     r.optional_outputs.push(Sink::iface(med));
+    // The state IS these two nodes: their sums plus the 34-wide medprice ring the
+    // long member's group exports. Both are already live as sinks, so this adds
+    // no liveness root — it only tells the decoder which slots to read back.
+    r.tail_inputs = vec![s_short, s_long];
     r
 }
 
@@ -366,7 +370,7 @@ pub fn stoch(options: &[f64]) -> Recipe {
         skip: 0,
         steady_from: 0,
     });
-    r.tail_inputs = vec![mx, k_line, d_line];
+    r.tail_inputs = vec![mx, mn, k_line, d_line];
     r.kind = "stoch";
     r.options = options.to_vec();
     r.outputs.push(Sink::iface(k_line));
@@ -502,7 +506,20 @@ pub fn stochrsi(options: &[f64]) -> Recipe {
     // rsi's own `p + 1` lead, matching `Rsi::output_length`.
     r.outputs.push(Sink::iface_lead(line, period * 2));
     r.optional_outputs = vec![Sink::iface_lead(rsi, period + 1)];
-    r.tail_inputs = vec![mn];
+    r.tail_inputs = {
+        // The state is THREE things, and each has an owner:
+        //  * `rsi_state` — the grafted `rsi`'s own carries, which the graft now
+        //    hands over (`Grafted::tails`); re-running the RSI recurrence from a
+        //    raw tail restarts its float history and is not bit-exact;
+        //  * `min_state` / `max_state` — the two rolls' carried values;
+        //  * the `MirrorBuffer` of past RSI values — the ring these two rolls read,
+        //    which the emitter already keeps and `ChainState::RollMin`/`RollMax`
+        //    now export.
+        let mut t = g.tails;
+        t.push(mx);
+        t.push(mn);
+        t
+    };
     r
 }
 
@@ -668,16 +685,29 @@ pub fn ultosc(options: &[f64]) -> Recipe {
 
     r.kind = "ultosc";
     r.options = options.to_vec();
-    // Full-recompute restore (same technique as `stoch`/`cci`/`md`): the hand
-    // `State` is a `MultiBuffer`-shaped carry that isn't worth exporting field
-    // by field, but `State::init_state` rebuilds it exactly from a raw
-    // `(high, low, close)` tail of `long_period + 1` bars. We only need the
-    // three period VALUES back, and the three `RollSum{mean: false}` groups
-    // report them for free via `ChainState::Sma{period, ..}` (RollSum groups
-    // share that variant with true SMA regardless of `mean`) -- `bp_l`
-    // (the long-period group) is already a live ancestor of the output, so
-    // this adds only two more liveness roots (`bp_s`, `bp_m`), not new ones.
-    r.tail_inputs = vec![bp_s, bp_m, bp_l];
+    // CARRIED, not re-initialized (C12). The hand `State` is six rolling sums
+    // (`bp_sums_2x`/`tr_sums_2x` lanes plus `bp_long_sum`/`tr_long_sum`), a
+    // 2-lane ring of `(bp, tr)` pairs, and `prev_close` — and this graph already
+    // computes all six sums as `Node::RollSum{mean: false}` nodes, so the state
+    // is exported rather than rebuilt:
+    //
+    // * the six sums are the members' own `RollSumRing.sum` (each `Kind::RollSum`
+    //   decodes as `RollSumRing`, NOT `ChainState::Sma` — the previous comment on
+    //   this line claimed `Sma` and measured false: the probe reported slots
+    //   `[8, 9, 10]`, kinds `[24, 24, 24]`);
+    // * `prev_close` is `Mirror{src: cl}` — the last bar's own close, the same
+    //   depth `atr()` uses for `tr_state` and `ef` now uses for `prev`;
+    // * only the ring is rebuilt, because it is a pointwise function of
+    //   `(high, low, close, prev_close)` over the last `long + 1` bars — the
+    //   values the hand would have pushed, in the order it pushed them.
+    //
+    // Rebuilding the SUMS is not sound: incremental `sum += new - old` is not the
+    // same float as re-summing a window (measured on `ao` as 300/300 last-bit
+    // row differences), which is why this line used to be a rebuild recipe and is
+    // now a carry.
+    let prev_close_mirror = r.add(Node::Mirror { src: cl });
+    r.tag(prev_close_mirror, "prev_close_mirror");
+    r.tail_inputs = vec![bp_s, bp_m, bp_l, tr_s, tr_m, tr_l, prev_close_mirror];
     r.outputs.push(Sink::iface_lead(line, long));
     // `tr` and `bp` are OPTIONAL, not primary: the hand allocates them with
     // `init_optional_outputs_eff!(optional_outputs, &[false, false], …)`, so a
@@ -1253,12 +1283,21 @@ pub fn ef(options: &[f64]) -> Recipe {
     r.kind = "ef";
     r.options = options.to_vec();
     // `ef::State<S>` is `{sum, prev, drop}` — `sum` is the `RollSum` node
-    // above (already `ChainState::Sma`); `prev`/`drop` are the hand's two
-    // scalar retentions (the newest and the about-to-drop `real` values),
-    // captured the same way `atr()`'s `Mirror{src: close}` captures
-    // `tr_state`'s `prev_close`: wrap the existing `prev`/`old` `Lag` nodes
-    // in a fresh `Node::Mirror`, no new `ChainState` variant needed.
-    let prev_mirror = r.add(Node::Mirror { src: prev });
+    // above (decoded as `ChainState::RollSumRing` — the restorer reads `sum` and
+    // `period` from it and ignores the ring); `prev`/`drop` are the hand's two
+    // scalar retentions, captured the same way `atr()` captures `prev_close`
+    // with `Mirror{src: cl}`: the hand assigns `self.prev = value` AFTER the
+    // step, so at the seam `prev` is the LAST BAR'S OWN `real`, and `drop` is
+    // the value that bar `period` back.
+    //
+    // `prev` therefore mirrors `real`, NOT `prev` (the `Lag{src: real, n: 1}`
+    // node the graph needs for `step_abs`). Measured 2026-11-16 on the 700-bar
+    // `wiggle()` series at seam 400: mirroring the lag exported `real[398]`
+    // (97.70583466985404) while the hand state held `real[399]`
+    // (97.72988580627771) — one bar behind, so the resumed row 0 came out
+    // 0.9609065916149075 instead of 1.0. The `drop` mirror is a lag by
+    // `period` and was already right (97.10293322617954 = `real[385]`).
+    let prev_mirror = r.add(Node::Mirror { src: real });
     r.tag(prev_mirror, "prev_mirror");
     let old_mirror = r.add(Node::Mirror { src: old });
     r.tag(old_mirror, "old_mirror");

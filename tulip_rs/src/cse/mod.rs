@@ -67,9 +67,9 @@ pub use router::query;
 pub use router::{
     erase_request, erase_request_tails, form_for, packable_group, packable_requested,
     packable_slots, restorer_for, restorer_for_with_options, route_registered,
-    run_assets_registered, run_registered, AssetsOutcome, ChainStateEma, Form, IndicatorStateBox,
-    Outcome, Request, Restorable, Results, RowRef, Served, StateRestorer, StateRestorerWithOptions,
-    PACKABLE_KINDS,
+    run_assets_registered, run_registered, run_registered_with_states, AssetsOutcome,
+    ChainStateEma, Form, IndicatorStateBox, Outcome, Request, Restorable, Results, RowRef,
+    RunWithStates, Served, StateRestorer, StateRestorerWithOptions, PACKABLE_KINDS,
 };
 
 // ── Kernel facade (the generated engines + the warm/oracle machine) ─────
@@ -95,7 +95,7 @@ pub use kernel::{
 // ── Leaf vocabulary (Phase 1 + 2, "recipes as data") ─────────────────────
 // Item paths AND module paths (`crate::cse::signature::K_*`, …) preserved.
 pub use tulip_rs_shared::cse::lowering;
-pub use tulip_rs_shared::cse::{erase, Carries, Signature, Values, MAX, MAX_SINKS};
+pub use tulip_rs_shared::cse::{erase, Carries, RingExport, Signature, Values, MAX, MAX_SINKS};
 pub use tulip_rs_shared::cse::{merge, Merged, Resolved};
 // Carries → ChainState, the hop between the kernel epilogue and `Restorable`.
 pub use tulip_rs_shared::cse::decode;

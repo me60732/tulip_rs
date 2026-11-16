@@ -455,21 +455,22 @@ impl Values {
 /// (`proposals/ENGINE_CHECKLIST.md` §R8: `sum_xy`'s weight is the bar's own
 /// index, so a window restarts the weighting locally).
 ///
-/// Field names mirror the emitter's locals one-for-one: `st`/`trail`/`kvacc`
+/// Field names mirror the emitter's locals one-for-one: `st`/`trail`/`kvacc`/`v`
 /// are declared by EVERY pattern, the rest are declared only when the pattern
 /// contains the kind that writes them (same gating as `ExecScratchDummies` in
 /// `tulip_rs::cse::kernel::warmup`, whose fields this duplicates plus the
-/// three always-declared ones). Every field is `Copy`; a caller owns one
-/// `Carries` and hands `&mut` it to `{name}_captured` / `try_run_captured`,
-/// so capture costs one memcpy of the declared arrays per run — never per
-/// bar, and nothing at all on the rows-only path.
+/// always-declared ones). The arrays are `Copy` and the epilogue memcpys them;
+/// `rings` is the one owned field, because a ring's length is a runtime
+/// capacity — the caller owns one `Carries` and hands `&mut` it to
+/// `{name}_captured` / `try_run_captured`, so capture costs one memcpy of the
+/// declared arrays plus one Vec per ring group per RUN — never per bar, and
+/// nothing at all on the rows-only path (the epilogue is gated by
+/// `out.is_some()`).
 ///
-/// Ring-backed state (`RingSet` groups: `RollSum`/`RollAge`/`Hma`/`Ht*`) is
-/// deliberately NOT here yet. Until that lands
-/// (`proposals/Macro_Cse_Engine/state_capture_checklist.md` Phase C), a
-/// decoder must treat a ring-bearing signature as INCOMPLETE rather than
-/// return a partial state that looks whole.
-#[derive(Clone, Copy)]
+/// `rings` is populated by `RingSet::capture` / `WarmMirrorRingSet::capture`
+/// (`tulip_rs::cse::kernel::warmup`) — see [`RingExport`] for the layout
+/// contract the restorers impose.
+#[derive(Clone)]
 pub struct Carries {
     /// Generic per-slot carry: `Ema`/`Wilders`/`Iir`/`Prev`/`Accum`/
     /// `LinregFlow`/`VariableAlpha` … all fold through `st[k]`.
@@ -494,6 +495,20 @@ pub struct Carries {
     pub hd_acc: [[f64; 38]; MAX],
     /// KvoFlow's 3-field bespoke carry (cm, prev_hlc, prev_hl).
     pub kvacc: [[f64; 3]; MAX],
+    /// The per-slot VALUE array — exported only because of `Kind::Mirror`. A
+    /// mirror's value at the exit IS its source's value on the last consumed
+    /// bar, and every other slot's value is a register local that dies with the
+    /// iteration, so the steady Mirror arm stores it here (the same array
+    /// `exec`'s `K_MIRROR` arm reads, `v[SIG.a[k]]`). Slots no mirror touches
+    /// hold whatever the warm interpreter last wrote — the decoder only ever
+    /// reads a mirror slot, so nothing else is claimed from it.
+    pub v: [f64; MAX],
+    /// One entry per RING GROUP (indexed by group/leader slot, as
+    /// `Values::ring_of` points members to it), filled by the container's
+    /// `capture` at the exit. Empty on a run with no ring groups; `None` at a
+    /// group the run never fed, which the decoder reads as "incomplete" and
+    /// refuses rather than substituting zeros.
+    pub rings: Vec<Option<RingExport>>,
 }
 
 impl Default for Carries {
@@ -511,8 +526,45 @@ impl Default for Carries {
             ss_acc: [[0.0; 3]; MAX],
             hd_acc: [[0.0; 38]; MAX],
             kvacc: [[0.0; 3]; MAX],
+            v: [0.0; MAX],
+            rings: Vec::new(),
         }
     }
+}
+
+/// A ring group's exported contents, for the chunk-exit state store.
+///
+/// The layout contract is the CONSUMERS', not an invention: `mass.rs`,
+/// `adxr.rs` and `hma.rs` each rebuild a `Buffer<Warm>` from
+/// `vals = ring`, `index = cursor / 8`, `count = capacity`,
+/// `prev_idx = (index + capacity − 1) % capacity`, so `raw` is the buffer's OWN
+/// primary slots (`vals[0..capacity]`; a `MirrorBuffer`'s second half is a
+/// duplicate of the first, so the first half alone rebuilds it equivalently) and
+/// `cursor` is `index * 8`.
+///
+/// `count` is carried so a decoder can refuse a group the run never FILLED —
+/// the restorers all assert `ring.len() == capacity` and set `count = capacity`,
+/// so exporting a partially-filled ring as if it were full would rebuild a
+/// coherent-looking, wrong buffer behind a green suite.
+///
+/// `chrono` is the same window in CHRONOLOGICAL order (oldest first), which is
+/// what the `HilbertTransform` restorer consumes: it rebuilds a
+/// `FixedRingBuffer` by PUSHING values in order (that container carries no
+/// cursor field), so raw slot order would rebuild a rotated ring and print
+/// plausible-but-wrong taps. Rotation rule, verified against the containers: a
+/// full buffer writes at `index` then advances, so `index` points at the OLDEST
+/// slot — `chrono = raw[index..] ++ raw[..index]` for a plain ring, and
+/// `vals[index..index + capacity]` for a mirror ring (its backing is
+/// `2 * capacity` precisely so that window is contiguous). While filling,
+/// `index == count`, so the first `count` slots are already oldest-first.
+#[derive(Clone, Debug)]
+pub struct RingExport {
+    pub raw: Vec<f64>,
+    pub chrono: Vec<f64>,
+    pub cursor: u64,
+    pub capacity: u32,
+    pub count: u32,
+    pub mirror: bool,
 }
 
 /// Which request+slot a sink row belongs to (result regrouping; derived from

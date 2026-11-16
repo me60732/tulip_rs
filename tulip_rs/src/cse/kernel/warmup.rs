@@ -110,6 +110,34 @@ pub struct RingSlot {
     evicted: Option<f64>,
 }
 
+/// Chronological (oldest-first) window of a ring group, implementing the
+/// rotation rule documented on `tulip_rs_shared::cse::RingExport`: a plain ring
+/// rotates at `index` (the next write slot IS the oldest), a mirror ring's
+/// backing is `2 * capacity` so its window is contiguous from `index`. While a
+/// ring is still filling, `index == count` and the first `count` slots are
+/// already oldest-first — which is why the cold-side export ships `count`
+/// rather than assuming fullness.
+fn chrono_window(
+    vals: &[f64],
+    capacity: usize,
+    index: usize,
+    count: usize,
+    mirror: bool,
+) -> Vec<f64> {
+    if count < capacity {
+        return vals[..count].to_vec();
+    }
+    if mirror {
+        // `vals.len() == 2 * capacity` and `index < capacity`, so this window
+        // is in bounds by the container's own invariant.
+        return vals[index..index + capacity].to_vec();
+    }
+    let mut out = Vec::with_capacity(capacity);
+    out.extend_from_slice(&vals[index..capacity]);
+    out.extend_from_slice(&vals[..index]);
+    out
+}
+
 #[derive(Clone)]
 pub struct RingSet {
     slots: Vec<Option<RingSlot>>,
@@ -196,6 +224,37 @@ impl RingSet {
                 }
             },
             None => &[],
+        }
+    }
+    /// Export every group's raw ring contents + cursor for the chunk-exit state
+    /// store (`Carries.rings`). Called from the generated kernel's epilogue at
+    /// BOTH exits, so this (cold) form answers the all-warm case where no steady
+    /// bar ran. `out` is grown to the slot count; a group the run never fed
+    /// stays `None`, which the decoder must read as "incomplete", not as zeros.
+    /// Layout contract: see `tulip_rs_shared::cse::RingExport` — the restorers in
+    /// `mass.rs`/`adxr.rs`/`hma.rs` rebuild a `Buffer<Warm>` from
+    /// `vals = raw`, `index = cursor / 8`, `count = capacity`.
+    pub fn capture(&self, out: &mut Vec<Option<crate::cse::RingExport>>) {
+        while out.len() < self.slots.len() {
+            out.push(None);
+        }
+        for (g, slot) in self.slots.iter().enumerate() {
+            let Some(s) = slot else { continue };
+            let (vals, capacity, index, count, mirror) = match &s.buf {
+                ScalarRingColdBuf::Plain(b) => (&b.vals, b.capacity, b.index, b.count, false),
+                ScalarRingColdBuf::Mirror(b) => (&b.vals, b.capacity, b.index, b.count, true),
+            };
+            if capacity == 0 || vals.len() < capacity {
+                continue;
+            }
+            out[g] = Some(crate::cse::RingExport {
+                chrono: chrono_window(vals, capacity, index, count, s.mirror),
+                raw: vals[..capacity].to_vec(),
+                cursor: (index as u64) * 8,
+                capacity: capacity as u32,
+                count: count as u32,
+                mirror,
+            });
         }
     }
     /// Seam transition for the SCALAR steady loop: every group `exec` filled
@@ -386,6 +445,34 @@ impl WarmMirrorRingSet {
                 }
             },
             None => &[],
+        }
+    }
+    /// Steady-loop half of the state export: identical contract to
+    /// `RingSet::capture` (see there), called from the generated kernel's
+    /// loop-exit epilogue. A `Warm` buffer is full by construction —
+    /// `into_warm` debug-asserts it — so `count == capacity` here is the
+    /// checked fact the decoder relies on instead of a hope.
+    pub fn capture(&self, out: &mut Vec<Option<crate::cse::RingExport>>) {
+        while out.len() < self.slots.len() {
+            out.push(None);
+        }
+        for (g, slot) in self.slots.iter().enumerate() {
+            let Some(s) = slot else { continue };
+            let (vals, capacity, index, count, mirror) = match &s.buf {
+                ScalarRingWarmBuf::Plain(b) => (&b.vals, b.capacity, b.index, b.count, false),
+                ScalarRingWarmBuf::Mirror(b) => (&b.vals, b.capacity, b.index, b.count, true),
+            };
+            if capacity == 0 || vals.len() < capacity {
+                continue;
+            }
+            out[g] = Some(crate::cse::RingExport {
+                chrono: chrono_window(vals, capacity, index, count, s.mirror),
+                raw: vals[..capacity].to_vec(),
+                cursor: (index as u64) * 8,
+                capacity: capacity as u32,
+                count: count as u32,
+                mirror,
+            });
         }
     }
 }

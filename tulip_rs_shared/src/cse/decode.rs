@@ -10,28 +10,62 @@
 //! `proposals/Macro_Cse_Engine/state_capture_checklist.md`, enforced at the type:
 //! a missing arm cannot be mistaken for a zero, because the value is absent.
 //!
-//! What is refused, and why:
-//! * `RollSum` / `RollAge` / `Hma` / `HtInPhase` / `HtQuadrature` — their window
-//!   lives in `RingSet`, which `Carries` does not export yet (Phase C). `Hma`
-//!   additionally needs its variable-length diff ring (`√period`), so even the
-//!   `hacc` accumulators alone are not a continuable state.
-//! * `Iir` / `Prev` / `Accum` / `VariableAlpha` — `ChainState` has no variant for
-//!   them. Their carry IS captured (`st[k]`, written back from the hoisted
-//!   `{ident}_carry`), so the gap is the enum, not the kernel.
-//! * `Mirror` — needs the node's last PUBLISHED value (`v[k]`), which is per-bar
-//!   scratch, not state. The hand restorers that want a mirror read it off the
-//!   caller's stream instead.
-//! * `KvoFlow` — the emitted `kvacc[k]` triple is `[hlc, cm, dm]`, which does not
-//!   line up field-for-field with `ChainState::KvoFlow { cm, prev_hlc, prev_hl,
-//!   trend }`. Mapping it needs its own verified slice, not a guess here.
-//! * the bespoke scalar recurrences (`Nvi`/`Pvi`/`Psar`/`Sdft*`/`Cybercycle`/
-//!   `Mama`/`Hd`/`InstantaneousTrendline`/`AdaptiveMsw`/`PeakDecay`/
-//!   `MeanAbsDev`/`SuperTrend`-consumers) — no `ChainState` variant per kind.
+//! Kind-by-kind status — either refused, or CLOSED with the evidence that
+//! un-refused it (a closed item stays listed: silently un-refusing a kind is the
+//! failure mode this table exists to prevent):
+//! * `HtInPhase` / `HtQuadrature` — CLOSED by C6, but only after the export grew
+//!   a second order: those consumers rebuild a `FixedRingBuffer` from a
+//!   CHRONOLOGICAL (oldest-first) slice, so the decode reads `RingExport.chrono`,
+//!   never `raw`. `RollSum`/`RollAge`/`Hma` (`mass`, `adxr`, `hma`) were the
+//!   first: they rebuild a plain `Buffer<Warm>` from raw slots + `cursor / 8`,
+//!   which is exactly the exported shape (their own length assertions are the
+//!   guard). Anything still on this list is refused rather than answered with a
+//!   rotated or partial state.
+//! * `KvoFlow` — CLOSED by C5. The emitted arm stores `kvacc[k] = [hlc, cm, dm]`,
+//!   which IS the next bar's `[prev_hlc, cm, prev_hl]`, with the trend bit in
+//!   `st[k]` as 1.0/0.0; gated by `engine_carry_kvo_continues_bit_exact`.
+//! * `Iir` / `VariableAlpha` — no `ChainState` variant. Their carry IS captured
+//!   (`st[k]`, written back from the hoisted `{ident}_carry`), so the gap is the
+//!   enum, not the kernel.
+//! * `Prev` — CLOSED 2026-11-16: a `Prev` node's state is one last-value carry,
+//!   the same shape `Mirror` means, so it decodes as `ChainState::Mirror`. This
+//!   is what `recipes::fisher`'s own comment had always claimed; the arm was
+//!   simply never written, and `fisher` refused its own tail (kinds `[28, 29]`).
+//! * `Accum` — CLOSED for `adosc` the same way: the recipe already exports the
+//!   accumulator through `Node::Mirror`, so no variant was needed.
+//! * `NviRecur` / `PviRecur` — CLOSED 2026-11-16: the recipes export the carry,
+//!   `close` and `volume` as three `Mirror`s and both resume bit-exactly
+//!   (`engine_carry_nvi_pvi_continue_bit_exact`), so the old "the published row
+//!   is a prefix product and cannot be expressed" verdict is retired — the row
+//!   IS expressible as a carried scalar plus its two gate inputs.
+//! * the remaining bespoke recurrences (`Psar`/`Sdft*`/`Cybercycle`/`Mama`/
+//!   `Hd`/`InstantaneousTrendline`/`AdaptiveMSW`/`PeakDecay`/`MeanAbsDev`) — no
+//!   `ChainState` variant per kind; `MeanAbsDev` is a rescan, so its consumers
+//!   (`md`, `cci`) turned out to need the ROLL's export instead, not a new kind.
+//! * `stochrsi` — CLOSED 2026-11-16 (C14). Its state is three separate carries
+//!   and each now comes from the node that owns it: the grafted `rsi`'s channels
+//!   reach the parent through `Grafted::tails`, the two rolls' `(value, trail)`
+//!   ride `RollMax`/`RollMin`, and the ring of past RSI values — which this list
+//!   claimed no shape could export — was ALREADY captured by `RingSet::capture`
+//!   for every group and only needed handing over in the `K_ROLLMAX | K_ROLLMIN`
+//!   arm. A `MirrorBuffer` rebuilds from the primary slots alone, because its
+//!   mirror half is a duplicate by construction.
+//!
+//! That closes the request kinds: 93 `Planable` impls, 93 `Restorable` impls and
+//! 93 `restorer_for` arms, with no gap in either direction (measured 2026-11-16).
+//! The entries above that still say "no variant" are bespoke recurrences no
+//! REQUEST recipe composes today, not open state work.
+//!
+//! `Mirror` used to be on this list and no longer is: its value is the one thing
+//! the steady loop had to be TOLD to keep, so `emit_scalar`'s Mirror arm stores it
+//! into `v[k]` — the array `exec`'s `K_MIRROR` arm already reads — and the decode
+//! reads it back. That store is the whole cost, and it is per bar per mirror.
 
 use crate::cse::recipe::ChainState;
 use crate::cse::signature::{
-    Carries, Signature, Values, K_EMA, K_HIGHPASS, K_IIRCLAMPED, K_LINREGFLOW, K_ROLLMAX,
-    K_ROLLMIN, K_SEEDEDEMA, K_SMA, K_STDDEV, K_SUPERSMOOTHER, K_SUPERTREND, K_WILDERS, K_WMA, MAX,
+    Carries, Signature, Values, K_EMA, K_HIGHPASS, K_HMA, K_HTINPHASE, K_HTQUADRATURE,
+    K_IIRCLAMPED, K_KVOFLOW, K_LINREGFLOW, K_MIRROR, K_PREV, K_ROLLAGE, K_ROLLMAX, K_ROLLMIN,
+    K_ROLLSUM, K_SEEDEDEMA, K_SMA, K_STDDEV, K_SUPERSMOOTHER, K_SUPERTREND, K_WILDERS, K_WMA, MAX,
 };
 use crate::cse::Id;
 
@@ -57,7 +91,118 @@ pub fn chain_for_slot(sig: &Signature, vals: &Values, c: &Carries, k: usize) -> 
             value: c.st[k],
             period,
         },
+        K_ROLLSUM => {
+            // Group = `Values::ring_of[k]`, the leader the planner published.
+            // A shared group's capacity is the MAX period across its members, so
+            // a member can legitimately have `period < capacity` (`ao`'s 5-bar
+            // SMA sits in the 34-bar group; `ultosc` has 7/14 in 28). Reading the
+            // raw slots for such a member would hand back a buffer of the wrong
+            // length, so the export is split in two by shape:
+            //
+            // * `p == capacity` — the raw slots ARE the member's window, and the
+            //   consumer's own `index = cursor / 8` rebuild (`mass.rs`) applies
+            //   unchanged;
+            // * `p < capacity` — the member's window is the LAST `p` values in
+            //   CHRONOLOGICAL order (`e.chrono`), and `cursor` is exported as 0.
+            //   That is a valid equivalent `Buffer` state: after exactly `p`
+            //   pushes into a capacity-`p` ring the write slot has wrapped back to
+            //   0, which is precisely where the next (oldest-evicting) push goes.
+            //
+            // Either way an UNFILLED group is refused, because a partially warm
+            // ring cannot be distinguished from a full one by its slots alone.
+            let g = vals.ring_of[k] as usize;
+            let e = c.rings.get(g).and_then(|o| o.as_ref())?;
+            let p = vals.periods[k] as usize;
+            if p == 0 || e.count != e.capacity || e.raw.len() < p {
+                return None;
+            }
+            if p == e.capacity as usize {
+                ChainState::RollSumRing {
+                    sum: c.st[k],
+                    ring: e.raw.clone(),
+                    cursor: e.cursor,
+                    period: vals.periods[k],
+                }
+            } else {
+                if e.chrono.len() < p {
+                    return None;
+                }
+                ChainState::RollSumRing {
+                    sum: c.st[k],
+                    ring: e.chrono[e.chrono.len() - p..].to_vec(),
+                    cursor: 0,
+                    period: vals.periods[k],
+                }
+            }
+        }
+        K_ROLLAGE => {
+            // `adxr` asserts `ring.len() == n` and rebuilds `Buffer<Warm>` from
+            // `index = cursor / 8`, so `n` is the EXPORTED capacity — not the
+            // node's own period, which for an age roll is the ring's span.
+            let g = vals.ring_of[k] as usize;
+            let e = c.rings.get(g).and_then(|o| o.as_ref())?;
+            if e.capacity == 0 || e.raw.len() != e.capacity as usize || e.count != e.capacity {
+                return None;
+            }
+            ChainState::RollAge {
+                ring: e.raw.clone(),
+                cursor: e.cursor,
+                n: e.capacity,
+            }
+        }
+        K_HMA => {
+            // Hma owns its ring at its OWN slot (the emitter feeds
+            // `rings.feed_take_at(k, …)`, unlike the roll kinds which address
+            // `ring_of[k]`), and it is `psqrt` long — a runtime length the
+            // variant carries rather than a fixed array, which is exactly why
+            // `Carries` is `Clone` and not `Copy`.
+            let e = c.rings.get(k).and_then(|o| o.as_ref())?;
+            if e.capacity == 0 || e.raw.len() != e.capacity as usize || e.count != e.capacity {
+                return None;
+            }
+            let mut accs = [0.0f64; 6];
+            accs.copy_from_slice(&c.hacc[k][..6]);
+            ChainState::Hma {
+                accs,
+                cursor: e.cursor,
+                ring: e.raw.clone(),
+                period: vals.periods[k],
+                p2: vals.roll_lb[k],
+                psqrt: e.capacity,
+            }
+        }
         K_IIRCLAMPED => ChainState::IirClamped { value: c.st[k] },
+        // `Node::Prev`'s whole state IS one last-value carry — the emitter hoists
+        // it into `{ident}_carry` and `carry_back` scatters it back into `st[k]`,
+        // exactly like `IirClamped` — and the consumer's field is a bare `f64`
+        // (`fisher::State.fish`). So it decodes as `Mirror`, the shape that means
+        // "this slot's value at the seam", rather than needing a new variant: the
+        // `recipes::fisher` doc has always described this as reading "through the
+        // existing `ChainState::Mirror` shape", but the arm was never written, so
+        // `fisher` refused its own tail (measured 2026-11-16: slots [17, 24],
+        // kinds [28, 29]).
+        K_PREV => ChainState::Mirror { value: c.st[k] },
+        K_KVOFLOW => {
+            // C5. The emitted steady arm stores `kvacc[k] = [hlc, cm, dm]` after
+            // the bar, i.e. exactly the NEXT bar's `[prev_hlc, cm, prev_hl]`, and
+            // the trend flip-flop rides the node's own `st[k]` as 1.0/0.0 — both
+            // conventions read from `emit_scalar.rs`'s `Kind::KvoFlow` arm and
+            // `warmup.rs`'s `K_KVOFLOW` arm, which agree (`st[k] < 0.5` = down in
+            // both). `kvo::restore_state` matches `[Ema, Ema, KvoFlow]` and
+            // `recipes::kvo` declares `tail_inputs = [short_ema, long_ema, vf]`,
+            // so this arm is the third slot the restorer already expects.
+            ChainState::KvoFlow {
+                cm: c.kvacc[k][1],
+                prev_hlc: c.kvacc[k][0],
+                prev_hl: c.kvacc[k][2],
+                trend: c.st[k] >= 0.5,
+            }
+        }
+        // The value a mirror exists to publish. `emit_scalar`'s `Kind::Mirror`
+        // arm stores it into `v[k]` every steady bar precisely so this line can
+        // read it — before that the copy was dead code and the chunk-exit state
+        // for `supertrend`/`rsi`/`cmo`/`dm`-style shapes was unrecoverable.
+        K_MIRROR => ChainState::Mirror { value: c.v[k] },
         K_SMA => ChainState::Sma {
             sum: c.st[k],
             period,
@@ -72,18 +217,44 @@ pub fn chain_for_slot(sig: &Signature, vals: &Values, c: &Carries, k: usize) -> 
             weighted: c.wsum[k],
             period,
         },
-        K_ROLLMAX => ChainState::RollMax {
-            value: c.st[k],
-            trail: c.trail[k] as u64,
-            period,
-            look_back: vals.roll_lb[k],
-        },
-        K_ROLLMIN => ChainState::RollMin {
-            value: c.st[k],
-            trail: c.trail[k] as u64,
-            period,
-            look_back: vals.roll_lb[k],
-        },
+        K_ROLLMAX | K_ROLLMIN => {
+            // A roll over a DERIVED source reads its window from a ring group, and
+            // that group is already exported (every group is, by `RingSet::capture`
+            // at both epilogue exits) — so the window rides along here. A roll over
+            // a RAW input column reads the stream itself: no group exists, so it
+            // exports an empty window rather than a fabricated one, and its value
+            // and trail alone remain the whole state it carries.
+            //
+            // An UNFILLED group exports no window either: a partially warm ring
+            // cannot be rebuilt into a full buffer, and `RollSumRing` refuses that
+            // case outright.
+            let g = vals.ring_of[k] as usize;
+            let (ring, cursor) = match c.rings.get(g).and_then(|o| o.as_ref()) {
+                Some(e) if e.count == e.capacity && e.raw.len() == e.capacity as usize => {
+                    (e.raw.clone(), e.cursor)
+                }
+                _ => (Vec::new(), 0),
+            };
+            if sig.kinds[k] == K_ROLLMAX {
+                ChainState::RollMax {
+                    value: c.st[k],
+                    trail: c.trail[k] as u64,
+                    period,
+                    look_back: vals.roll_lb[k],
+                    ring,
+                    cursor,
+                }
+            } else {
+                ChainState::RollMin {
+                    value: c.st[k],
+                    trail: c.trail[k] as u64,
+                    period,
+                    look_back: vals.roll_lb[k],
+                    ring,
+                    cursor,
+                }
+            }
+        }
         K_SUPERTREND => ChainState::Supertrend {
             prev_st: c.stb[k],
             prev_ub: c.stc_ub[k],
@@ -105,6 +276,23 @@ pub fn chain_for_slot(sig: &Signature, vals: &Values, c: &Carries, k: usize) -> 
             prev_real: c.ss_acc[k][2],
             period,
         },
+        K_HTINPHASE | K_HTQUADRATURE => {
+            // The shared 7-tap ring, exported CHRONOLOGICALLY (`chrono`) rather
+            // than in slot order: `HilbertTransform::restore_state` rebuilds a
+            // `FixedRingBuffer` by PUSHING values in order and that container
+            // carries no cursor field, so a raw-order copy would rebuild a
+            // rotated ring and print plausible-but-wrong taps behind a green
+            // parity suite. The group is `ring_of[k]` (the leader the planner
+            // published for the shared `roofing` source).
+            let g = vals.ring_of[k] as usize;
+            let e = c.rings.get(g).and_then(|o| o.as_ref())?;
+            if e.chrono.len() != 7 || e.count != e.capacity {
+                return None;
+            }
+            ChainState::HtRing {
+                ring: e.chrono.clone(),
+            }
+        }
         // Handled by `carries_to_chains`, which pairs it — a lone moment node is
         // not a machine and decoding one in isolation would hand back a lie.
         K_LINREGFLOW => return None,

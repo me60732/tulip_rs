@@ -90,6 +90,93 @@ fn erase_parts(
     Some((arena, sig, vals, owners, tails))
 }
 
+/// A registered run WITH the state guarantee attached.
+pub struct RunWithStates {
+    /// Rows in arena-sink order, exactly what [`run_registered`] returns.
+    pub outcome: Outcome,
+    /// Which form ran, so a caller can attribute the number it is looking at.
+    pub form: crate::cse::Form,
+    /// `Some(states)` — one hand `IndicatorState` per request, in request order,
+    /// every one of them rebuilt from THIS run's captured carries: resuming from
+    /// it is bit-exact by the gates in `cse_state_capture_test.rs`
+    /// (`engine_carry_*_continues_bit_exact`), which is what makes the promise
+    /// mean something.
+    ///
+    /// `None` — the rows are correct and complete, but at least one request's
+    /// tail could not be decoded (`carries_to_chains` refused) or its restorer
+    /// declined the chains. There is deliberately NO partial variant: a
+    /// half-populated state list is how a resumed run silently becomes a
+    /// different machine (see §R8 and the "must not shrink" rule in
+    /// `proposals/Macro_Cse_Engine/state_capture_checklist.md`).
+    pub states: Option<Vec<crate::cse::IndicatorStateBox>>,
+}
+
+/// Run a request through the CAPTURED arm set and, when every request's chains
+/// decode and every restorer accepts them, hand back the continuable states.
+///
+/// `None` means no registered pattern serves the request at all (the same
+/// contract as [`run_registered`]) — the caller then takes the hand path, which
+/// is where its own states come from anyway.
+///
+/// The windows passed to each restorer are the FULL caller columns, not a
+/// trimmed tail: every `IndicatorState::new` in the library tail-slices what it
+/// needs (`real[real.len() - period + 1..]`), so passing more is harmless while
+/// guessing a shorter window is exactly the class of bug that made the replay
+/// restorers wrong (a `period`-sized window has underflowed before). Column
+/// order is the request's own `columns` order — the user's law, `open, high, low,
+/// close, volume` shifted left — which is also what the arena's stream slots
+/// mean, so no translation happens here.
+pub fn run_registered_with_states(req: &Request, streams: &[&[f64]]) -> Option<RunWithStates> {
+    let (_arena, sig, vals, owners, tails) = erase_parts(req)?;
+    let form = super::form_for(&sig, req);
+    let mut car = crate::cse::Carries::default();
+    let rows = crate::cse::kernel::registry::try_run_captured(&sig, &vals, streams, &mut car)?;
+    let fp = sig.hash();
+
+    let mut states = Vec::with_capacity(tails.len());
+    let mut promised = true;
+    for (r, slots) in tails.iter().enumerate() {
+        // Three ways to lose the promise and all three mean the same thing: the
+        // tail does not decode, the kind has no restorer at all, or the restorer
+        // declined the chains it was handed. The rows stand either way — that is
+        // why this returns a run with an optional guarantee rather than an
+        // `Option`-shaped failure.
+        let Some(chains) = crate::cse::carries_to_chains(&sig, &vals, &car, slots) else {
+            promised = false;
+            break;
+        };
+        let recipe = &req.recipes[r];
+        // The recipe's own options vector goes to the restorer. Every trait-path
+        // arm forwards it to `Restorable::restore_state_with`, whose default
+        // ignores it, so this is behaviour-neutral today and is the hook that
+        // lets a kind whose parameter is NOT recoverable from a window length
+        // (`mom`, `medprice`, `fosc`) restore honestly instead of inferring.
+        let options = recipe.options.as_slice();
+        let restored = match crate::cse::restorer_for_with_options(&recipe.kind, options) {
+            Some(f) => f(chains, streams, options),
+            None => match crate::cse::restorer_for(&recipe.kind) {
+                Some(f) => f(chains, streams, options),
+                None => {
+                    promised = false;
+                    break;
+                }
+            },
+        };
+        match restored {
+            crate::cse::IndicatorStateBox::Other => {
+                promised = false;
+                break;
+            }
+            other => states.push(other),
+        }
+    }
+    Some(RunWithStates {
+        outcome: Outcome { rows, owners, fp },
+        form,
+        states: if promised { Some(states) } else { None },
+    })
+}
+
 /// Attempt to serve `req` from the generated registry. `None` = no pattern
 /// matches (unsupported nodes, unregistered shape, > cap sizes).
 pub fn run_registered(req: &Request, streams: &[&[f64]]) -> Option<Outcome> {

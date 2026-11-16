@@ -293,32 +293,78 @@ impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for Ao {
     }
 }
 
-/// `Ao::IndicatorState` IS `ao::State<Warm>` directly — no `{real, state, period}`
-/// wrapper like every other restorer here. So there is no `ChainState` to
-/// destructure at all: the hand's whole state (the shared `medprice` ring +
-/// the two SMA sums) is a full recompute of `State::init_state` over a raw
-/// `(high, low)` window tail of `LONG_PERIOD` bars — same full-recompute
-/// technique `md`'s restorer uses over `windows[0]`, just with two inputs and
-/// zero carried chains.
+/// `Ao::IndicatorState` IS `ao::State<Warm>` directly — no `{real, state,
+/// period}` wrapper like most restorers here — so nothing about the state is
+/// implied by the price window: it lives entirely in its two sums and its ring.
+///
+/// `ao::State<Warm>` is TWO rolling sums and the `LONG_PERIOD`-wide medprice
+/// ring — and all three are nodes the engine already computes, so they are
+/// CARRIED rather than rebuilt. `recipes::ao` publishes
+/// `tail_inputs = [sma_short, sma_long]`; the short member's `RollSumRing`
+/// arrives as the group's last `SHORT_PERIOD` chronological values (the group is
+/// 34 wide, so the per-node age-read in `cse/decode.rs` is what makes it
+/// exportable at all), and the long member's is the raw-slot export.
+///
+/// Rebuilding through `init_state` cannot be bit-exact here: the hand's sums are
+/// accumulated over the whole series, while `init_state` re-sums 34 bars, and the
+/// two disagree in the last bits (measured 2026-11-16 before this change —
+/// 300/300 resumed rows off, `0.6128600887364257` vs `0.6128600887362836`).
+/// Carrying the engine's own accumulators is bit-exact by the same argument that
+/// makes the ROWS bit-exact: they are the same values at the same bar.
+///
+/// The state's shape is generic over `LONG_PERIOD` and its multipliers are the
+/// fixed `(SHORT_PERIOD, LONG_PERIOD)` pair, so a request built with any other
+/// periods is REFUSED rather than answered with a state that would continue the
+/// wrong series.
 impl crate::cse::Restorable<INPUTS, OPTIONS> for Ao {
     const KIND: &'static str = "ao";
 
     fn restore_state(
         v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
+        _windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        if !v.is_empty() {
+        use crate::cse::ChainState::RollSumRing;
+        let [RollSumRing {
+            sum: short_sum,
+            period: short_period,
+            ..
+        }, RollSumRing {
+            sum: long_sum,
+            ring,
+            cursor,
+            period: long_period,
+        }] = v.as_slice()
+        else {
+            return None;
+        };
+        if *short_period as usize != SHORT_PERIOD || *long_period as usize != LONG_PERIOD {
             return None;
         }
-        if windows.len() < 2 || windows[0].len() < LONG_PERIOD || windows[1].len() < LONG_PERIOD {
+        let capacity = LONG_PERIOD;
+        if ring.len() != capacity {
             return None;
         }
-        let mut medprice_scratch: [f64; 0] = [];
-        let mut short_sma_scratch: [f64; 0] = [];
-        Some(State::init_state(
-            (windows[0], windows[1]),
-            &mut medprice_scratch,
-            &mut short_sma_scratch,
-        ))
+        // `ao`'s buffer is a `FixedRingBuffer` (array-backed, `N = LONG_PERIOD`),
+        // not the heap `Buffer` `mass` rebuilds, so the exported slots land in a
+        // fixed array. `index` is the next write slot — `cursor / 8`, the same
+        // convention `hma`/`adxr`/`mass` read off `RingExport` — and
+        // `get_by_period` resolves through it, so the index must be exact.
+        let index = (*cursor / 8) as usize;
+        if index >= capacity {
+            return None;
+        }
+        let mut vals = [0.0_f64; LONG_PERIOD];
+        vals.copy_from_slice(ring);
+        let buffer = Buffer::<f64, LONG_PERIOD, Warm> {
+            vals,
+            index,
+            count: capacity,
+            state: std::marker::PhantomData,
+        };
+        let cold = State::new(*short_sum, *long_sum);
+        Some(State {
+            sma_state: cold.sma_state,
+            buffer,
+        })
     }
 }

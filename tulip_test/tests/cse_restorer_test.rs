@@ -12,7 +12,7 @@ fn restorer_for_maps_new_stateless_variants() {
 
     for (kind, label) in cases {
         let restore = restorer_for(kind).unwrap_or_else(|| panic!("missing restorer for {label}"));
-        let got = restore(vec![], &[]);
+        let got = restore(vec![], &[], &[]);
         match (kind, got) {
             ("avgprice", IndicatorStateBox::AvgPrice(_)) => {}
             ("typprice", IndicatorStateBox::Typprice(_)) => {}
@@ -42,6 +42,7 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Dema(_)));
 
@@ -61,6 +62,7 @@ fn restorer_for_maps_new_stateful_variants() {
                 period: 10,
             },
         ],
+        &[],
         &[],
     );
     assert!(matches!(got, IndicatorStateBox::Tema(_)));
@@ -82,6 +84,7 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Trix(_)));
 
@@ -94,6 +97,7 @@ fn restorer_for_maps_new_stateful_variants() {
             period: 4,
         }],
         &[&open, &close],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Qstick(_)));
 
@@ -105,6 +109,7 @@ fn restorer_for_maps_new_stateful_variants() {
             period: 11,
         }],
         &[&zlema_tail],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Zlema(_)));
 
@@ -115,6 +120,7 @@ fn restorer_for_maps_new_stateful_variants() {
             prev_real: 42.0,
             period: 10,
         }],
+        &[],
         &[],
     );
     assert!(matches!(got, IndicatorStateBox::Highpass(_)));
@@ -127,6 +133,7 @@ fn restorer_for_maps_new_stateful_variants() {
             prev_real: 41.0,
             period: 12,
         }],
+        &[],
         &[],
     );
     assert!(matches!(got, IndicatorStateBox::Supersmoother(_)));
@@ -147,6 +154,7 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Roofingfilter(_)));
 
@@ -158,6 +166,7 @@ fn restorer_for_maps_new_stateful_variants() {
             period: 6,
         }],
         &[&dpo_tail],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Dpo(_)));
 
@@ -171,12 +180,13 @@ fn restorer_for_maps_new_stateful_variants() {
             n: 1,
         }],
         &[&emv_high, &emv_low],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Emv(_)));
 
     let obv = restorer_for("obv").expect("missing restorer for obv");
     let obv_close = [100.0, 101.0, 103.0];
-    let got = obv(vec![ChainState::Mirror { value: 42.0 }], &[&obv_close]);
+    let got = obv(vec![ChainState::Mirror { value: 42.0 }], &[&obv_close], &[]);
     assert!(matches!(got, IndicatorStateBox::Obv(_)));
 
     let wad = restorer_for("wad").expect("missing restorer for wad");
@@ -186,6 +196,7 @@ fn restorer_for_maps_new_stateful_variants() {
     let got = wad(
         vec![ChainState::Mirror { value: 12.5 }],
         &[&wad_high, &wad_low, &wad_close],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Wad(_)));
 
@@ -195,6 +206,7 @@ fn restorer_for_maps_new_stateful_variants() {
             ChainState::Mirror { value: 1_250.0 },
             ChainState::Mirror { value: 125.0 },
         ],
+        &[],
         &[],
     );
     assert!(matches!(got, IndicatorStateBox::Vwap(_)));
@@ -214,6 +226,7 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[&vwma_close, &vwma_volume],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Vwma(_)));
 
@@ -231,6 +244,7 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[&vosc_volume],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Vosc(_)));
 
@@ -251,6 +265,7 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[&cmf_high, &cmf_low, &cmf_close, &cmf_volume],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Chaikinmf(_)));
 
@@ -276,6 +291,7 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[&mfi_high, &mfi_low, &mfi_close, &mfi_volume],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Mfi(_)));
 
@@ -299,6 +315,7 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[&vx_high, &vx_low, &vx_close],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Vortex(_)));
 
@@ -316,35 +333,37 @@ fn restorer_for_maps_new_stateful_variants() {
             },
         ],
         &[&trima_real],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Trima(_)));
 
     let roc = restorer_for("roc").expect("missing restorer for roc");
     let roc_tail = [100.0, 101.0, 103.0, 102.0];
-    let got = roc(vec![], &[&roc_tail]);
+    let got = roc(vec![], &[&roc_tail], &[]);
     assert!(matches!(got, IndicatorStateBox::Roc(_)));
 
     let rocr = restorer_for("rocr").expect("missing restorer for rocr");
     let rocr_tail = [100.0, 101.0, 103.0, 102.0];
-    let got = rocr(vec![], &[&rocr_tail]);
+    let got = rocr(vec![], &[&rocr_tail], &[]);
     assert!(matches!(got, IndicatorStateBox::Rocr(_)));
 
     let real_long: Vec<f64> = (1..=80).map(|x| x as f64).collect();
 
     let adaptivemsw = restorer_for("adaptivemsw").expect("missing restorer for adaptivemsw");
-    let got = adaptivemsw(vec![], &[real_long.as_slice()]);
+    let got = adaptivemsw(vec![], &[real_long.as_slice()], &[]);
     assert!(matches!(got, IndicatorStateBox::AdaptiveMsw(_)));
 
     let cybercycle = restorer_for("cybercycle").expect("missing restorer for cybercycle");
     let got = cybercycle(
         vec![ChainState::Mirror { value: 0.07 }],
         &[real_long.as_slice()],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Cybercycle(_)));
 
     let instantaneoustrendline = restorer_for("instantaneoustrendline")
         .expect("missing restorer for instantaneoustrendline");
-    let got = instantaneoustrendline(vec![], &[real_long.as_slice()]);
+    let got = instantaneoustrendline(vec![], &[real_long.as_slice()], &[]);
     assert!(matches!(got, IndicatorStateBox::Instantaneoustrendline(_)));
 
     let mama = restorer_for("mama").expect("missing restorer for mama");
@@ -354,6 +373,7 @@ fn restorer_for_maps_new_stateful_variants() {
             ChainState::Mirror { value: 0.05 },
         ],
         &[real_long.as_slice()],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Mama(_)));
 
@@ -367,6 +387,7 @@ fn restorer_for_maps_new_stateful_variants() {
             ChainState::Mirror { value: 0.2 },
         ],
         &[high.as_slice(), low.as_slice()],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Psar(_)));
 
@@ -374,6 +395,7 @@ fn restorer_for_maps_new_stateful_variants() {
     let got = trendmode(
         vec![ChainState::Mirror { value: 0.07 }],
         &[real_long.as_slice()],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Trendmode(_)));
 
@@ -381,37 +403,38 @@ fn restorer_for_maps_new_stateful_variants() {
     let got = ccfisher(
         vec![ChainState::Mirror { value: 0.07 }],
         &[real_long.as_slice()],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Ccfisher(_)));
 
     let homodynediscriminator =
         restorer_for("homodynediscriminator").expect("missing restorer for homodynediscriminator");
-    let got = homodynediscriminator(vec![], &[real_long.as_slice()]);
+    let got = homodynediscriminator(vec![], &[real_long.as_slice()], &[]);
     assert!(matches!(got, IndicatorStateBox::Homodynediscriminator(_)));
 
     let msw = restorer_for("msw").expect("missing restorer for msw");
     let msw_tail = [100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0];
-    let got = msw(vec![], &[&msw_tail]);
+    let got = msw(vec![], &[&msw_tail], &[]);
     assert!(matches!(got, IndicatorStateBox::Msw(_)));
 
     let linreg = restorer_for("linreg").expect("missing restorer for linreg");
     let linreg_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
-    let got = linreg(vec![], &[&linreg_tail]);
+    let got = linreg(vec![], &[&linreg_tail], &[]);
     assert!(matches!(got, IndicatorStateBox::Linreg(_)));
 
     let tsf = restorer_for("tsf").expect("missing restorer for tsf");
     let tsf_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
-    let got = tsf(vec![], &[&tsf_tail]);
+    let got = tsf(vec![], &[&tsf_tail], &[]);
     assert!(matches!(got, IndicatorStateBox::Tsf(_)));
 
     let fosc = restorer_for("fosc").expect("missing restorer for fosc");
     let fosc_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0];
-    let got = fosc(vec![], &[&fosc_tail]);
+    let got = fosc(vec![], &[&fosc_tail], &[]);
     assert!(matches!(got, IndicatorStateBox::Fosc(_)));
 
     let kama = restorer_for("kama").expect("missing restorer for kama");
     let kama_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0];
-    let got = kama(vec![], &[&kama_tail]);
+    let got = kama(vec![], &[&kama_tail], &[]);
     assert!(matches!(got, IndicatorStateBox::Kama(_)));
 
     let keltnerchannel =
@@ -419,7 +442,7 @@ fn restorer_for_maps_new_stateful_variants() {
     let kc_high = [11.0, 12.0, 13.0, 14.0, 15.0, 16.0];
     let kc_low = [9.0, 10.0, 11.0, 12.0, 13.0, 14.0];
     let kc_close = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
-    let got = keltnerchannel(vec![], &[&kc_high, &kc_low, &kc_close]);
+    let got = keltnerchannel(vec![], &[&kc_high, &kc_low, &kc_close], &[]);
     assert!(matches!(got, IndicatorStateBox::Keltnerchannel(_)));
 
     let smaenvelope = restorer_for("smaenvelope").expect("missing restorer for smaenvelope");
@@ -430,12 +453,13 @@ fn restorer_for_maps_new_stateful_variants() {
             period: 5,
         }],
         &[&se_real],
+        &[],
     );
     assert!(matches!(got, IndicatorStateBox::Smaenvelope(_)));
 
     let vidya = restorer_for("vidya").expect("missing restorer for vidya");
     let vidya_tail = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0];
-    let got = vidya(vec![], &[&vidya_tail]);
+    let got = vidya(vec![], &[&vidya_tail], &[]);
     assert!(matches!(got, IndicatorStateBox::Vidya(_)));
 }
 
@@ -445,7 +469,7 @@ fn restorer_for_with_options_honors_non_default_options() {
 
     let cybercycle =
         restorer_for_with_options("cybercycle", &[0.2]).expect("missing option-aware cybercycle");
-    let got = cybercycle(vec![], &[real_long.as_slice()]);
+    let got = cybercycle(vec![], &[real_long.as_slice()], &[]);
     match got {
         IndicatorStateBox::Cybercycle(state) => {
             let (_coef, d1, _d2) = tulip_rs::indicators::cybercycle::multiplier(0.2);
@@ -456,7 +480,7 @@ fn restorer_for_with_options_honors_non_default_options() {
 
     let trendmode =
         restorer_for_with_options("trendmode", &[0.2]).expect("missing option-aware trendmode");
-    let got = trendmode(vec![], &[real_long.as_slice()]);
+    let got = trendmode(vec![], &[real_long.as_slice()], &[]);
     match got {
         IndicatorStateBox::Trendmode(state) => assert!((state.alpha - 0.2).abs() < 1e-12),
         _ => panic!("wrong variant for option-aware trendmode"),
@@ -464,14 +488,14 @@ fn restorer_for_with_options_honors_non_default_options() {
 
     let ccfisher =
         restorer_for_with_options("ccfisher", &[0.2]).expect("missing option-aware ccfisher");
-    let got = ccfisher(vec![], &[real_long.as_slice()]);
+    let got = ccfisher(vec![], &[real_long.as_slice()], &[]);
     match got {
         IndicatorStateBox::Ccfisher(state) => assert!((state.alpha - 0.2).abs() < 1e-12),
         _ => panic!("wrong variant for option-aware ccfisher"),
     }
 
     let mama = restorer_for_with_options("mama", &[0.8, 0.1]).expect("missing option-aware mama");
-    let got = mama(vec![], &[real_long.as_slice()]);
+    let got = mama(vec![], &[real_long.as_slice()], &[]);
     match got {
         IndicatorStateBox::Mama(state) => {
             assert!((state.fast_limit - 0.8).abs() < 1e-12);
@@ -489,6 +513,7 @@ fn restorer_for_with_options_honors_non_default_options() {
     let got = keltner(
         vec![],
         &[kc_high.as_slice(), kc_low.as_slice(), kc_close.as_slice()],
+        &[20.0, 3.5],
     );
     match got {
         IndicatorStateBox::Keltnerchannel(state) => assert!((state.step - 3.5).abs() < 1e-12),
@@ -500,7 +525,7 @@ fn restorer_for_with_options_honors_non_default_options() {
     let psar = restorer_for_with_options("psar", &[0.2, 0.1]).expect("missing option-aware psar");
     let psar_high = [11.0, 12.0, 13.0];
     let psar_low = [9.0, 10.0, 11.0];
-    let got = psar(vec![], &[&psar_high, &psar_low]);
+    let got = psar(vec![], &[&psar_high, &psar_low], &[0.2, 0.1]);
     assert!(matches!(got, IndicatorStateBox::Other));
 
     let smaenvelope = restorer_for_with_options("smaenvelope", &[20.0, 0.0])
@@ -509,13 +534,13 @@ fn restorer_for_with_options_honors_non_default_options() {
         10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0,
         25.0, 26.0, 27.0, 28.0, 29.0, 30.0,
     ];
-    let got = smaenvelope(vec![], &[&se_real]);
+    let got = smaenvelope(vec![], &[&se_real], &[20.0, 0.0]);
     assert!(matches!(got, IndicatorStateBox::Other));
 
     let vidya =
         restorer_for_with_options("vidya", &[10.0, 20.0, 1.2]).expect("missing option-aware vidya");
     let vd_real: Vec<f64> = (1..=30).map(|x| x as f64).collect();
-    let got = vidya(vec![], &[vd_real.as_slice()]);
+    let got = vidya(vec![], &[vd_real.as_slice()], &[10.0, 20.0, 1.2]);
     assert!(matches!(got, IndicatorStateBox::Other));
 }
 
@@ -528,6 +553,6 @@ fn restorer_for_unknown_kind_is_none() {
 #[test]
 fn restorer_for_existing_kind_returns_other_on_bad_payload() {
     let restore = restorer_for("ema").expect("ema restorer present");
-    let got = restore(vec![], &[]);
+    let got = restore(vec![], &[], &[]);
     assert!(matches!(got, IndicatorStateBox::Other));
 }

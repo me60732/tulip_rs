@@ -294,31 +294,77 @@ impl crate::cse::Planable for StochRsi {
     }
 }
 
-/// `stochrsi`'s `MirrorBuffer` holds a `period`-deep ring of PAST RSI VALUES
-/// — a derived series, not a raw input — so no existing `ChainState` shape
-/// can export it. Recomputing the entire warm `State` via `State::init_state`
-/// over a sufficiently long raw `real` tail is bit-exact: it's literally the
-/// same cold-start code path, run again. The only scalar we actually need out
-/// of the engine's captured chains is `period`, read off the `mn` node (an
-/// existing `Node::RollMin` already live in the recipe's graph — adding it to
-/// `tail_inputs` costs nothing new).
+/// `stochrsi`'s state is three separate carries, and each now comes from the
+/// node that owns it (C14):
+///
+/// * `rsi_state` is the grafted `rsi`'s own state — the graft exports
+///   `rsi`'s `[Wilders, Wilders, Mirror]` channels (`Grafted::tails`), and this
+///   restorer builds the carry by calling `Rsi`'s restorer, so the two can never
+///   drift apart;
+/// * `min_state` / `max_state` are the two rolls' carried `(value, trail)`;
+/// * the `MirrorBuffer` of past RSI values is that roll's exported window — the
+///   primary slots plus `cursor / 8`. The mirror half is a duplicate by
+///   construction, so writing the primary slots twice rebuilds an equivalent
+///   buffer rather than inventing one.
+///
+/// The previous version of this function re-ran `State::init_state` over a raw
+/// price tail and called it bit-exact because it was "the same cold-start code
+/// path, run again". It is not the same float: the hand's RSI accumulator has
+/// decayed over the whole series, and restarting it is what measured as 80/300
+/// wrong rows with `0.0` where the hand printed `100.0`.
 impl crate::cse::Restorable<INPUTS, OPTIONS> for StochRsi {
     const KIND: &'static str = "stochrsi";
 
     fn restore_state(
         v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
+        _windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::RollMin { period, .. }] = v.as_slice() else {
+        use crate::cse::ChainState::{Mirror, RollMax, RollMin, Wilders};
+        let [Wilders { .. }, Wilders { .. }, Mirror { .. }, RollMax {
+            value: max,
+            trail: max_trail,
+            ..
+        }, RollMin {
+            value: min,
+            trail: min_trail,
+            period,
+            ring,
+            cursor,
+            ..
+        }] = v.as_slice()
+        else {
             return None;
         };
         let period = *period as usize;
-        let real = windows[0];
-        if real.len() < StochRsi::min_data(&[period as f64]) {
+        let capacity = period;
+        if capacity == 0 || ring.len() != capacity {
             return None;
         }
-        let mut rsi_scratch = vec![0.0; real.len()];
-        let state = State::init_state(real, period, &mut rsi_scratch);
-        Some(IndicatorState::new(state, period))
+        let index = (*cursor / 8) as usize;
+        if index >= capacity {
+            return None;
+        }
+        // The RSI carry: hand the grafted `rsi`'s own three channels to `rsi`'s
+        // restorer. Same words, same derived multipliers, one implementation.
+        let rsi_state = <Rsi as crate::cse::Restorable<1, 1>>::restore_state(v[..3].to_vec(), &[])?;
+        let mut vals = Vec::with_capacity(2 * capacity);
+        vals.extend_from_slice(ring);
+        vals.extend_from_slice(ring);
+        Some(IndicatorState::new(
+            State {
+                buffer: MirrorBuffer::<Warm> {
+                    vals,
+                    index,
+                    capacity,
+                    count: capacity,
+                    prev_idx: (index + capacity - 1) % capacity,
+                    state: std::marker::PhantomData,
+                },
+                rsi_state,
+                min_state: MinState::new(*min, *min_trail as usize).into_warm(),
+                max_state: MaxState::new(*max, *max_trail as usize).into_warm(),
+            },
+            period,
+        ))
     }
 }

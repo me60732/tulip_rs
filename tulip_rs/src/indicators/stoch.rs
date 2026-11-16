@@ -372,9 +372,17 @@ impl crate::cse::Planable for Stoch {
 /// `min_data` bars via its own `init_state` — same full-recompute technique
 /// `md`/`cci`/`stochrsi` use. `k_period`/`k_slow`/`d_period` are recovered for
 /// free from the three existing nodes' own `ChainState` (`mx`'s `RollMax`,
-/// `k_line`'s and `d_line`'s `Sma`) since all three are already live
+/// `k_line`'s and `d_line`'s rolling sums) since all three are already live
 /// ancestors of `stoch`'s output — `tail_inputs = vec![mx, k_line, d_line]`
 /// adds no new liveness root.
+///
+/// The two averages decode as `RollSumRing` (they are `Kind::RollSum` nodes,
+/// which is what the shared-sum fusion made them); only their `period` fields
+/// are read, and the window is normalized to the last `min_len` bars because
+/// `init_state` indexes from the START of what it is handed — the router's
+/// full-column window would otherwise warm the state at the front of the
+/// series (measured 2026-11-16, when the capture gate began passing what
+/// production passes).
 impl crate::cse::Restorable<INPUTS, OPTIONS> for Stoch {
     const KIND: &'static str = "stoch";
 
@@ -382,36 +390,85 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Stoch {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::RollMax {
-            period: k_period, ..
-        }, crate::cse::ChainState::Sma { period: k_slow, .. }, crate::cse::ChainState::Sma {
-            period: d_period, ..
+        use crate::cse::ChainState::{RollMax, RollMin, RollSumRing};
+        let [RollMax {
+            value: max,
+            trail: max_trail,
+            period: k_period,
+            ..
+        }, RollMin {
+            value: min,
+            trail: min_trail,
+            ..
+        }, RollSumRing {
+            sum: k_sum,
+            ring: k_ring,
+            cursor: k_cursor,
+            period: k_slow,
+        }, RollSumRing {
+            sum: d_sum,
+            ring: d_ring,
+            cursor: d_cursor,
+            period: d_period,
         }] = v.as_slice()
         else {
             return None;
         };
         let (k_period, k_slow, d_period) =
             (*k_period as usize, *k_slow as usize, *d_period as usize);
-        let min_len = k_period + k_slow + d_period + 1;
-        if windows.len() < 3
-            || windows[0].len() < min_len
-            || windows[1].len() < min_len
-            || windows[2].len() < min_len
-        {
+        if k_period == 0 || k_slow == 0 || d_period == 0 {
             return None;
         }
-        // The init loop runs `k_slow + d_period - 1` iterations; `k_line` is
-        // only written once `prev_k` (capacity `k_slow`) is full, which
-        // happens on exactly the last `d_period` of those iterations — so
-        // `d_period` entries is the exact (not merely generous) bound.
-        let mut k_scratch = vec![0.0_f64; d_period];
-        let (state, _k_count, _start) = State::init_state(
-            (windows[0], windows[1], windows[2]),
-            k_period,
-            k_slow,
-            d_period,
-            &mut k_scratch,
-        );
+        if windows.len() < 3 || windows[0].len() < k_period || windows[1].len() < k_period {
+            return None;
+        }
+        // CARRIED, not re-initialized. The state is eight values — two extremum
+        // trackers, two rolling sums and the two rings those sums evict from —
+        // and the engine already holds every one of them: `RollMax`/`RollMin`
+        // give `(value, trail)`, and each `RollSumRing` gives its own `sum` plus
+        // the ring, which IS the hand's `prev_k` / `prev_d`.
+        //
+        // `init_state` cannot answer this. It is the warm-up helper: its loop runs
+        // `k_period + 1 .. k_period + k_slow + d_period` from the FRONT of whatever
+        // slice it is handed, and the old restorer discarded its `k_count`/`start`
+        // counters — measured 2026-11-16 as a 2/300-row resume divergence at
+        // exactly that warm boundary, while the head rows were bit-exact.
+        let (k_multiplier, d_multiplier) = multiplier(k_slow, d_period);
+        let prev_k = warm_ring(k_ring, *k_cursor, k_slow)?;
+        let prev_d = warm_ring(d_ring, *d_cursor, d_period)?;
+        let state = State {
+            prev_k,
+            prev_d,
+            min_state: MinState::new(*min, *min_trail as usize).into_warm(),
+            max_state: MaxState::new(*max, *max_trail as usize).into_warm(),
+            k_sum: *k_sum,
+            d_sum: *d_sum,
+            k_multiplier,
+            d_multiplier,
+        };
         Some(IndicatorState::new(state, windows[0], windows[1], k_period))
     }
+}
+
+/// Rebuild a warm ring from a `RollSumRing` export: `index` is the next write
+/// slot (`cursor / 8`), the buffer is full, and `prev_idx` is the newest value —
+/// the same convention `mass` and `cci` read the export with. `None` when the
+/// export is not a complete window, which is the unfilled-group case the decoder
+/// already refuses.
+fn warm_ring(ring: &[f64], cursor: u64, capacity: usize) -> Option<Buffer<Warm>> {
+    if capacity == 0 || ring.len() != capacity {
+        return None;
+    }
+    let index = (cursor / 8) as usize;
+    if index >= capacity {
+        return None;
+    }
+    Some(Buffer::<Warm> {
+        vals: ring.to_vec(),
+        index,
+        capacity,
+        count: capacity,
+        prev_idx: (index + capacity - 1) % capacity,
+        state: std::marker::PhantomData,
+    })
 }

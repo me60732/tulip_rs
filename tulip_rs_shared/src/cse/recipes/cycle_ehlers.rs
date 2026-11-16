@@ -166,6 +166,14 @@ pub fn hilberttransform(options: &[f64]) -> Recipe {
 
     r.kind = "hilberttransform";
     r.options = options.to_vec();
+    // The hand's `IndicatorState` is `{rf_state: {hp_state, ss_state}, buffer}`
+    // — three recurrent pieces: the HighPass 2-field carry, the SuperSmoother
+    // 3-field carry, and the shared 7-tap ring the two Ht nodes co-own. In the
+    // ORDER `HilbertTransform::restore_state` matches
+    // (`[HighPass, SuperSmoother, HtRing]`), so the engine's captured carries
+    // decode straight into it. Without these slots the chain list was empty and
+    // the request could never be resumed (checklist item C6).
+    r.tail_inputs = vec![highpass, roofing, in_phase];
     // outputs in Info::outputs order: in_phase, quadrature.
     // optional_outputs in Info::optional_outputs order: roofing, highpass.
     r.outputs.push(Sink::iface(in_phase));

@@ -322,27 +322,49 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Cci {
 
     fn restore_state(
         v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
+        _windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma { period, .. }] = v.as_slice() else {
+        // CARRIED, not rebuilt. `cci`'s whole state is the typprice ring and the
+        // sma sum, and both are already in the ONE chain its recipe publishes:
+        // the `RollSum` node decodes as `RollSumRing { sum, ring, cursor, period }`
+        // (C12's per-node age-read makes the ring available even when the group is
+        // wider than this node). Re-initialising from the raw price columns cannot
+        // be bit-exact — `init_state` is a warm-up helper that re-sums from the
+        // FRONT of whatever it is handed, so it answered for bar `period` rather
+        // than for the seam.
+        let [crate::cse::ChainState::RollSumRing {
+            sum,
+            ring,
+            cursor,
+            period,
+        }] = v.as_slice()
+        else {
             return None;
         };
         let period = *period as usize;
-        let (high, low, close) = (windows[0], windows[1], windows[2]);
-        let min_data = Cci::min_data(&[period as f64]);
-        if high.len() < min_data || low.len() < min_data || close.len() < min_data {
+        let capacity = period;
+        if capacity == 0 || ring.len() != capacity {
             return None;
         }
-        let mut sma_scratch = vec![0.0; high.len()];
-        let mut md_scratch = vec![0.0; high.len()];
-        let mut typprice_scratch = vec![0.0; high.len()];
-        let state = State::init_state(
-            high,
-            low,
-            close,
+        let index = (*cursor / 8) as usize;
+        if index >= capacity {
+            return None;
+        }
+        let prev_idx = (index + capacity - 1) % capacity;
+        let buffer = Buffer::<Warm> {
+            vals: ring.clone(),
+            index,
+            capacity,
+            count: capacity,
+            prev_idx,
+            state: std::marker::PhantomData,
+        };
+        Some(IndicatorState::new(
+            State {
+                buffer,
+                md_state: MdState::new(*sum, period).into_warm(),
+            },
             period,
-            (&mut sma_scratch, &mut md_scratch, &mut typprice_scratch),
-        );
-        Some(IndicatorState::new(state, period))
+        ))
     }
 }

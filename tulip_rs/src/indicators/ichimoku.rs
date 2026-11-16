@@ -453,6 +453,11 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Ichimoku {
             trail: smin_t,
             period: s_period,
             look_back: s_look_back,
+            // All six rolls here read raw `high`/`low` columns, so the exported
+            // window is empty by contract (see `ChainState::RollMax`) and the
+            // carried `(value, trail)` pair is the whole state.
+            ring: _,
+            cursor: _,
         }, ChainState::RollMax {
             value: smax,
             trail: smax_t,
@@ -462,6 +467,8 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Ichimoku {
             trail: mmin_t,
             period: m_period,
             look_back: m_look_back,
+            ring: _,
+            cursor: _,
         }, ChainState::RollMax {
             value: mmax,
             trail: mmax_t,
@@ -471,6 +478,8 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Ichimoku {
             trail: lmin_t,
             period: l_period,
             look_back: l_look_back,
+            ring: _,
+            cursor: _,
         }, ChainState::RollMax {
             value: lmax,
             trail: lmax_t,

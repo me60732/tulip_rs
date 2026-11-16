@@ -152,10 +152,18 @@ impl crate::cse::Planable for Mom {
 
 /// `mom::IndicatorState` carries no engine chain at all — its hand state is
 /// a raw window of the last `p` `real` values (see the recipe's own doc:
-/// `tail_inputs` stays empty). `period` isn't recoverable from `v` (there's
-/// nothing to destructure), but the host-side window IS exactly `period`
-/// bars long by construction (`IndicatorState::new` stores
-/// `real[real.len() - period..]`), so `windows[0].len()` IS `period`.
+/// `tail_inputs` stays empty), so nothing here is decoded from `v`.
+///
+/// `restore_state` below recovers `period` from `windows[0].len()`, which is
+/// correct ONLY for a caller that hands exactly `period` bars. The router hands
+/// the full column (every `IndicatorState::new` tail-slices what it needs), so
+/// that spelling restored a different indicator: measured 2026-11-15, it resumed
+/// 300/300 rows wrong (`1.0274769512599278` vs `0.5911711585153654`, diverging
+/// from row 0). `restore_state_with` is the honest contract — the request states
+/// its own period, and any window at least `period` bars long then restores the
+/// identical state. Pinned by `engine_carry_mom_continues_bit_exact`, which
+/// asserts BOTH sides: the options path resumes bit-exactly and the window-length
+/// path does not.
 impl crate::cse::Restorable<INPUTS, OPTIONS> for Mom {
     const KIND: &'static str = "mom";
 
@@ -171,5 +179,26 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Mom {
             return None;
         }
         Some(IndicatorState::new(windows[0], period))
+    }
+
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        if !v.is_empty() {
+            return None;
+        }
+        let [real] = windows else {
+            return None;
+        };
+        // The same truncation `indicator()` itself applies (`options[0] as usize`),
+        // so a fractional period cannot make the restored state disagree with the
+        // rows the same request just printed.
+        let period = *options.first()? as usize;
+        if period == 0 || real.len() < period {
+            return None;
+        }
+        Some(IndicatorState::new(real, period))
     }
 }

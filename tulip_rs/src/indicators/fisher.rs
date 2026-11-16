@@ -328,4 +328,44 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Fisher {
 
         Some(IndicatorState { state, period })
     }
+
+    /// C11.5: the period comes from the request, not from the window.
+    ///
+    /// `restore_state` above reads `period = high.len()`, which is only right for
+    /// a caller that happens to hand exactly `period` bars. The router hands full
+    /// columns, so that spelling built a state for a period of 400 and re-seeded
+    /// the ring from the FRONT of the series (`init_state` starts at `high[0]` and
+    /// pushes until its buffer is full) — the same window-length trap that
+    /// `mom`/`medprice` showed, plus the `init_state` indexing rule from `vhf`.
+    /// Here the period is taken from `options[0]` (the same truncation
+    /// `indicator()` applies) and the tail is sliced to exactly that many bars, so
+    /// any window length restores the identical state.
+    fn restore_state_with(
+        v: Vec<crate::cse::ChainState>,
+        windows: &[&[f64]],
+        options: &[f64],
+    ) -> Option<Self::IndicatorState> {
+        let [crate::cse::ChainState::IirClamped { value: val1 }, crate::cse::ChainState::Mirror { value: fish }] =
+            v.as_slice()
+        else {
+            return None;
+        };
+        let [high, low] = windows else {
+            return None;
+        };
+        let period = *options.first()? as usize;
+        if period == 0 || high.len() < period || low.len() < period {
+            return None;
+        }
+        let high = &high[high.len() - period..];
+        let low = &low[low.len() - period..];
+
+        let mut fisher_line = vec![0.0; 1];
+        let mut signal_line = vec![0.0; 1];
+        let mut state = State::init_state(high, low, period, &mut fisher_line, &mut signal_line);
+        state.val1 = *val1;
+        state.fish = *fish;
+
+        Some(IndicatorState { state, period })
+    }
 }

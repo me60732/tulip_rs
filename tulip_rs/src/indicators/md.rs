@@ -287,7 +287,19 @@ impl crate::cse::Restorable<INPUTS, OPTIONS> for Md {
         v: Vec<crate::cse::ChainState>,
         windows: &[&[f64]],
     ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
+        // The tail node is a `Node::RollSum`, which decodes as `RollSumRing`
+        // (`Kind::RollSum`), NOT `ChainState::Sma` — matching `Sma` here made the
+        // engine's own carries unconditionally declinable, so `md` looked like an
+        // enum-gap kind when it was a pattern mismatch (measured 2026-11-16).
+        // Only `sum` and `period` are read; `md::State` is `SmaState` transparent,
+        // and the ring belongs to the sma node's group, not to this state.
+        let [crate::cse::ChainState::RollSumRing {
+            sum,
+            period,
+            ring: _,
+            cursor: _,
+        }] = v.as_slice()
+        else {
             return None;
         };
         let period = *period as usize;
