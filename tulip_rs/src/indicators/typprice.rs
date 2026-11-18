@@ -1,5 +1,4 @@
 use crate::common::validate_inputs;
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -125,44 +124,5 @@ impl Indicator<INPUTS, OPTIONS> for Typprice {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Typprice {
-    /// The graph is leaf data — `crate::cse::recipes::typprice`:
-    /// `(high + low + close) * (1.0 / 3.0)`.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::typprice(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Typprice {
-    const KIND: &'static str = "typprice";
-
-    fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        Some(IndicatorState)
-    }
-}
-
-#[cfg(feature = "simd_options")]
-impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for Typprice {
-    fn indicator_by_options<const N: usize>(
-        inputs: &[&[f64]; INPUTS],
-        options: &[&[f64; OPTIONS]; N],
-        optional_outputs: Option<&[bool]>,
-    ) -> crate::indicator_types::SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        let mut all_outputs = Vec::with_capacity(N);
-        let mut all_states = Vec::with_capacity(N);
-
-        for option in options.iter() {
-            let (outputs, state) = Self::indicator(inputs, option, optional_outputs)?;
-            all_outputs.push(outputs);
-            all_states.push(state);
-        }
-
-        Ok((all_outputs, all_states))
     }
 }

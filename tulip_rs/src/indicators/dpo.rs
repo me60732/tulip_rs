@@ -5,7 +5,6 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
-use crate::cse::{Planable, Recipe};
 pub use crate::indicators::sma::{Sma, State as SmaState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -232,38 +231,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dpo {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Dpo {
-    /// The graph is leaf data — `crate::cse::recipes::dpo`: `Sma(p)` over
-    /// the raw price minus `Lag(price, p/2 + 1)`.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::dpo(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Dpo {
-    const KIND: &'static str = "dpo";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
-            return None;
-        };
-        if windows.is_empty() {
-            return None;
-        }
-
-        let period = *period as usize;
-        if windows[0].len() < period {
-            return None;
-        }
-
-        let state = State(SmaState::new(*sum, period).into_warm());
-        let dpo_period = period / 2 + 1;
-        Some(IndicatorState::new(windows[0], state, period, dpo_period))
     }
 }

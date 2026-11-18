@@ -245,38 +245,3 @@ pub(crate) fn calc(sum: &mut f64, value: &f64, prev_value: &f64, multiplier: &f6
 pub fn multiplier(period: usize) -> f64 {
     1.0 / period as f64
 }
-
-// ── planner recipe (cse) ─────────────────────────────────────────────
-
-impl crate::cse::Planable for Sma {
-    /// The graph is leaf data — `crate::cse::recipes::sma` (one rolling-sum
-    /// node, publish lead `period`).
-    fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        crate::cse::recipes::sma(options)
-    }
-}
-
-/// Rebuild the hand `sma::State<Warm>` from the group's rolling `sum`
-/// (`get_states`). The price window `IndicatorState` also holds lives in
-/// the engine's host `JitState.window`, not here.
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Sma {
-    const KIND: &'static str = "sma";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
-            return None;
-        };
-        let period = *period as usize;
-        if windows[0].len() < period {
-            return None;
-        }
-        Some(IndicatorState::new(
-            windows[0],
-            State::new(*sum, period).into_warm(),
-            period,
-        ))
-    }
-}

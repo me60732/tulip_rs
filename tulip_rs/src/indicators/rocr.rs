@@ -1,5 +1,4 @@
 use crate::common::validate_inputs;
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -149,31 +148,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Rocr {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Rocr {
-    /// The graph is leaf data — `crate::cse::recipes::rocr`: `close /
-    /// Max(Lag(close, p), EPSILON)`.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::rocr(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Rocr {
-    const KIND: &'static str = "rocr";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        if !v.is_empty() || windows.is_empty() {
-            return None;
-        }
-        let period = windows[0].len();
-        if period == 0 {
-            return None;
-        }
-        Some(IndicatorState::new(windows[0], period))
     }
 }

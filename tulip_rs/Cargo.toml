@@ -31,10 +31,8 @@ targets = [
 [dependencies]
 serde = { version = "1.0.225", features = ["derive"] }
 serde_json = "1.0.145"
-# `request!()` (compile-time CSE -> straight-line fused Rust kernels — the
-# JIT's pipeline, emitting Rust source instead of CLIF) and the candlestick
-# `pattern_template` both live here now; the old `cse_fused` proc-macro
-# crate was merged into this one (2026-10-12).
+# The candlestick `pattern_template` proc macro, and the shared encodings both
+# macro and build script read.
 tulip_rs_macros = { path = "../tulip_rs_macros", version = "0.1.0" }
 tulip_rs_shared = { path = "../tulip_rs_shared", version = "0.1.0" }
 
@@ -44,18 +42,6 @@ default = ["simd_options", "simd_assets"] #, "candle_deep_analysis"]
 portable_simd = []
 simd_options = []
 simd_assets = []
-# Probe-only mini kernel registry for generated-vs-hand code shape inspection.
-# Not part of production routing; disabled by default.
-cse_kernel_probe = []
-# Lane-width cap reserved for a future lane-packed JIT (vector `fma` groups,
-# `cse/jit.rs` step E1); nothing reads it yet.
-avx512 = []
-# The `safe_inputs` data-trust feature died with the JIT (2026-10-12): the
-# macro engine assumes the guard-free graph everywhere (the `Ppo` divisor
-# floor is gone from hand, SIMD, and recipes alike — see
-# `src/cse/mod.rs`), and a zero price is excluded by the import filter's
-# data contract. The non-finite class tests it used to `#[cfg]` out are
-# archived in `old_jit/`.
 
 # TODO figure out how to do a deep analysis to eliminate pattern clashes and pull out only one match, would be a cool feature
 # candle_deep_analysis = []

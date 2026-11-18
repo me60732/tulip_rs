@@ -8,7 +8,6 @@ use crate::indicators::ema::{Ema, State as EmaState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
-use crate::cse::{ChainStateEma, Planable, Recipe};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 
@@ -88,7 +87,7 @@ impl TState for State<Warm> {
     #[inline(always)]
     fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         let short_ema = self.short_ema.calc(real);
-        let long_ema = self.long_ema.calc(real);
+        let long_ema = self.long_ema.calc(real); //.max(f64::EPSILON);
 
         (
             (short_ema - long_ema) * 100.0 / long_ema,
@@ -223,36 +222,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Ppo {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Ppo {
-    /// The graph is leaf data — `crate::cse::recipes::ppo`:
-    /// `(ema_s − ema_l) * 100.0 / ema_l` in the hand's exact evaluation
-    /// order (reassociating would change the bits, MATHEMATICAL_ENGINE §5);
-    /// the numerator `Sub` is the §4 identity node apo/macd share. The
-    /// divisor is the RAW `ema_l` — the old `safe_inputs` `max(ema_l, ε)`
-    /// floor retired with the JIT (2026-10-12); a zero price is excluded by
-    /// the data contract.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::ppo(options)
-    }
-}
-
-/// Rebuild `ppo::State` from the arena chains, `TState` field order.
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Ppo {
-    const KIND: &'static str = "ppo";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [short, long] = v.as_slice() else {
-            return None;
-        };
-        Some(State {
-            short_ema: short.as_ema(),
-            long_ema: long.as_ema(),
-        })
     }
 }

@@ -1,5 +1,4 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -285,59 +284,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Vortex {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Vortex {
-    /// The graph is leaf data — `crate::cse::recipes::vortex`: the shared
-    /// `tr_nodes` walk, plus `Abs{high - Lag{low,1}}` and
-    /// `Abs{low - Lag{high,1}}`, each into its own `RollSum`, both divided by
-    /// a THIRD `RollSum` over the same `tr`. `tail_inputs` is those three
-    /// sums; both rows publish at `period + 1`, `tr`'s optional at 1.
-    /// `atr_vortex_shared_p` interns this `tr` onto `Atr`'s own walk.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::vortex(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Vortex {
-    const KIND: &'static str = "vortex";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        // All three sums are `Node::RollSum` → `RollSumRing`, not `Sma`.
-        let [crate::cse::ChainState::RollSumRing { period, .. }, crate::cse::ChainState::RollSumRing { .. }, crate::cse::ChainState::RollSumRing { .. }] =
-            v.as_slice()
-        else {
-            return None;
-        };
-        let period = *period as usize;
-        if windows.len() < 3 {
-            return None;
-        }
-        // `init_state` seeds `prev_low_high`/`tr_state` from bar 0 of whatever it
-        // is handed and fills its buffer forward, so it must receive exactly the
-        // last `period + 1` bars — the router hands full columns, and passing them
-        // whole built the state at bar `period` instead of at the seam (measured
-        // 2026-11-16: 14/300 resumed rows wrong, exactly one period, then it
-        // converged). Same law as `ao`/`vhf`/`ultosc`.
-        let need = period + 1;
-        // Guard FIRST: a restorer that panics on a short window is worse than one
-        // that refuses, because the router calls it with whatever the caller sent.
-        if period == 0
-            || windows[0].len() < need
-            || windows[1].len() < need
-            || windows[2].len() < need
-        {
-            return None;
-        }
-        let high = &windows[0][windows[0].len() - need..];
-        let low = &windows[1][windows[1].len() - need..];
-        let close = &windows[2][windows[2].len() - need..];
-
-        let mut tr_scratch = vec![0.0_f64; need];
-        Some(State::init_state(high, low, close, period, &mut tr_scratch))
     }
 }

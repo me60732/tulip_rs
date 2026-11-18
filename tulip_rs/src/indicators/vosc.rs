@@ -1,5 +1,4 @@
 use crate::common::validate_inputs;
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -263,59 +262,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Vosc {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Vosc {
-    /// The graph is leaf data — `crate::cse::recipes::vosc`: two
-    /// `RollSum{mean:true}` over the one `volume` column (short and long), then
-    /// `(fast - slow) * 100 / slow`, guarded by `WhereLe` on `Abs{slow}` pinned to
-    /// `0.0`. The divide's denominator, the guard's `Abs` source and the `slow`
-    /// optional row are all the SAME arena node — one recurrence, three reads.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::vosc(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Vosc {
-    const KIND: &'static str = "vosc";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        // Both tails are `Node::RollSum` → `RollSumRing`, not `Sma`.
-        let [crate::cse::ChainState::RollSumRing {
-            sum: short_sum,
-            period: short_period,
-            ring: _,
-            cursor: _,
-        }, crate::cse::ChainState::RollSumRing {
-            sum: long_sum,
-            period: long_period,
-            ring: _,
-            cursor: _,
-        }] = v.as_slice()
-        else {
-            return None;
-        };
-        if windows.is_empty() {
-            return None;
-        }
-
-        let (short_period, long_period) = (*short_period as usize, *long_period as usize);
-        if short_period >= long_period || windows[0].len() < long_period {
-            return None;
-        }
-
-        let state = State {
-            short_state: SmaState::new(*short_sum, short_period).into_warm(),
-            long_state: SmaState::new(*long_sum, long_period).into_warm(),
-        };
-        Some(IndicatorState::new(
-            windows[0],
-            state,
-            (short_period, long_period),
-        ))
     }
 }

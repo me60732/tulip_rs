@@ -5,7 +5,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 //use crate::indicators::atr::calc as calc_atr;
-pub use crate::indicators::atr::{multiplier, Atr, State as AtrState};
+pub use crate::indicators::atr::{multiplier, State as AtrState};
 use crate::indicators::tr::Tr;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -211,29 +211,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Natr {
             options,
             optional_outputs,
         )
-    }
-}
-
-// ── planner recipe (cse) ─────────────────────────────────────────────
-
-impl crate::cse::Planable for Natr {
-    /// The graph is leaf data — `crate::cse::recipes::natr`: wraps the SAME
-    /// mean-`Wilders(tr)` ATR node `atr` builds (dedups to one chain), then
-    /// the exact hand op order `(atr / close) * 100.0`; mirrors `[atr, tr]`.
-    fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        crate::cse::recipes::natr(options)
-    }
-}
-
-/// Rebuild `natr::State<Warm>`: a transparent wrapper around `atr::State`,
-/// same tail shape as `atr`'s own restorer.
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Natr {
-    const KIND: &'static str = "natr";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        <Atr as crate::cse::Restorable<INPUTS, OPTIONS>>::restore_state(v, windows).map(State)
     }
 }

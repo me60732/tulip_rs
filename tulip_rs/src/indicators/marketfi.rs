@@ -1,5 +1,4 @@
 use crate::common::validate_inputs;
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -105,48 +104,5 @@ impl Indicator<INPUTS, OPTIONS> for Marketfi {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Marketfi {
-    /// The graph is leaf data — `crate::cse::recipes::marketfi`:
-    /// `Sub{high, low} / Max{volume, EPSILON}`, over `hlvol()` =
-    /// [High, Low, Volume], stateless. Shares its `Sub{high, low}` numerator
-    /// and the `EPSILON` constant with `bop`'s denominator once the column
-    /// remap binds both close-free — the first pair to intern ACROSS different
-    /// node kinds (`bop_marketfi_shared`).
-    fn recipe(_options: &[f64]) -> Recipe {
-        crate::cse::recipes::marketfi(_options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Marketfi {
-    const KIND: &'static str = "marketfi";
-
-    fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        Some(IndicatorState)
-    }
-}
-
-#[cfg(feature = "simd_options")]
-impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for Marketfi {
-    fn indicator_by_options<const N: usize>(
-        inputs: &[&[f64]; INPUTS],
-        options: &[&[f64; OPTIONS]; N],
-        optional_outputs: Option<&[bool]>,
-    ) -> crate::indicator_types::SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        let mut all_outputs = Vec::with_capacity(N);
-        let mut all_states = Vec::with_capacity(N);
-
-        for option in options.iter() {
-            let (outputs, state) = Self::indicator(inputs, option, optional_outputs)?;
-            all_outputs.push(outputs);
-            all_states.push(state);
-        }
-
-        Ok((all_outputs, all_states))
     }
 }

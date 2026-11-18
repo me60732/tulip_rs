@@ -1,5 +1,4 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -256,93 +255,6 @@ impl Indicator<INPUTS, OPTIONS> for Mfi {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Mfi {
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::mfi(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Mfi {
-    const KIND: &'static str = "mfi";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        // The two sums are `Node::RollSum` → `RollSumRing`, not `Sma` (the
-        // `RollAge` head is the signed-volume age roll, unchanged). Those two
-        // sums ARE this state's accumulators (`pos_sum`, `neg_sum`), so they are
-        // carried rather than re-summed.
-        let [crate::cse::ChainState::RollAge { .. }, crate::cse::ChainState::RollSumRing {
-            sum: pos_sum,
-            period,
-            ..
-        }, crate::cse::ChainState::RollSumRing { sum: neg_sum, .. }] = v.as_slice()
-        else {
-            return None;
-        };
-        if windows.len() < 4 {
-            return None;
-        }
-
-        let period = *period as usize;
-        // `init_state` is the WRONG tool here, and the reason is arithmetic, not
-        // style: it runs exactly `period` steps starting at slice index 0, so the
-        // pairs it writes land on bars `seam-period .. seam-1` — one bar short of
-        // the seam — and its very first step compares a typ price against itself,
-        // forcing a zero flow the real history never had. Slicing to `period + 1`
-        // fixed the seam (300/300 wrong → 192/300 wrong from row 5) but could not
-        // fix either of those, because they are the loop's shape.
-        //
-        // So the buffer is BUILT, not re-seeded: the last `period` money-flow
-        // pairs, each from `tp[i]` versus `tp[i-1]` over the last `period + 2`
-        // bars. That is exact because `(tp[i] - tp[i-1])` and `tp[i] * volume[i]`
-        // are pointwise in the raw columns — the same values the hand pushed, in
-        // the order it pushed them. The two accumulators and the seam typ price
-        // then come from the chains and the last bar, never from a re-sum.
-        let need = period + 2;
-        if period == 0
-            || windows[0].len() < need
-            || windows[1].len() < need
-            || windows[2].len() < need
-            || windows[3].len() < need
-        {
-            return None;
-        }
-        let high = &windows[0][windows[0].len() - need..];
-        let low = &windows[1][windows[1].len() - need..];
-        let close = &windows[2][windows[2].len() - need..];
-        let volume = &windows[3][windows[3].len() - need..];
-
-        // `MultiBuffer`'s first parameter is the LANE COUNT (a const), so it is
-        // written `::<2, f64, Cold>` — the state's buffer is exactly the two
-        // money-flow lanes `[pos_flow, neg_flow]`.
-        let mut buffer = Buffer::<2, f64, Cold>::new(period);
-        for i in 1..need {
-            let prev_typprice = calc_typprice(high[i - 1], low[i - 1], close[i - 1]);
-            let typprice = calc_typprice(high[i], low[i], close[i]);
-            let flow = typprice * volume[i];
-            let change = typprice - prev_typprice;
-            let pair = if change > 0.0 {
-                [flow, 0.0]
-            } else if change < 0.0 {
-                [0.0, flow]
-            } else {
-                [0.0, 0.0]
-            };
-            buffer.push(pair);
-        }
-        let typprice = calc_typprice(high[need - 1], low[need - 1], close[need - 1]);
-
-        Some(State {
-            buffer: buffer.into_full(),
-            typprice,
-            pos_sum: *pos_sum,
-            neg_sum: *neg_sum,
-        })
     }
 }
 

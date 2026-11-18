@@ -1,5 +1,4 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -250,40 +249,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Trix {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Trix {
-    /// The graph is leaf data — `crate::cse::recipes::trix`: the tema
-    /// three-chain plus `100.0 * (ema3 - Lag(ema3, 1)) / ema3`, evaluated
-    /// in the hand's exact left-to-right order.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::trix(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Trix {
-    const KIND: &'static str = "trix";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Ema {
-            value: ema1,
-            period,
-        }, crate::cse::ChainState::Ema { value: ema2, .. }, crate::cse::ChainState::Ema { value: ema3, .. }] =
-            v.as_slice()
-        else {
-            return None;
-        };
-
-        Some(State(TemaState {
-            dema_state: crate::indicators::dema::State {
-                ema_state: crate::indicators::ema::State::new(*ema1, *period as usize).into_warm(),
-                ema2: *ema2,
-            },
-            ema3: *ema3,
-        }))
     }
 }

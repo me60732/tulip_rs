@@ -1,5 +1,4 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{ChainStateEma, Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -79,30 +78,6 @@ impl State<Cold> {
     }
 }
 pub struct Ema;
-
-impl Planable for Ema {
-    /// The graph is leaf data — `crate::cse::recipes::ema` (one chain node
-    /// mirroring its line; publish lead `period`, see the leaf doc). In a
-    /// merged query the CSE key `Ema{src: close, period: p}` dedups into
-    /// the chains apo/ppo/macd already advance.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::ema(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Ema {
-    const KIND: &'static str = "ema";
-
-    /// Rebuild the hand `ema::State` from its single chain slot (`get_states`).
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [chain] = v.as_slice() else { return None };
-        Some(chain.as_ema())
-    }
-}
-
 impl Indicator<INPUTS, OPTIONS> for Ema {
     const INFO: Info = Info {
         name: "ema",
@@ -184,8 +159,8 @@ pub fn calc(value: f64, prev_ema: f64, multiplier: f64, inv_multiplier: f64) -> 
     prev_ema.mul_add(inv_multiplier, value * multiplier)
 }
 
-/// `(2/(p+1), 1 − 2/(p+1))` — the EMA step pair, in the leaf vocabulary
-/// (`tulip_rs_shared::cse::multipliers`) so runtime and build-time planner
-/// share one formula; re-exported here so every hand/SIMD consumer keeps
-/// its `ema::multiplier` path.
-pub use tulip_rs_shared::cse::multipliers::ema_multiplier as multiplier;
+#[inline(always)]
+pub fn multiplier(period: usize) -> (f64, f64) {
+    let per = 2.0 / (period as f64 + 1.0);
+    (per, 1.0 - per)
+}

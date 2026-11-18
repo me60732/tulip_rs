@@ -1,5 +1,4 @@
 use crate::common::validate_inputs;
-use crate::cse::{ChainStateEma, Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -95,6 +94,7 @@ impl TState for State<Warm> {
         short_ema - long_ema
     }
 }
+
 pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= options[0] {
         return Err(IndicatorError::InvalidOptions);
@@ -162,40 +162,7 @@ pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64,
     (ema_multiplier(short_period), ema_multiplier(long_period))
 }
 
-/// APO's math reference is [`State::calc`] (`short_ema - long_ema`, verbatim
-/// in `cycle_apo`); the JIT emits that subtraction as an interned `Sub` op
-/// shared with macd_line and the ppo numerator.
 pub struct Apo;
-
-impl Planable for Apo {
-    /// The graph is leaf data — `crate::cse::recipes::apo`: two `Ema`s over
-    /// close plus the line `Sub`, which is the §4 identity node — MACD's
-    /// line and PPO's numerator declare the same key and `merge` interns ONE
-    /// arena node for all three. SSA order matches `TState::calc` (short
-    /// advanced before long); leads per `output_length`/`min_data` (see the
-    /// leaf doc).
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::apo(options)
-    }
-}
-
-/// Rebuild `apo::State` from the arena chains, `TState` field order.
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Apo {
-    const KIND: &'static str = "apo";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [short, long] = v.as_slice() else {
-            return None;
-        };
-        Some(State {
-            short_ema: short.as_ema(),
-            long_ema: long.as_ema(),
-        })
-    }
-}
 
 impl Indicator<INPUTS, OPTIONS> for Apo {
     type IndicatorState = IndicatorState;

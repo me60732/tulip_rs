@@ -1,5 +1,4 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -215,67 +214,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for ChaikinMf {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for ChaikinMf {
-    /// The graph is leaf data — `crate::cse::recipes::chaikinmf`: CLV =
-    /// `((close - low) - (high - close)) / Max{high - low, EPSILON}`, times volume,
-    /// then two `RollSum`s divided. The range `Sub` and the `EPSILON` `Const`
-    /// intern onto `Ad`'s (`ad_chaikinmf_shared`); the two NUMERATORS stay separate
-    /// on purpose — `Ad` associates its numerator differently, and merging them
-    /// would be a fabrication.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::chaikinmf(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for ChaikinMf {
-    const KIND: &'static str = "chaikinmf";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        // The two tails are `Node::RollSum` nodes → `RollSumRing`, not `Sma`.
-        // The two `sum`s are not incidental: they ARE this state's two lanes
-        // (`sums = [Σmfv, Σvolume]`), so they are CARRIED rather than re-summed.
-        let [crate::cse::ChainState::RollSumRing {
-            sum: mfv_sum,
-            period,
-            ..
-        }, crate::cse::ChainState::RollSumRing { sum: vol_sum, .. }] = v.as_slice()
-        else {
-            return None;
-        };
-        if windows.len() < 4 {
-            return None;
-        }
-
-        let period = *period as usize;
-        if period == 0
-            || windows[0].len() < period
-            || windows[1].len() < period
-            || windows[2].len() < period
-            || windows[3].len() < period
-        {
-            return None;
-        }
-        // `init_state` fills its buffer from index 0 forward, so it must receive
-        // exactly the last `period` bars (the window-tail law, as `ao`/`vhf`/
-        // `vortex`/`trima`). What it re-derives is the buffer only — `mfv` and
-        // `volume` are pointwise in `(high, low, close, volume)`, so the rebuilt
-        // ring IS the carried one. The accumulators are then overwritten from the
-        // engine's sums: re-summing `Σ` is a different float than the hand's
-        // incremental `sums += values`, which is what the last-bit divergence
-        // measured (300/300 rows off by ~2e-16).
-        let high = &windows[0][windows[0].len() - period..];
-        let low = &windows[1][windows[1].len() - period..];
-        let close = &windows[2][windows[2].len() - period..];
-        let volume = &windows[3][windows[3].len() - period..];
-
-        let mut state = State::init_state((high, low, close, volume), period);
-        state.sums = Simd::from_array([*mfv_sum, *vol_sum]);
-        Some(state)
     }
 }

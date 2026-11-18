@@ -5,7 +5,6 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
-use crate::cse::{Planable, Recipe};
 use crate::indicators::mom::calc as calc_mom;
 use crate::indicators::rocr::calc as calc_rocr;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
@@ -166,31 +165,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Roc {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Roc {
-    /// The graph is leaf data — `crate::cse::recipes::roc`: `mom = close -
-    /// Lag(close, p)`, `roc = mom / Max(Lag(close, p), EPSILON)`.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::roc(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Roc {
-    const KIND: &'static str = "roc";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        if !v.is_empty() || windows.is_empty() {
-            return None;
-        }
-        let period = windows[0].len();
-        if period == 0 {
-            return None;
-        }
-        Some(IndicatorState::new(windows[0], period))
     }
 }

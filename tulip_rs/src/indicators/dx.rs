@@ -244,33 +244,3 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dx {
         )
     }
 }
-
-// ── planner recipe (cse) ─────────────────────────────────────────────
-
-impl crate::cse::Planable for Dx {
-    /// The engine's recipe wiring for this indicator — the graph lives in
-    /// `cse::recipes::dx`, so the module keeps its math and the engine keeps
-    /// its blindness to indicator identity. Pure function of `dm`'s two
-    /// COMPOSITE accumulators, so the whole `+DM`/`−DM` → `dx` subgraph dedups
-    /// with `Dm`/`Di`/`Adx`.
-    fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        crate::cse::recipes::dx(options)
-    }
-}
-
-/// `dx::State` is `#[repr(transparent)] State(DiState<S>)` — the FULL
-/// `di::State`, so this delegates straight to `Di`'s own restorer (same 6
-/// chains, same order: `recipes::dx`'s `tail_inputs` is built identically to
-/// `recipes::di`'s) and wraps the result.
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Dx {
-    const KIND: &'static str = "dx";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let di_state =
-            <crate::indicators::di::Di as crate::cse::Restorable<3, 1>>::restore_state(v, windows)?;
-        Some(State(di_state))
-    }
-}

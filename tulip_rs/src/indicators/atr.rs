@@ -222,37 +222,3 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Atr {
         )
     }
 }
-
-// ── planner recipe (cse) ─────────────────────────────────────────────
-
-impl crate::cse::Planable for Atr {
-    /// The graph is leaf data — `crate::cse::recipes::atr`: the tr subgraph
-    /// over streams (high, low, close) plus the one mean-`Wilders` chain
-    /// node, shared with natr/supertrend/adx by CSE key.
-    fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        crate::cse::recipes::atr(options)
-    }
-}
-
-/// Rebuild `atr::State<Warm>`: the mean `Wilders(tr)` chain plus the
-/// recipe's `Mirror{src: close}` for `tr_state`'s `prev_close`.
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Atr {
-    const KIND: &'static str = "atr";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        use crate::cse::ChainState::{Mirror, Wilders};
-        let (atr, period, prev_close) = match v.as_slice() {
-            [Wilders { value, period }, Mirror { value: prev_close }] => {
-                (*value, *period, *prev_close)
-            }
-            _ => return None,
-        };
-        Some(State {
-            wilders_state: WildersState::new(atr, period as usize).into_warm(),
-            tr_state: TrState::new(prev_close),
-        })
-    }
-}

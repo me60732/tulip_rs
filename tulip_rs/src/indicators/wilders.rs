@@ -74,33 +74,6 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
-// ── planner recipe (cse) ─────────────────────────────────────────────
-
-impl crate::cse::Planable for Wilders {
-    /// The graph is leaf data — `crate::cse::recipes::wilders` (one
-    /// mean-mode decayed-average node over `Input{0}`, publish lead
-    /// `period`).
-    fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        crate::cse::recipes::wilders(options)
-    }
-}
-
-/// Rebuild the hand `wilders::State<Warm>` from the carried decayed-average
-/// value (`get_states`).
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Wilders {
-    const KIND: &'static str = "wilders";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Wilders { value, period }] = v.as_slice() else {
-            return None;
-        };
-        Some(State::new(*value, *period as usize).into_warm())
-    }
-}
-
 impl TState for State<Warm> {
     type Inputs<'a> = f64;
     type Outputs = f64;
@@ -114,10 +87,11 @@ impl TState for State<Warm> {
     }
 }
 
-/// `((p−1)/p, 1/p)` — the Wilders step pair, in the leaf vocabulary
-/// (`tulip_rs_shared::cse::multipliers`); re-exported here to keep every
-/// consumer's `wilders::multiplier` path.
-pub use tulip_rs_shared::cse::multipliers::wilders_multiplier as multiplier;
+#[inline(always)]
+pub fn multiplier(period: usize) -> (f64, f64) {
+    let multiplier = ((period - 1) as f64) / period as f64;
+    (multiplier, 1.0 - multiplier)
+}
 
 pub struct Wilders;
 

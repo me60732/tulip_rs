@@ -1,5 +1,4 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -208,49 +207,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for QStick {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for QStick {
-    /// The graph is leaf data — `crate::cse::recipes::qstick`: a single
-    /// `RollSum{mean:true}` over `Sub{close, open}`, over the `oc()` columns
-    /// [Open, Close]. One node, one roll, publish lead `period`.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::qstick(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for QStick {
-    const KIND: &'static str = "qstick";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        // The tail node is a `Node::RollSum`, which decodes as `RollSumRing`
-        // (the shape a `Kind::RollSum` exports), NOT `ChainState::Sma` — matching
-        // `Sma` here declined the engine's own carries. Only `sum` and `period`
-        // are read; the ring belongs to the node's group, not to this state.
-        let [crate::cse::ChainState::RollSumRing {
-            sum,
-            period,
-            ring: _,
-            cursor: _,
-        }] = v.as_slice()
-        else {
-            return None;
-        };
-        if windows.len() < 2 {
-            return None;
-        }
-
-        let period = *period as usize;
-        let (open, close) = (windows[0], windows[1]);
-        if open.len() < period || close.len() < period {
-            return None;
-        }
-
-        let state = State(SmaState::new(*sum, period).into_warm());
-        Some(IndicatorState::new(open, close, state, period))
     }
 }

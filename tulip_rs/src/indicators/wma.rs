@@ -79,14 +79,6 @@ impl State<Cold> {
             period: n,
         }
     }
-    pub(crate) fn into_warm(self) -> State<Warm> {
-        State {
-            sma_state: self.sma_state.into_warm(),
-            weighted_sum: self.weighted_sum,
-            weights: self.weights,
-            period: self.period,
-        }
-    }
     pub fn init_state(prev_real: &[f64], period: usize) -> State<Warm> {
         let mut sum: f64 = 0.0;
         let mut weighted_sum: f64 = 0.0;
@@ -243,44 +235,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Wma {
             options,
             optional_outputs,
         )
-    }
-}
-// ── planner recipe (cse) ─────────────────────────────────────────────
-
-impl crate::cse::Planable for Wma {
-    /// The graph is leaf data — `crate::cse::recipes::wma` (the trick node
-    /// plus the shared `Sma` mirror, leads `period`).
-    fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        crate::cse::recipes::wma(options)
-    }
-}
-
-/// Rebuild the hand `wma::State<Warm>` from the group's raw `sum` (the
-/// trick's input, resolved through the leader) + this op's weighted-sum
-/// line (`get_states`).
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Wma {
-    const KIND: &'static str = "wma";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Wma {
-            sum,
-            weighted,
-            period,
-        }] = v.as_slice()
-        else {
-            return None;
-        };
-        let period = *period as usize;
-        if windows[0].len() < period {
-            return None;
-        }
-        Some(IndicatorState::new(
-            windows[0],
-            State::new(*sum, *weighted, period).into_warm(),
-            period,
-        ))
     }
 }

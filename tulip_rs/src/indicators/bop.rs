@@ -1,5 +1,4 @@
 use crate::common::validate_inputs;
-use crate::cse::{Planable, Recipe};
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState};
@@ -117,48 +116,5 @@ impl Indicator<INPUTS, OPTIONS> for Bop {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Bop {
-    /// The graph is leaf data — `crate::cse::recipes::bop`:
-    /// `Sub{close, open} / Max{Sub{high, low}, EPSILON}`, over the `ohlc()`
-    /// column set, stateless. The `Max` IS the hand's flat-bar guard — a
-    /// `Where*` select pins `0.0` where the hand prints `(close - open) /
-    /// f64::EPSILON`, so the floor must stay a `Max` (pinned by
-    /// `bop_lone_floor_bit_exact`'s flat-bar block).
-    fn recipe(_options: &[f64]) -> Recipe {
-        crate::cse::recipes::bop(_options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Bop {
-    const KIND: &'static str = "bop";
-
-    fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        Some(IndicatorState)
-    }
-}
-
-#[cfg(feature = "simd_options")]
-impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for Bop {
-    fn indicator_by_options<const N: usize>(
-        inputs: &[&[f64]; INPUTS],
-        options: &[&[f64; OPTIONS]; N],
-        optional_outputs: Option<&[bool]>,
-    ) -> crate::indicator_types::SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        let mut all_outputs = Vec::with_capacity(N);
-        let mut all_states = Vec::with_capacity(N);
-
-        for option in options.iter() {
-            let (outputs, state) = Self::indicator(inputs, option, optional_outputs)?;
-            all_outputs.push(outputs);
-            all_states.push(state);
-        }
-
-        Ok((all_outputs, all_states))
     }
 }

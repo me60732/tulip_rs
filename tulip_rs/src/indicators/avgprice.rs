@@ -1,5 +1,4 @@
 use crate::common::validate_inputs;
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -28,10 +27,14 @@ impl TIndicatorState<4> for IndicatorState {
 }
 
 #[inline(always)]
-fn process(inputs: &[&[f64]; INPUTS]) -> Result<Vec<Vec<f64>>, IndicatorError> {
+fn process(inputs: &[&[f64]]) -> Result<Vec<Vec<f64>>, IndicatorError> {
     validate_inputs(inputs, 1)?;
 
-    let [open, high, low, close] = *inputs;
+    let open = inputs[0];
+    let high = inputs[1];
+    let low = inputs[2];
+    let close = inputs[3];
+
     let mut avgprice_line = crate::uninit_vec!(f64, open.len());
 
     for (i, (((&o, &h), &l), &c)) in open
@@ -109,44 +112,5 @@ impl Indicator<INPUTS, OPTIONS> for AvgPrice {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for AvgPrice {
-    /// The graph is leaf data — `crate::cse::recipes::avgprice`:
-    /// `((open + high) + low) + close) * 0.25`.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::avgprice(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for AvgPrice {
-    const KIND: &'static str = "avgprice";
-
-    fn restore_state(
-        _v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        Some(IndicatorState)
-    }
-}
-
-#[cfg(feature = "simd_options")]
-impl crate::indicator_types::IndicatorByOptions<INPUTS, OPTIONS> for AvgPrice {
-    fn indicator_by_options<const N: usize>(
-        inputs: &[&[f64]; INPUTS],
-        options: &[&[f64; OPTIONS]; N],
-        optional_outputs: Option<&[bool]>,
-    ) -> crate::indicator_types::SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        let mut all_outputs = Vec::with_capacity(N);
-        let mut all_states = Vec::with_capacity(N);
-
-        for option in options.iter() {
-            let (outputs, state) = Self::indicator(inputs, option, optional_outputs)?;
-            all_outputs.push(outputs);
-            all_states.push(state);
-        }
-
-        Ok((all_outputs, all_states))
     }
 }

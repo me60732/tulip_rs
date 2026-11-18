@@ -1,5 +1,4 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -215,60 +214,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Vwma {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Vwma {
-    /// The graph is leaf data — `crate::cse::recipes::vwma`: `Mul{close, volume}`
-    /// and `volume` each through a `RollSum`, divided, then `WhereLe` on
-    /// `Abs{vol_sum}` pinned to `0.0` for the hand's zero-volume guard. The
-    /// NUMERATOR roll reads a derived source (`close*volume`), which `Node::Sma`'s
-    /// erase guard rejects (`signature.rs:553` requires a raw `Input`), so both
-    /// rolls are spelled `RollSum` — the ring-backed form that accepts derived
-    /// srcs (`signature.rs:681`), the same substitution `trima`'s outer mean needed.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::vwma(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Vwma {
-    const KIND: &'static str = "vwma";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        // Both tails are `Node::RollSum` nodes → `RollSumRing`, not `Sma` (see
-        // the `qstick` restorer for the same correction). `sum`/`vol_sum` are the
-        // two rolling numerators this state carries.
-        let [crate::cse::ChainState::RollSumRing {
-            sum,
-            period,
-            ring: _,
-            cursor: _,
-        }, crate::cse::ChainState::RollSumRing {
-            sum: vol_sum,
-            period: period2,
-            ring: _,
-            cursor: _,
-        }] = v.as_slice()
-        else {
-            return None;
-        };
-        if windows.len() < 2 {
-            return None;
-        }
-
-        let period = *period as usize;
-        if *period2 as usize != period || windows[0].len() < period || windows[1].len() < period {
-            return None;
-        }
-
-        let state = State::<Warm> {
-            sum: *sum,
-            vol_sum: *vol_sum,
-            state: std::marker::PhantomData,
-        };
-        Some(IndicatorState::new(windows[0], windows[1], state, period))
     }
 }

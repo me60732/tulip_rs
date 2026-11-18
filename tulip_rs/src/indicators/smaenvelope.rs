@@ -5,7 +5,6 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
-use crate::cse::{Planable, Recipe};
 use crate::indicators::sma::State as SmaState;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -222,60 +221,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for SmaEnvelope {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for SmaEnvelope {
-    /// The graph is leaf data — `crate::cse::recipes::smaenvelope`: the
-    /// `Sma(p)` middle band ± `middle * (percentage / 100.0)`, sharing the
-    /// same `Node::Sma` node a co-requested `Sma(p)` declares.
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::smaenvelope(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for SmaEnvelope {
-    const KIND: &'static str = "smaenvelope";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        Self::restore_state_with(v, windows, &[])
-    }
-
-    fn restore_state_with(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-        options: &[f64],
-    ) -> Option<Self::IndicatorState> {
-        // CARRIED sum, OPTIONS-stated percentage, and the window only for the
-        // `period` bars `IndicatorState::new` tail-slices.
-        //
-        // Both parameters used to be inferred from the data: the period fell back
-        // to `windows[0].len() - 1` whenever the chain carried no `Sma` (which is
-        // to say, whenever the request was honest about refusing), and `percentage`
-        // was hard-coded `1.0` behind a "fallback when recipe tail does not carry
-        // percentage yet" comment — so every non-default request was restored as a
-        // different-width envelope. `period` now comes from the chain (the engine
-        // states it independently of the column) and is cross-checked against the
-        // request's own option; `percentage` comes from `options[1]` and is divided
-        // by 100 exactly as `State::new` does.
-        let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
-            return None;
-        };
-        let [real] = windows else {
-            return None;
-        };
-        let period = *period as usize;
-        let percentage = *options.get(1)?;
-        if period == 0 || real.len() < period || period != options.first().copied()? as usize {
-            return None;
-        }
-        let state = State::<Warm> {
-            sma_state: SmaState::new(*sum, period).into_warm(),
-            percentage: percentage / 100.0,
-        };
-        Some(IndicatorState::new(real, state, period))
     }
 }

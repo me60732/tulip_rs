@@ -244,37 +244,3 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for AroonOsc {
         )
     }
 }
-
-// ── planner recipe (cse) ─────────────────────────────────────────────
-
-impl crate::cse::Planable for AroonOsc {
-    /// The graph is leaf data — `crate::cse::recipes::aroonosc` (the osc
-    /// `Sub` over the byte-identical interned aroon graph; one extra fsub +
-    /// store when co-requested with `Aroon` — the fusion showcase).
-    fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        crate::cse::recipes::aroonosc(options)
-    }
-}
-
-/// The osc's hand state is a `#[repr(transparent)]` wrapper over the aroon
-/// state, so it restores through the same two roll chains; `windows[0] =
-/// high`, `windows[1] = low`.
-impl crate::cse::Restorable<INPUTS, OPTIONS> for AroonOsc {
-    const KIND: &'static str = "aroonosc";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let (inner, period) = super::aroon::restore_lines(&v)?;
-        if windows[0].len() < period || windows[1].len() < period {
-            return None;
-        }
-        Some(IndicatorState::new(
-            windows[0],
-            windows[1],
-            State(inner),
-            period,
-        ))
-    }
-}

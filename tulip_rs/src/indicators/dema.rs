@@ -1,5 +1,4 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -213,35 +212,5 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dema {
             options,
             optional_outputs,
         )
-    }
-}
-
-impl Planable for Dema {
-    /// The graph is leaf data — `crate::cse::recipes::dema`: two chained
-    /// `Ema`s plus the `Fma` DEMA line (`2*ema1 - ema2` as one rounding).
-    fn recipe(options: &[f64]) -> Recipe {
-        crate::cse::recipes::dema(options)
-    }
-}
-
-impl crate::cse::Restorable<INPUTS, OPTIONS> for Dema {
-    const KIND: &'static str = "dema";
-
-    fn restore_state(
-        v: Vec<crate::cse::ChainState>,
-        _windows: &[&[f64]],
-    ) -> Option<Self::IndicatorState> {
-        let [crate::cse::ChainState::Ema {
-            value: ema1,
-            period,
-        }, crate::cse::ChainState::Ema { value: ema2, .. }] = v.as_slice()
-        else {
-            return None;
-        };
-
-        Some(State {
-            ema_state: EmaState::new(*ema1, *period as usize).into_warm(),
-            ema2: *ema2,
-        })
     }
 }
